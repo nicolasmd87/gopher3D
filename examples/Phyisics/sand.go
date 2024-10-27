@@ -75,7 +75,7 @@ func (ss *SandSimulation) Start() {
 	ss.engine.Light.Position = mgl.Vec3{0, 2000, -1200} // Move the light further away
 
 	// Load the sand particle model with instancing enabled
-	instances := 840000 // 20% more particles
+	instances := 500000 // 20% more particles
 	sandModel, err := loader.LoadObjectInstance("../resources/obj/Sphere_Low.obj", true, instances)
 	if err != nil {
 		panic(err)
