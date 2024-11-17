@@ -84,7 +84,7 @@ func (bhb *BlackHoleBehaviour) Start() {
 	bhb.blackHoles = append(bhb.blackHoles, blackHole)
 
 	// Num of instances for each color
-	instances := 200000
+	instances := 100000
 
 	// Load the red particle model with instancing enabled
 	redModel, err := loader.LoadObjectInstance("../resources/obj/Sphere_Low.obj", true, instances)
@@ -101,8 +101,8 @@ func (bhb *BlackHoleBehaviour) Start() {
 	if err != nil {
 		panic(err)
 	}
-	blueModel.Scale = mgl.Vec3{5, 5, 5}
-	blueModel.SetDiffuseColor(0.0, 0.0, 255.0) // Blue
+	blueModel.Scale = mgl.Vec3{1, 1, 1}
+	blueModel.SetDiffuseColor(0.0, 0.0, 230.0) // Blue
 	bhb.blueModel = blueModel
 	bhb.engine.AddModel(blueModel)
 
