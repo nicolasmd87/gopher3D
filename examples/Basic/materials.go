@@ -32,6 +32,10 @@ func (mb *GoCraftBehaviour) Start() {
 	mb.engine.Light = renderer.CreateLight()
 	// OpenGL and Vulkan use different coordinate systems
 	mb.engine.Camera.InvertMouse = false
+	mb.engine.Camera.Position = mgl.Vec3{500, 5000, 1000}
+	mb.engine.Camera.Speed = 1000
+	mb.engine.Light.Type = renderer.STATIC_LIGHT
+	mb.engine.Light.Position = mgl.Vec3{500, 5000, 1000}
 	mb.engine.SetDebugMode(true)
 	createWorld(mb)
 }
@@ -45,7 +49,7 @@ func (mb *GoCraftBehaviour) UpdateFixed() {
 }
 
 func createWorld(mb *GoCraftBehaviour) {
-	model, _ := loader.LoadObjectWithPath("../resources/obj/f104starfighter.obj", true)
+	model, _ := loader.LoadObjectWithPath("../resources/obj/IronMan.obj", true)
 	mb.SceneModel = model
 	spawnBlock(mb.engine, mb.SceneModel, 0, 0)
 }

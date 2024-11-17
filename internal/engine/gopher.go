@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"time"
 
+	mgl "github.com/go-gl/mathgl/mgl32"
+
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"go.uber.org/zap"
@@ -168,6 +170,15 @@ func (gopher *Gopher) AddModel(model *renderer.Model) {
 
 func (gopher *Gopher) RemoveModel(model *renderer.Model) {
 	gopher.rendererAPI.RemoveModel(model)
+}
+
+func (g *Gopher) GetMousePosition() mgl.Vec2 {
+	x, y := g.window.GetCursorPos()
+	return mgl.Vec2{float32(x), float32(y)}
+}
+
+func (g *Gopher) IsMouseButtonPressed(button glfw.MouseButton) bool {
+	return g.window.GetMouseButton(button) == glfw.Press
 }
 
 // TODO: Fix ?? Probably an issue with pointers

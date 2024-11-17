@@ -223,3 +223,25 @@ func (f *Frustum) IntersectsSphere(center mgl32.Vec3, radius float32) bool {
 	}
 	return true
 }
+
+func (c *Camera) ScreenToWorld(screenPos mgl32.Vec2, windowWidth, windowHeight int) mgl32.Vec3 {
+	// Step 1: Normalize screen position to NDC (-1 to 1 range)
+	ndcX := (2.0*screenPos.X()/float32(windowWidth) - 1.0) * c.AspectRatio
+	ndcY := 1.0 - 2.0*screenPos.Y()/float32(windowHeight)
+
+	// Step 2: Create a 4D point in clip space (NDC)
+	clipCoords := mgl32.Vec4{ndcX, ndcY, -1.0, 1.0}
+
+	// Step 3: Transform clip space to eye space by inverting the projection matrix
+	invProjection := c.Projection.Inv()
+	eyeCoords := invProjection.Mul4x1(clipCoords)
+	eyeCoords = mgl32.Vec4{eyeCoords.X(), eyeCoords.Y(), -1.0, 0.0}
+
+	// Step 4: Transform from eye space to world space using the view matrix
+	view := mgl32.LookAtV(c.Position, c.Position.Add(c.Front), c.Up)
+	invView := view.Inv()
+	worldCoords := invView.Mul4x1(eyeCoords).Vec3().Normalize()
+
+	// Step 5: Return the world position
+	return c.Position.Add(worldCoords.Mul(10.0)) // Adjust scaling if necessary
+}

@@ -5,18 +5,34 @@ import (
 	loader "Gopher3D/internal/Loader"
 	"Gopher3D/internal/engine"
 	"Gopher3D/internal/renderer"
+	"log"
 	"math"
 	"math/rand"
+	"os"
+	"runtime/pprof"
 	"time"
 
 	mgl "github.com/go-gl/mathgl/mgl32"
 )
 
+func startCPUProfile() {
+	f, err := os.Create("cpu.prof")
+	if err != nil {
+		log.Fatal("could not create CPU profile: ", err)
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		log.Fatal("could not start CPU profile: ", err)
+	}
+}
+
+func stopCPUProfile() {
+	pprof.StopCPUProfile()
+}
+
 type Particle struct {
 	position    mgl.Vec3
 	previousPos mgl.Vec3
 	color       string
-	model       *renderer.Model
 	active      bool // To check if the particle is still active
 }
 
@@ -27,9 +43,12 @@ type BlackHole struct {
 }
 
 type BlackHoleBehaviour struct {
-	blackHoles []*BlackHole
-	particles  []*Particle
-	engine     *engine.Gopher
+	blackHoles    []*BlackHole
+	redParticles  []*Particle
+	blueParticles []*Particle
+	redModel      *renderer.Model
+	blueModel     *renderer.Model
+	engine        *engine.Gopher
 }
 
 func NewBlackHoleBehaviour(engine *engine.Gopher) {
@@ -38,47 +57,98 @@ func NewBlackHoleBehaviour(engine *engine.Gopher) {
 }
 
 func main() {
-	engine := engine.NewGopher(engine.OPENGL) // or engine.VULKAN
+	engine := engine.NewGopher(engine.OPENGL)
 	NewBlackHoleBehaviour(engine)
 
-	engine.Width = 1204
-	engine.Height = 768
+	engine.Width = 1980
+	engine.Height = 1080
 
-	engine.Render(200, 100)
+	engine.Render(0, 0)
 }
 
 func (bhb *BlackHoleBehaviour) Start() {
+	//startCPUProfile()
+	//defer stopCPUProfile()
+
 	bhb.engine.Camera.InvertMouse = false
-	bhb.engine.Camera.Position = mgl.Vec3{0, 50, 1000}
+	bhb.engine.Camera.Position = mgl.Vec3{200, 150, 1000}
 	bhb.engine.Camera.Speed = 900
 	bhb.engine.Light = renderer.CreateLight()
 	bhb.engine.Light.Type = renderer.STATIC_LIGHT
 
 	// Create and add a black hole to the scene
-	bhPosition := mgl.Vec3{0, 0, 0} // Position of the black hole at the origin
-	bhMass := float32(10000)        // Mass of the black hole
-	bhRadius := float32(50)         // Radius of the black hole's event horizon
+	bhPosition := mgl.Vec3{0, 0, 0}
+	bhMass := float32(10000)
+	bhRadius := float32(50)
 	blackHole := &BlackHole{position: bhPosition, mass: bhMass, radius: bhRadius}
 	bhb.blackHoles = append(bhb.blackHoles, blackHole)
+
+	// Num of instances for each color
+	instances := 100000
+
+	// Load the red particle model with instancing enabled
+	redModel, err := loader.LoadObjectInstance("../resources/obj/Sphere_Low.obj", true, instances)
+	if err != nil {
+		panic(err)
+	}
+	redModel.Scale = mgl.Vec3{1, 1, 1}
+	redModel.SetDiffuseColor(255.0, 0.0, 0.0) // Red
+	bhb.redModel = redModel
+	bhb.engine.AddModel(redModel)
+
+	// Load the blue particle model with instancing enabled
+	blueModel, err := loader.LoadObjectInstance("../resources/obj/Sphere_Low.obj", true, instances)
+	if err != nil {
+		panic(err)
+	}
+	blueModel.Scale = mgl.Vec3{1, 1, 1}
+	blueModel.SetDiffuseColor(0.0, 0.0, 230.0) // Blue
+	bhb.blueModel = blueModel
+	bhb.engine.AddModel(blueModel)
 
 	// Seed the random number generator
 	rand.Seed(time.Now().UnixNano())
 
-	// Create a large number of particles with reduced initial velocities
-	numParticles := 20000
-	for i := 0; i < numParticles; i++ {
+	// Initialize red particles
+	for i := 0; i < instances; i++ {
 		position := mgl.Vec3{
-			rand.Float32()*200 - 100, // X: random between -100 and 100
-			rand.Float32()*200 - 100, // Y: random between -100 and 100
-			rand.Float32()*200 - 100, // Z: random between -100 and 100
+			rand.Float32()*500 - 100,
+			rand.Float32()*500 - 100,
+			rand.Float32()*500 - 100,
 		}
 
-		// Calculate a tangential velocity based on the position to induce orbital motion
 		velocity := bhb.calculateTangentialVelocity(position, blackHole)
 
-		color := randomColor()
-		particle := bhb.createParticle(position, velocity, color)
-		bhb.particles = append(bhb.particles, particle)
+		particle := &Particle{
+			position:    position,
+			previousPos: position.Sub(velocity), // Initialize previous position for Verlet integration
+			color:       "red",
+			active:      true,
+		}
+
+		bhb.redParticles = append(bhb.redParticles, particle)
+		bhb.redModel.SetInstancePosition(i, position)
+	}
+
+	// Initialize blue particles
+	for i := 0; i < instances; i++ {
+		position := mgl.Vec3{
+			rand.Float32()*500 - 100,
+			rand.Float32()*500 - 100,
+			rand.Float32()*500 - 100,
+		}
+
+		velocity := bhb.calculateTangentialVelocity(position, blackHole)
+
+		particle := &Particle{
+			position:    position,
+			previousPos: position.Sub(velocity), // Initialize previous position for Verlet integration
+			color:       "blue",
+			active:      true,
+		}
+
+		bhb.blueParticles = append(bhb.blueParticles, particle)
+		bhb.blueModel.SetInstancePosition(i, position)
 	}
 }
 
@@ -86,83 +156,70 @@ func (bhb *BlackHoleBehaviour) calculateTangentialVelocity(position mgl.Vec3, bl
 	// Calculate the direction vector from the black hole to the particle
 	direction := position.Sub(blackHole.position).Normalize()
 
-	// Calculate a perpendicular vector to the direction vector for tangential velocity
+	// Calculate a perpendicular vector for tangential velocity
 	tangential := mgl.Vec3{-direction.Y(), direction.X(), 0}.Normalize()
 
-	// Set the magnitude of the tangential velocity based on the distance to the black hole
+	// Set the magnitude of the tangential velocity based on the distance
 	distance := position.Sub(blackHole.position).Len()
 	speed := float32(math.Sqrt(float64(blackHole.mass) / float64(distance)))
 
-	// Significantly reduce the speed to prevent particles from escaping
+	// Reduce the speed to prevent particles from escaping
 	return tangential.Mul(speed * 0.01)
 }
 
-func (bhb *BlackHoleBehaviour) createParticle(position, velocity mgl.Vec3, color string) *Particle {
-	// Load the model for the particle
-	m, err := loader.LoadObjectWithPath("../resources/obj/Sphere_Low.obj", true)
-	if err != nil {
-		panic(err)
-	}
-
-	m.Id = rand.Int()
-	m.Scale = mgl.Vec3{5, 5, 5}
-
-	switch color {
-	case "red":
-		m.SetDiffuseColor(255.0, 0.0, 0.0)
-	case "blue":
-		m.SetDiffuseColor(0.0, 0.0, 255.0)
-	}
-
-	m.Material.Name = "Particle_" + color
-
-	bhb.engine.AddModel(m)
-
-	return &Particle{
-		position:    position,
-		previousPos: position.Sub(velocity), // Initialize previous position for Verlet integration
-		color:       color,
-		model:       m,
-		active:      true, // Mark particle as active
-	}
-}
-
-func randomColor() string {
-	colors := []string{"red", "blue"}
-	return colors[rand.Intn(len(colors))]
-}
-
 func (bhb *BlackHoleBehaviour) Update() {
-	for _, p := range bhb.particles {
+	for i := len(bhb.redParticles) - 1; i >= 0; i-- {
+		p := bhb.redParticles[i]
 		if !p.active {
-			continue // Skip inactive particles
+			continue
 		}
+
 		for _, bh := range bhb.blackHoles {
 			if bh.isWithinEventHorizon(p) {
-				// Remove the particle model from the engine to simulate disappearance
-				bhb.engine.RemoveModel(p.model)
-				p.active = false // Deactivate the particle
+				p.active = false
+				bhb.redModel.RemoveModelInstance(i)
+				bhb.redParticles = append(bhb.redParticles[:i], bhb.redParticles[i+1:]...)
 				continue
 			}
 			bh.ApplyGravity(p)
 		}
-		// Update the particle's position using Verlet integration
+
 		newPosition := p.position.Mul(2).Sub(p.previousPos)
 		p.previousPos = p.position
 		p.position = newPosition
+		bhb.redModel.SetInstancePosition(i, p.position)
+	}
 
-		p.model.SetPosition(p.position.X(), p.position.Y(), p.position.Z())
+	for i := len(bhb.blueParticles) - 1; i >= 0; i-- {
+		p := bhb.blueParticles[i]
+		if !p.active {
+			continue
+		}
+
+		for _, bh := range bhb.blackHoles {
+			if bh.isWithinEventHorizon(p) {
+				p.active = false
+				bhb.blueModel.RemoveModelInstance(i)
+				bhb.blueParticles = append(bhb.blueParticles[:i], bhb.blueParticles[i+1:]...)
+				continue
+			}
+			bh.ApplyGravity(p)
+		}
+
+		newPosition := p.position.Mul(2).Sub(p.previousPos)
+		p.previousPos = p.position
+		p.position = newPosition
+		bhb.blueModel.SetInstancePosition(i, p.position)
 	}
 }
 
-func (bh *BlackHole) isWithinEventHorizon(p *Particle) bool {
-	// Check if the particle is within the black hole's event horizon
-	distance := p.position.Sub(bh.position).Len()
-	return distance < bh.radius
+func (bhb *BlackHoleBehaviour) UpdateFixed() {
+
 }
 
-func (bhb *BlackHoleBehaviour) UpdateFixed() {
-	// Not used in this example
+func (bh *BlackHole) isWithinEventHorizon(p *Particle) bool {
+	distance := p.position.Sub(bh.position).Len()
+	return distance < bh.radius
 }
 
 func (bh *BlackHole) ApplyGravity(p *Particle) {
@@ -175,17 +232,13 @@ func (bh *BlackHole) ApplyGravity(p *Particle) {
 
 	direction = direction.Normalize()
 
-	// Calculate the gravitational force based on the black hole's mass
-	gravity := (bh.mass * 0.0005) / (distance * distance) // Reduce the gravity to prevent excessive forces
-
+	gravity := (bh.mass * 0.0005) / (distance * distance)
 	force := direction.Mul(gravity)
 
-	// Further reduce the force to prevent particles from spiraling outwards too quickly
 	maxForce := float32(2.0)
 	if force.Len() > maxForce {
 		force = force.Normalize().Mul(maxForce)
 	}
 
-	// Update the particle's position using Verlet integration
 	p.position = p.position.Add(force)
 }

@@ -62,8 +62,20 @@ go run ./examples/black_hole_instanced.go
 
 This example demonstrates a particle simulation where particles orbit around a black hole. Instanced rendering is used for performance, and particles that enter the event horizon are removed from the scene.
 
-- **File**: `black_hole_instanced.go`
+- **File**: `black_hole.go`
 - **Description**: Demonstrates particle simulation using instanced rendering and Verlet integration for particle movement.
+
+### Sand Simulation
+This example demonstrates a sand particle simulation where you can interact with the sand using your mouse.
+
+- **File**: `black_hole.go`
+- **Description**: Simulates sand particles that can be gathered and released using the mouse, showcasing interactive particle dynamics and instanced rendering.
+
+Mouse Interaction in the Sand Example
+Gathering Sand: Click and hold the left mouse button to attract nearby sand particles toward the mouse cursor. Particles within a certain radius will move towards the cursor, simulating the gathering of sand.
+Releasing Sand: When you release the mouse button, the gathered sand particles will gently explode outward from the release point, spreading out across the scene.
+Adjusting Explosion Strength: The explosion force is gentle to mimic a natural dispersal of sand, ensuring the particles spread out smoothly rather than violently.
+This interactive example demonstrates how you can manipulate particles in real-time, providing a foundation for more complex simulations and user interactions.
 
 ### Basic Example
 

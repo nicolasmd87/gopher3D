@@ -236,6 +236,12 @@ func (m *Model) SetInstanceCount(count int) {
 
 func (m *Model) SetInstancePosition(index int, position mgl32.Vec3) {
 	if index >= 0 && index < len(m.InstanceModelMatrices) {
-		m.InstanceModelMatrices[index] = mgl32.Translate3D(position.X(), position.Y(), position.Z())
+		// Combine translation, rotation (if needed), and scaling for each instance
+		scaleMatrix := mgl32.Scale3D(m.Scale[0], m.Scale[1], m.Scale[2])
+		rotationMatrix := m.Rotation.Mat4()
+		translationMatrix := mgl32.Translate3D(position.X(), position.Y(), position.Z())
+
+		// Apply scale -> rotate -> translate transformations
+		m.InstanceModelMatrices[index] = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
 	}
 }

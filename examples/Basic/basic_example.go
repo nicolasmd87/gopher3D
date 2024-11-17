@@ -33,6 +33,7 @@ func (mb *TestBehaviour) Start() {
 	mb.engine.Light = renderer.CreateLight()
 	//Static light for some extra FPS
 	mb.engine.Light.Type = renderer.STATIC_LIGHT
+	mb.engine.Light.Position = mgl.Vec3{0, 1000, 0}
 	mb.engine.SetFrustumCulling(false)
 	mb.engine.SetFaceCulling(false)
 	// Invert mouse for OpenGL

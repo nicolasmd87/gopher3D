@@ -43,6 +43,7 @@ func main() {
 func (mb *GoCraftBehaviour) Start() {
 	mb.engine.Light = renderer.CreateLight()
 	mb.engine.Light.Type = renderer.STATIC_LIGHT
+	mb.engine.Light.Position = mgl32.Vec3{1000, 1000, 0}
 	mb.engine.Camera.InvertMouse = false
 	mb.engine.Camera.Position = mgl32.Vec3{500, 50, 500}
 	mb.engine.Camera.Speed = 200
@@ -56,7 +57,7 @@ func (mb *GoCraftBehaviour) Start() {
 	mb.engine.SetFaceCulling(true)
 
 	// Load the cube model with instancing enabled
-	model, err := loader.LoadObjectInstance("../resources/obj/Cube.obj", true, mb.worldHeight*mb.worldWidth)
+	model, err := loader.LoadObjectInstance("../resources/obj/Cube.obj", false, mb.worldHeight*mb.worldWidth)
 	if err != nil {
 		panic(err)
 	}
