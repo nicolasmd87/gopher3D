@@ -168,8 +168,7 @@ func (bhb *BlackHoleBehaviour) calculateTangentialVelocity(position mgl.Vec3, bl
 }
 
 func (bhb *BlackHoleBehaviour) Update() {
-	// Update red particles
-	for i := len(bhb.redParticles) - 1; i >= 0; i-- { // Iterate backwards for safe removal
+	for i := len(bhb.redParticles) - 1; i >= 0; i-- {
 		p := bhb.redParticles[i]
 		if !p.active {
 			continue
@@ -177,43 +176,45 @@ func (bhb *BlackHoleBehaviour) Update() {
 
 		for _, bh := range bhb.blackHoles {
 			if bh.isWithinEventHorizon(p) {
-				// Deactivate the particle and remove its instance
 				p.active = false
-				bhb.redModel.RemoveModelInstance(i) // Remove instance from the instanced model
-
-				// Remove particle from the list
+				bhb.redModel.RemoveModelInstance(i)
 				bhb.redParticles = append(bhb.redParticles[:i], bhb.redParticles[i+1:]...)
 				continue
 			}
-
 			bh.ApplyGravity(p)
 		}
 
-		// Update particle position using Verlet integration
 		newPosition := p.position.Mul(2).Sub(p.previousPos)
 		p.previousPos = p.position
 		p.position = newPosition
-
-		// Update the instance position in the renderer
 		bhb.redModel.SetInstancePosition(i, p.position)
-		p = bhb.blueParticles[i]
+	}
+
+	for i := len(bhb.blueParticles) - 1; i >= 0; i-- {
+		p := bhb.blueParticles[i]
 		if !p.active {
 			continue
 		}
 
-		// Update particle position using Verlet integration
-		newPosition = p.position.Mul(2).Sub(p.previousPos)
+		for _, bh := range bhb.blackHoles {
+			if bh.isWithinEventHorizon(p) {
+				p.active = false
+				bhb.blueModel.RemoveModelInstance(i)
+				bhb.blueParticles = append(bhb.blueParticles[:i], bhb.blueParticles[i+1:]...)
+				continue
+			}
+			bh.ApplyGravity(p)
+		}
+
+		newPosition := p.position.Mul(2).Sub(p.previousPos)
 		p.previousPos = p.position
 		p.position = newPosition
-
-		// Update the instance position in the renderer
 		bhb.blueModel.SetInstancePosition(i, p.position)
 	}
-
 }
 
 func (bhb *BlackHoleBehaviour) UpdateFixed() {
-	// No fixed update required for this example
+
 }
 
 func (bh *BlackHole) isWithinEventHorizon(p *Particle) bool {
@@ -231,16 +232,13 @@ func (bh *BlackHole) ApplyGravity(p *Particle) {
 
 	direction = direction.Normalize()
 
-	// Calculate the gravitational force based on the black hole's mass
 	gravity := (bh.mass * 0.0005) / (distance * distance)
 	force := direction.Mul(gravity)
 
-	// Limit the maximum force to avoid excessive acceleration
 	maxForce := float32(2.0)
 	if force.Len() > maxForce {
 		force = force.Normalize().Mul(maxForce)
 	}
 
-	// Update the particle's position
 	p.position = p.position.Add(force)
 }
