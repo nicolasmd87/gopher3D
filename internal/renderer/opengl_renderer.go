@@ -176,6 +176,11 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	modLen := len(rend.Models)
 
 	for i := 0; i < modLen; i++ {
+		shader := rend.Models[i].Shader
+		if shader.program == 0 {
+			shader = rend.Shader // Fallback to default shader
+		}
+
 		// Skip rendering if the model is outside the frustum
 		if FrustumCullingEnabled && !frustum.IntersectsSphere(rend.Models[i].BoundingSphereCenter, rend.Models[i].BoundingSphereRadius) {
 			continue

@@ -4,6 +4,7 @@ import (
 	"Gopher3D/internal/logger"
 	"Gopher3D/internal/renderer"
 	"bufio"
+	"errors"
 	"fmt"
 	_ "image/jpeg"
 	_ "image/png"
@@ -37,6 +38,42 @@ func LoadObjectInstance(Path string, recalculateNormals bool, instanceCount int)
 		// Initialize with identity matrices, set positions later
 		model.InstanceModelMatrices[i] = mgl32.Ident4()
 	}
+	return model, nil
+}
+
+func LoadPlane(gridSize int, gridSpacing float32) (*renderer.Model, error) {
+	if gridSize < 2 {
+		return nil, errors.New("gridSize must be at least 2")
+	}
+
+	vertices := make([]mgl32.Vec3, 0, gridSize*gridSize)
+	indices := make([]int32, 0, (gridSize-1)*(gridSize-1)*6)
+
+	// Generate vertices
+	for x := 0; x < gridSize; x++ {
+		for z := 0; z < gridSize; z++ {
+			vertices = append(vertices, mgl32.Vec3{
+				float32(x) * gridSpacing,
+				0, // Initial height is 0
+				float32(z) * gridSpacing,
+			})
+		}
+	}
+
+	// Generate indices for triangles
+	for x := 0; x < gridSize-1; x++ {
+		for z := 0; z < gridSize-1; z++ {
+			topLeft := int32(x*gridSize + z)
+			topRight := topLeft + 1
+			bottomLeft := int32((x+1)*gridSize + z)
+			bottomRight := bottomLeft + 1
+
+			indices = append(indices, topLeft, bottomLeft, bottomRight, topLeft, bottomRight, topRight)
+		}
+	}
+
+	// Create a model from the vertices and indices
+	model := renderer.CreateModel(vertices, indices)
 	return model, nil
 }
 

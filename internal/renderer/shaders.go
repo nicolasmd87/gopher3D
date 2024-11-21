@@ -104,9 +104,98 @@ void main() {
 }
 ` + "\x00"
 
+var waterVertexShaderSource = `version 330 core
+
+layout(location = 0) in vec3 inPosition; // Vertex position
+layout(location = 1) in vec2 inTexCoord; // Texture Coordinate
+layout(location = 2) in vec3 inNormal;   // Normal vector
+
+uniform mat4 model;
+uniform mat4 viewProjection;
+uniform float time;
+
+// Gerstner Wave parameters
+uniform int waveCount;
+uniform vec3 waveDirections[5];
+uniform float waveAmplitudes[5];
+uniform float waveFrequencies[5];
+uniform float waveSpeeds[5];
+
+out vec2 fragTexCoord;
+out vec3 fragNormal;
+out vec3 fragPosition;
+
+void main() {
+    vec3 position = inPosition;
+    vec3 waveDisplacement = vec3(0.0);
+
+    for (int i = 0; i < waveCount; i++) {
+        float theta = dot(vec2(position.x, position.z), waveDirections[i].xz) * waveFrequencies[i] - waveSpeeds[i] * time;
+        waveDisplacement.x += waveDirections[i].x * waveAmplitudes[i] * cos(theta);
+        waveDisplacement.z += waveDirections[i].z * waveAmplitudes[i] * cos(theta);
+        waveDisplacement.y += waveAmplitudes[i] * sin(theta);
+    }
+
+    position += waveDisplacement;
+
+    fragPosition = vec3(model * vec4(position, 1.0));
+    fragNormal = normalize(mat3(model) * inNormal);
+    fragTexCoord = inTexCoord;
+
+    gl_Position = viewProjection * vec4(fragPosition, 1.0);
+}
+` + "\x00"
+
+var waterFragmentShaderSource = `#version 330 core
+
+in vec2 fragTexCoord;
+in vec3 fragNormal;
+in vec3 fragPosition;
+
+uniform sampler2D foamTexture;
+uniform vec3 lightPos;
+uniform vec3 lightColor;
+uniform float lightIntensity;
+uniform vec3 viewPos;
+
+// Foam parameters
+uniform float foamThreshold;
+
+out vec4 FragColor;
+
+void main() {
+    vec3 norm = normalize(fragNormal);
+    vec3 lightDir = normalize(lightPos - fragPosition);
+
+    // Lighting calculations
+    float diff = max(dot(norm, lightDir), 0.0);
+    vec3 diffuse = diff * lightColor * lightIntensity;
+
+    vec3 viewDir = normalize(viewPos - fragPosition);
+    vec3 reflectDir = reflect(-lightDir, norm);
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0); // Shininess
+    vec3 specular = spec * lightColor * lightIntensity;
+
+    // Foam effect based on height
+    float foam = clamp((fragPosition.y / foamThreshold), 0.0, 1.0);
+    vec3 foamColor = texture(foamTexture, fragTexCoord).rgb * foam;
+
+    vec3 waterColor = vec3(0.0, 0.3, 0.8);
+    vec3 finalColor = waterColor + diffuse + specular + foamColor;
+
+    FragColor = vec4(finalColor, 1.0);
+}` + "\x00"
+
 func InitShader() Shader {
 	return Shader{
 		vertexSource:   vertexShaderSource,
 		fragmentSource: fragmentShaderSource,
+	}
+}
+
+func InitWaterShader() Shader {
+	return Shader{
+		vertexSource:   waterVertexShaderSource,
+		fragmentSource: waterFragmentShaderSource,
 	}
 }
