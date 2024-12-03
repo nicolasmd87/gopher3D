@@ -29,9 +29,8 @@ The engine is still in very early stages
 
 To run the Gopher3D engine, ensure you have the following dependencies:
 
-- **Go**: The engine is written in Go, so Go must be installed on your machine.
-- **OpenGL**: The engine currently supports OpenGL for rendering.
-- **GLFW**: Required for managing windowing and input across different platforms.
+- **Go**
+- **GCC**
 
 Install the necessary Go modules with:
 ```bash
@@ -52,13 +51,13 @@ You can run examples to see how the engine works. Each example defines a particu
 
 To run an example:
 ```bash
-go run ./examples/black_hole_instanced.go
+go run ./examples/black_hole.go
 ```
 
 
 ## Examples
 
-### Black Hole Simulation (Instanced)
+### Black Hole Simulation
 
 This example demonstrates a particle simulation where particles orbit around a black hole. Instanced rendering is used for performance, and particles that enter the event horizon are removed from the scene.
 
