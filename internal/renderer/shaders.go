@@ -14,6 +14,7 @@ type Shader struct {
 	vertexSource   string
 	fragmentSource string
 	program        uint32
+	Name           string "default"
 }
 
 func (shader *Shader) Use() {
@@ -191,6 +192,7 @@ func InitShader() Shader {
 		vertexSource:   vertexShaderSource,
 		fragmentSource: fragmentShaderSource,
 	}
+
 }
 
 func InitWaterShader() Shader {

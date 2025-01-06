@@ -181,7 +181,6 @@ func (g *Gopher) IsMouseButtonPressed(button glfw.MouseButton) bool {
 	return g.window.GetMouseButton(button) == glfw.Press
 }
 
-// TODO: Fix ?? Probably an issue with pointers
 func (gopher *Gopher) AddModelBatch(models []*renderer.Model) {
 	for _, model := range models {
 		if model != nil {

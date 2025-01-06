@@ -13,13 +13,13 @@ import (
 )
 
 const (
-	GridSize      = 500   // Grid resolution
+	GridSize      = 100   // Grid resolution
 	GridSpacing   = 1.0   // Distance between vertices
-	WaveSpeed     = 2.0   // Speed of wave propagation
-	TimeStep      = 0.016 // Simulation timestep
+	WaveSpeed     = 1.0   // Speed of wave propagation
 	DampingFactor = 0.99  // Damping factor for wave energy
-	Amplitude     = 2.0   // Initial wave height
-	MaxWaves      = 5     // Maximum number of waves in the simulation
+	Amplitude     = 700.0 // Initial wave height
+	TimeStep      = 0.1   // Time step for wave simulation
+	MaxWaves      = 100   // Maximum number of waves in the simulation
 )
 
 type WaterSimulation struct {
@@ -60,8 +60,8 @@ func NewWaterSimulation(engine *engine.Gopher) {
 	// Initialize wave parameters
 	for i := 0; i < MaxWaves; i++ {
 		ws.waveDirections[i] = mgl32.Vec3{float32(i+1) * 0.3, 0.0, float32(i+1) * 0.3}.Normalize()
-		ws.waveAmplitudes[i] = 1.0 / float32(i+1)
-		ws.waveFrequencies[i] = 0.5 + 0.2*float32(i)
+		ws.waveAmplitudes[i] = 5.0 / float32(i+1)
+		ws.waveFrequencies[i] = 2.5 + 0.2*float32(i)
 		ws.waveSpeeds[i] = 0.8 + 0.1*float32(i)
 	}
 
@@ -70,6 +70,7 @@ func NewWaterSimulation(engine *engine.Gopher) {
 
 func main() {
 	engine := engine.NewGopher(engine.OPENGL)
+	engine.SetDebugMode(true)
 	NewWaterSimulation(engine)
 
 	engine.Width = 1980
@@ -80,6 +81,7 @@ func main() {
 
 func (ws *WaterSimulation) Start() {
 	ws.engine.Camera.InvertMouse = false
+	ws.engine.SetFrustumCulling(false)
 
 	// Initialize camera
 	ws.engine.Camera.Position = mgl32.Vec3{50, 50, 150}
@@ -107,9 +109,9 @@ func (ws *WaterSimulation) Start() {
 }
 
 func (ws *WaterSimulation) Update() {
+	ws.UpdateShaderUniforms()
 	ws.UpdateVertices()
 	ws.UpdateModel()
-	ws.UpdateShaderUniforms()
 }
 
 func (ws *WaterSimulation) UpdateFixed() {}
@@ -153,12 +155,9 @@ func (ws *WaterSimulation) UpdateModel() {
 
 // UpdateShaderUniforms passes dynamic data to the shader
 func (ws *WaterSimulation) UpdateShaderUniforms() {
-	ws.shader.Use()
 
-	// Pass dynamic time
 	elapsedTime := float32(time.Since(ws.startTime).Seconds())
 	ws.shader.SetFloat("time", elapsedTime)
-
 	// Pass wave parameters
 	ws.shader.SetInt("waveCount", int32(ws.waveCount))
 	for i := 0; i < ws.waveCount; i++ {
@@ -168,11 +167,4 @@ func (ws *WaterSimulation) UpdateShaderUniforms() {
 		ws.shader.SetFloat(fmt.Sprintf("waveSpeeds[%d]", i), ws.waveSpeeds[i])
 	}
 
-	// Pass camera position
-	ws.shader.SetVec3("viewPos", ws.engine.Camera.Position)
-
-	// Pass light properties
-	ws.shader.SetVec3("light.position", ws.engine.Light.Position)
-	ws.shader.SetVec3("light.color", mgl32.Vec3{1.0, 1.0, 1.0}) // White light
-	ws.shader.SetFloat("light.intensity", 1.0)
 }

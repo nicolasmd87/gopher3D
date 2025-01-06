@@ -45,35 +45,30 @@ func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
 	if Debug {
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 	}
-	// Generate buffer for instanced data (like model matrices)
 	gl.GenBuffers(1, &rend.instanceVBO)
-
 	FrustumCullingEnabled = false
 	FaceCullingEnabled = false
 	SetDefaultTexture(rend)
 	gl.Viewport(0, 0, width, height)
+	rend.InitShader()
+	logger.Log.Info("OpenGL render initialized")
+}
+
+func (rend *OpenGLRenderer) InitShader() {
 	rend.Shader = InitShader()
 	rend.vertexShader = genShader(rend.Shader.vertexSource, gl.VERTEX_SHADER)
 	rend.fragmentShader = genShader(rend.Shader.fragmentSource, gl.FRAGMENT_SHADER)
 	rend.Shader.program = genShaderProgram(rend.vertexShader, rend.fragmentShader)
-
 	gl.UseProgram(rend.Shader.program)
-
 	rend.modelLoc = gl.GetUniformLocation(rend.Shader.program, gl.Str("model\x00"))
 	rend.viewProjLoc = gl.GetUniformLocation(rend.Shader.program, gl.Str("viewProjection\x00"))
-
-	// Set light properties for each model
 	rend.lightPosLoc = gl.GetUniformLocation(rend.Shader.program, gl.Str("light.position\x00"))
 	rend.lightColorLoc = gl.GetUniformLocation(rend.Shader.program, gl.Str("light.color\x00"))
 	rend.lightIntensityLoc = gl.GetUniformLocation(rend.Shader.program, gl.Str("light.intensity\x00"))
-	// Set material properties for each model
 	rend.diffuseColorUniform = gl.GetUniformLocation(rend.Shader.program, gl.Str("diffuseColor\x00"))
 	rend.shininessUniform = gl.GetUniformLocation(rend.Shader.program, gl.Str("shininess\x00"))
 	rend.specularColorUniform = gl.GetUniformLocation(rend.Shader.program, gl.Str("specularColor\x00"))
-	// Set texture properties for each model
 	rend.textureUniform = gl.GetUniformLocation(rend.Shader.program, gl.Str("uTexture\x00"))
-
-	logger.Log.Info("OpenGL render initialized")
 }
 
 func (rend *OpenGLRenderer) AddModel(model *Model) {
@@ -102,15 +97,13 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 	gl.EnableVertexAttribArray(2)
 
 	if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
-		// Allocate VBO for instanced model matrices (use rend.instanceVBO instead of model.InstanceVBO)
 		gl.BindBuffer(gl.ARRAY_BUFFER, rend.instanceVBO)
 		gl.BufferData(gl.ARRAY_BUFFER, len(model.InstanceModelMatrices)*int(unsafe.Sizeof(mgl32.Mat4{})), gl.Ptr(model.InstanceModelMatrices), gl.DYNAMIC_DRAW)
 
-		// Set attribute pointers for the 4 columns of the model matrix (location 3, 4, 5, 6)
 		for i := 0; i < 4; i++ {
 			gl.EnableVertexAttribArray(3 + uint32(i))
 			gl.VertexAttribPointer(3+uint32(i), 4, gl.FLOAT, false, int32(unsafe.Sizeof(mgl32.Mat4{})), unsafe.Pointer(uintptr(i*16)))
-			gl.VertexAttribDivisor(3+uint32(i), 1) // One matrix per instance
+			gl.VertexAttribDivisor(3+uint32(i), 1)
 		}
 	}
 
@@ -123,7 +116,6 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 }
 
 func (rend *OpenGLRenderer) RemoveModel(model *Model) {
-	// remove model from the list of models
 	for i, m := range rend.Models {
 		if m == model {
 			rend.Models = append(rend.Models[:i], rend.Models[i+1:]...)
@@ -134,12 +126,10 @@ func (rend *OpenGLRenderer) RemoveModel(model *Model) {
 
 func (model *Model) RemoveModelInstance(index int) {
 	if index >= len(model.InstanceModelMatrices) {
-		return // Index out of range
+		return
 	}
-
-	// Mark instance as inactive by removing its matrix
 	model.InstanceModelMatrices = append(model.InstanceModelMatrices[:index], model.InstanceModelMatrices[index+1:]...)
-	model.InstanceCount-- // Reduce instance count
+	model.InstanceCount--
 }
 
 func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
@@ -148,7 +138,6 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	viewProjection := camera.GetViewProjection()
 	gl.UseProgram(rend.Shader.program)
 	gl.UniformMatrix4fv(rend.viewProjLoc, 1, false, &viewProjection[0])
-
 	if light != nil && !light.Calculated {
 		if light.Mode == "static" {
 			rend.calculateLights(light)
@@ -157,7 +146,6 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 			rend.calculateLights(light)
 		}
 	}
-
 	// Culling : https://learnopengl.com/Advanced-OpenGL/Face-culling
 	if FaceCullingEnabled {
 		gl.Enable(gl.CULL_FACE)
@@ -172,15 +160,8 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	if FrustumCullingEnabled {
 		frustum = camera.CalculateFrustum()
 	}
-
 	modLen := len(rend.Models)
-
 	for i := 0; i < modLen; i++ {
-		shader := rend.Models[i].Shader
-		if shader.program == 0 {
-			shader = rend.Shader // Fallback to default shader
-		}
-
 		// Skip rendering if the model is outside the frustum
 		if FrustumCullingEnabled && !frustum.IntersectsSphere(rend.Models[i].BoundingSphereCenter, rend.Models[i].BoundingSphereRadius) {
 			continue
@@ -191,10 +172,7 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 			rend.Models[i].calculateModelMatrix()
 			rend.Models[i].IsDirty = false
 		}
-		// Upload the model matrix to the GPU
 		gl.UniformMatrix4fv(rend.modelLoc, 1, false, &rend.Models[i].ModelMatrix[0])
-
-		// Bind material's texture if available
 		if rend.Models[i].Material != nil {
 			if rend.Models[i].Material.TextureID != currentTextureID {
 				gl.BindTexture(gl.TEXTURE_2D, rend.Models[i].Material.TextureID)
@@ -204,21 +182,17 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 			gl.Uniform3fv(rend.specularColorUniform, 1, &rend.Models[i].Material.SpecularColor[0])
 			gl.Uniform1f(rend.shininessUniform, rend.Models[i].Material.Shininess)
 		}
-
-		// Set the sampler to the first texture unit
 		gl.Uniform1i(rend.textureUniform, 0)
 		gl.BindVertexArray(rend.Models[i].VAO)
-
 		if rend.Models[i].IsInstanced && len(rend.Models[i].InstanceModelMatrices) > 0 {
-			rend.UpdateInstanceMatrices(rend.Models[i]) // Automatically update instance matrices for rendering(rend.instanceModelMatrices)
-			rend.Shader.SetInt("isInstanced", 1)        // Instanced rendering
+			rend.UpdateInstanceMatrices(rend.Models[i])
 			gl.DrawElementsInstanced(gl.TRIANGLES, int32(len(rend.Models[i].Faces)), gl.UNSIGNED_INT, nil, int32(rend.Models[i].InstanceCount))
+			rend.Shader.SetInt("isInstanced", 1)
 		} else {
 			// Regular draw
 			gl.DrawElements(gl.TRIANGLES, int32(len(rend.Models[i].Faces)), gl.UNSIGNED_INT, nil)
-			rend.Shader.SetInt("isInstanced", 0) // Regular rendering
+			rend.Shader.SetInt("isInstanced", 0)
 		}
-
 		gl.BindVertexArray(0)
 	}
 	gl.Disable(gl.DEPTH_TEST)
@@ -259,7 +233,6 @@ func (rend *OpenGLRenderer) LoadTexture(filePath string) (uint32, error) { // TO
 	draw.Draw(rgba, rgba.Bounds(), img, image.Point{0, 0}, draw.Src)
 
 	var textureID uint32
-	// Like any of the previous objects in OpenGL, textures are referenced with an ID; let's create one:
 	gl.GenTextures(1, &textureID)
 	gl.BindTexture(gl.TEXTURE_2D, textureID)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, int32(rgba.Rect.Size().X), int32(rgba.Rect.Size().Y), 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(rgba.Pix))
@@ -290,10 +263,7 @@ func (rend *OpenGLRenderer) CreateTextureFromImage(img image.Image) (uint32, err
 		rgba = image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
 		draw.Draw(rgba, rgba.Bounds(), img, b.Min, draw.Src)
 	}
-
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, int32(rgba.Rect.Size().X), int32(rgba.Rect.Size().Y), 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(rgba.Pix))
-
-	// Set texture parameters
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 
