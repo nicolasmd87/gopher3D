@@ -1,9 +1,9 @@
 package main
 
 import (
-	behaviour "Gopher3D/internal/Behaviour"
-	loader "Gopher3D/internal/Loader"
+	behaviour "Gopher3D/internal/behaviour"
 	"Gopher3D/internal/engine"
+	loader "Gopher3D/internal/loader"
 	"Gopher3D/internal/renderer"
 	"math/rand"
 	"sync"
@@ -64,7 +64,7 @@ func (ss *SandSimulation) Start() {
 	ss.engine.Light.Position = mgl.Vec3{0, 2000, -1200}
 
 	instances := 1200000
-	sandModel, err := loader.LoadObjectInstance("../resources/obj/Sphere_Low.obj", true, instances)
+	sandModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_Low.obj", true, instances)
 	if err != nil {
 		panic(err)
 	}

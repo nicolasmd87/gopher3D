@@ -1,9 +1,9 @@
 package main
 
 import (
-	behaviour "Gopher3D/internal/Behaviour"
-	loader "Gopher3D/internal/Loader"
+	behaviour "Gopher3D/internal/behaviour"
 	"Gopher3D/internal/engine"
+	loader "Gopher3D/internal/loader"
 	"Gopher3D/internal/renderer"
 	"log"
 	"math"
@@ -87,7 +87,7 @@ func (bhb *BlackHoleBehaviour) Start() {
 	instances := 100000
 
 	// Load the red particle model with instancing enabled
-	redModel, err := loader.LoadObjectInstance("../resources/obj/Sphere_Low.obj", true, instances)
+	redModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_Low.obj", true, instances)
 	if err != nil {
 		panic(err)
 	}

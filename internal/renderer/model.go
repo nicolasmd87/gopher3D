@@ -51,7 +51,9 @@ type Model struct {
 	IsBatched             bool
 	IsInstanced           bool
 	InstanceCount         int
-	InstanceModelMatrices []mgl32.Mat4 // Instance model matrices
+	InstanceModelMatrices []mgl32.Mat4           // Instance model matrices
+	Shader                Shader                 // Custom shader for this model
+	CustomUniforms        map[string]interface{} // Custom uniforms for this model
 }
 
 type Material struct {
@@ -244,4 +246,35 @@ func (m *Model) SetInstancePosition(index int, position mgl32.Vec3) {
 		// Apply scale -> rotate -> translate transformations
 		m.InstanceModelMatrices[index] = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
 	}
+}
+
+func CreateModel(vertices []mgl32.Vec3, indices []int32) *Model {
+	interleavedData := make([]float32, 0, len(vertices)*8) // Assuming 3 for position, 2 for texture, 3 for normals
+
+	for _, v := range vertices {
+		// Add vertex position (X, Y, Z)
+		interleavedData = append(interleavedData, v.X(), v.Y(), v.Z())
+
+		// Add placeholder texture coordinates (U, V)
+		interleavedData = append(interleavedData, 0.0, 0.0)
+
+		// Add placeholder normals (X, Y, Z)
+		interleavedData = append(interleavedData, 0.0, 1.0, 0.0)
+	}
+
+	return &Model{
+		Vertices:        flattenVertices(vertices),
+		Faces:           indices,
+		InterleavedData: interleavedData,
+		Scale:           mgl32.Vec3{1.0, 1.0, 1.0},
+	}
+}
+
+// Helper to flatten Vec3 array
+func flattenVertices(vertices []mgl32.Vec3) []float32 {
+	flat := make([]float32, 0, len(vertices)*3)
+	for _, v := range vertices {
+		flat = append(flat, v.X(), v.Y(), v.Z())
+	}
+	return flat
 }
