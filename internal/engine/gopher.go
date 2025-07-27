@@ -1,7 +1,7 @@
 package engine
 
 import (
-	behaviour "Gopher3D/internal/Behaviour"
+	behaviour "Gopher3D/internal/behaviour"
 	"Gopher3D/internal/logger"
 	"Gopher3D/internal/renderer"
 	"runtime"

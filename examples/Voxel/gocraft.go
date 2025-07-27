@@ -1,8 +1,8 @@
 package main
 
 import (
-	behaviour "Gopher3D/internal/Behaviour"
-	loader "Gopher3D/internal/Loader"
+	behaviour "Gopher3D/internal/behaviour"
+	loader "Gopher3D/internal/loader"
 	"Gopher3D/internal/engine"
 	"Gopher3D/internal/renderer"
 	"math/rand"

@@ -2,9 +2,9 @@ package main
 
 // This is a basic example of how to setup the engine and behaviour packages
 import (
-	behaviour "Gopher3D/internal/Behaviour"
-	loader "Gopher3D/internal/Loader"
+	behaviour "Gopher3D/internal/behaviour"
 	"Gopher3D/internal/engine"
+	loader "Gopher3D/internal/loader"
 	"Gopher3D/internal/renderer"
 
 	mgl "github.com/go-gl/mathgl/mgl32"
@@ -38,7 +38,7 @@ func (mb *TestBehaviour) Start() {
 	mb.engine.SetFaceCulling(false)
 	// Invert mouse for OpenGL
 	mb.engine.Camera.InvertMouse = false
-	m, err := loader.LoadObjectWithPath("../resources/obj/Cube.obj", true)
+	m, err := loader.LoadObjectWithPath("../../resources/obj/Cube.obj", true)
 	if err != nil {
 		panic(err)
 	}

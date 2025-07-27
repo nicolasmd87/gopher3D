@@ -51,8 +51,9 @@ type Model struct {
 	IsBatched             bool
 	IsInstanced           bool
 	InstanceCount         int
-	InstanceModelMatrices []mgl32.Mat4 // Instance model matrices
-	Shader                Shader       // Custom shader for this model
+	InstanceModelMatrices []mgl32.Mat4           // Instance model matrices
+	Shader                Shader                 // Custom shader for this model
+	CustomUniforms        map[string]interface{} // Custom uniforms for this model
 }
 
 type Material struct {

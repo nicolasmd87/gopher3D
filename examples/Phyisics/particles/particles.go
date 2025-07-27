@@ -1,9 +1,9 @@
 package main
 
 import (
-	behaviour "Gopher3D/internal/Behaviour"
-	loader "Gopher3D/internal/Loader"
+	behaviour "Gopher3D/internal/behaviour"
 	"Gopher3D/internal/engine"
+	loader "Gopher3D/internal/loader"
 	"Gopher3D/internal/renderer"
 	"math"
 	"math/rand"
@@ -75,7 +75,7 @@ func (pb *ParticleBehaviour) Start() {
 
 func createModelInstance(pb *ParticleBehaviour, color string, numInstances int) *renderer.Model {
 	// Load the model for the given color with instancing enabled
-	model, err := loader.LoadObjectInstance("../resources/obj/Sphere_Low.obj", true, numInstances)
+	model, err := loader.LoadObjectInstance("../../resources/obj/Sphere_Low.obj", true, numInstances)
 	if err != nil {
 		panic(err)
 	}

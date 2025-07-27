@@ -19,21 +19,10 @@ var currentTextureID uint32 = ^uint32(0) // Initialize with an invalid value
 var frustum Frustum
 
 type OpenGLRenderer struct {
-	modelLoc             int32
-	viewProjLoc          int32
-	lightPosLoc          int32
-	lightColorLoc        int32
-	lightIntensityLoc    int32
-	diffuseColorUniform  int32
-	shininessUniform     int32
-	specularColorUniform int32
-	textureUniform       int32
-	vertexShader         uint32
-	fragmentShader       uint32
-	Shader               Shader
+	defaultShader        Shader
 	Models               []*Model
 	instanceVBO          uint32 // Buffer for instance model matrices
-
+	currentShaderProgram uint32 // Track currently bound shader to avoid unnecessary switches
 }
 
 func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
@@ -55,20 +44,8 @@ func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
 }
 
 func (rend *OpenGLRenderer) InitShader() {
-	rend.Shader = InitShader()
-	rend.vertexShader = genShader(rend.Shader.vertexSource, gl.VERTEX_SHADER)
-	rend.fragmentShader = genShader(rend.Shader.fragmentSource, gl.FRAGMENT_SHADER)
-	rend.Shader.program = genShaderProgram(rend.vertexShader, rend.fragmentShader)
-	gl.UseProgram(rend.Shader.program)
-	rend.modelLoc = gl.GetUniformLocation(rend.Shader.program, gl.Str("model\x00"))
-	rend.viewProjLoc = gl.GetUniformLocation(rend.Shader.program, gl.Str("viewProjection\x00"))
-	rend.lightPosLoc = gl.GetUniformLocation(rend.Shader.program, gl.Str("light.position\x00"))
-	rend.lightColorLoc = gl.GetUniformLocation(rend.Shader.program, gl.Str("light.color\x00"))
-	rend.lightIntensityLoc = gl.GetUniformLocation(rend.Shader.program, gl.Str("light.intensity\x00"))
-	rend.diffuseColorUniform = gl.GetUniformLocation(rend.Shader.program, gl.Str("diffuseColor\x00"))
-	rend.shininessUniform = gl.GetUniformLocation(rend.Shader.program, gl.Str("shininess\x00"))
-	rend.specularColorUniform = gl.GetUniformLocation(rend.Shader.program, gl.Str("specularColor\x00"))
-	rend.textureUniform = gl.GetUniformLocation(rend.Shader.program, gl.Str("uTexture\x00"))
+	rend.defaultShader = InitShader()
+	rend.defaultShader.Compile()
 }
 
 func (rend *OpenGLRenderer) AddModel(model *Model) {
@@ -133,19 +110,18 @@ func (model *Model) RemoveModelInstance(index int) {
 }
 
 func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
+	// Use configurable clear color (defaults to black, can be set to red for debugging)
+	gl.ClearColor(ClearColorR, ClearColorG, ClearColorB, 1.0)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-	gl.Enable(gl.DEPTH_TEST)
-	viewProjection := camera.GetViewProjection()
-	gl.UseProgram(rend.Shader.program)
-	gl.UniformMatrix4fv(rend.viewProjLoc, 1, false, &viewProjection[0])
-	if light != nil && !light.Calculated {
-		if light.Mode == "static" {
-			rend.calculateLights(light)
-			light.Calculated = true
-		} else {
-			rend.calculateLights(light)
-		}
+
+	// Configurable depth testing
+	if DepthTestEnabled {
+		gl.Enable(gl.DEPTH_TEST)
+	} else {
+		gl.Disable(gl.DEPTH_TEST)
 	}
+	viewProjection := camera.GetViewProjection()
+
 	// Culling : https://learnopengl.com/Advanced-OpenGL/Face-culling
 	if FaceCullingEnabled {
 		gl.Enable(gl.CULL_FACE)
@@ -160,38 +136,73 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	if FrustumCullingEnabled {
 		frustum = camera.CalculateFrustum()
 	}
+
 	modLen := len(rend.Models)
 	for i := 0; i < modLen; i++ {
+		model := rend.Models[i]
+
 		// Skip rendering if the model is outside the frustum
-		if FrustumCullingEnabled && !frustum.IntersectsSphere(rend.Models[i].BoundingSphereCenter, rend.Models[i].BoundingSphereRadius) {
+		if FrustumCullingEnabled && !frustum.IntersectsSphere(model.BoundingSphereCenter, model.BoundingSphereRadius) {
 			continue
 		}
 
-		if rend.Models[i].IsDirty {
+		if model.IsDirty {
 			// Recalculate the model matrix only if necessary
-			rend.Models[i].calculateModelMatrix()
-			rend.Models[i].IsDirty = false
+			model.calculateModelMatrix()
+			model.IsDirty = false
 		}
-		gl.UniformMatrix4fv(rend.modelLoc, 1, false, &rend.Models[i].ModelMatrix[0])
-		if rend.Models[i].Material != nil {
-			if rend.Models[i].Material.TextureID != currentTextureID {
-				gl.BindTexture(gl.TEXTURE_2D, rend.Models[i].Material.TextureID)
-				currentTextureID = rend.Models[i].Material.TextureID
+
+		// Determine which shader to use
+		var shader *Shader
+		if model.Shader.IsValid() {
+			shader = &model.Shader
+			// Ensure custom shader is compiled before using
+			if !shader.isCompiled {
+				shader.Compile()
 			}
-			gl.Uniform3fv(rend.diffuseColorUniform, 1, &rend.Models[i].Material.DiffuseColor[0])
-			gl.Uniform3fv(rend.specularColorUniform, 1, &rend.Models[i].Material.SpecularColor[0])
-			gl.Uniform1f(rend.shininessUniform, rend.Models[i].Material.Shininess)
+		} else {
+			shader = &rend.defaultShader
 		}
-		gl.Uniform1i(rend.textureUniform, 0)
-		gl.BindVertexArray(rend.Models[i].VAO)
-		if rend.Models[i].IsInstanced && len(rend.Models[i].InstanceModelMatrices) > 0 {
-			rend.UpdateInstanceMatrices(rend.Models[i])
-			gl.DrawElementsInstanced(gl.TRIANGLES, int32(len(rend.Models[i].Faces)), gl.UNSIGNED_INT, nil, int32(rend.Models[i].InstanceCount))
-			rend.Shader.SetInt("isInstanced", 1)
+
+		// Switch shader if needed
+		if rend.currentShaderProgram != shader.program {
+			shader.Use()
+			rend.currentShaderProgram = shader.program
+		}
+
+		// Set common uniforms for all shaders
+		rend.setCommonUniforms(shader, viewProjection, model, light, camera)
+
+		// Set material uniforms if applicable
+		if model.Material != nil {
+			rend.setMaterialUniforms(shader, model)
+		}
+
+		// Set shader-specific uniforms (like water shader uniforms)
+		rend.setShaderSpecificUniforms(shader, model)
+
+		// Bind texture
+		if model.Material != nil && model.Material.TextureID != currentTextureID {
+			gl.BindTexture(gl.TEXTURE_2D, model.Material.TextureID)
+			currentTextureID = model.Material.TextureID
+		}
+
+		// Set texture uniform
+		textureUniform := gl.GetUniformLocation(shader.program, gl.Str("uTexture\x00"))
+		if textureUniform != -1 {
+			gl.Uniform1i(textureUniform, 0)
+		}
+
+		// Render the model
+		gl.BindVertexArray(model.VAO)
+		if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
+			rend.UpdateInstanceMatrices(model)
+			gl.DrawElementsInstanced(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil, int32(model.InstanceCount))
+			shader.SetInt("isInstanced", 1)
 		} else {
 			// Regular draw
-			gl.DrawElements(gl.TRIANGLES, int32(len(rend.Models[i].Faces)), gl.UNSIGNED_INT, nil)
-			rend.Shader.SetInt("isInstanced", 0)
+			gl.DrawElements(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil)
+			shader.SetInt("isInstanced", 0)
 		}
 		gl.BindVertexArray(0)
 	}
@@ -199,10 +210,106 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	gl.Disable(gl.CULL_FACE)
 }
 
-func (rend *OpenGLRenderer) calculateLights(light *Light) {
-	gl.Uniform3f(rend.lightPosLoc, light.Position[0], light.Position[1], light.Position[2])
-	gl.Uniform3f(rend.lightColorLoc, light.Color[0], light.Color[1], light.Color[2])
-	gl.Uniform1f(rend.lightIntensityLoc, light.Intensity)
+// setCommonUniforms sets uniforms that are common to most shaders
+func (rend *OpenGLRenderer) setCommonUniforms(shader *Shader, viewProjection mgl32.Mat4, model *Model, light *Light, camera Camera) {
+	// Set view projection matrix
+	viewProjLoc := gl.GetUniformLocation(shader.program, gl.Str("viewProjection\x00"))
+	if viewProjLoc != -1 {
+		gl.UniformMatrix4fv(viewProjLoc, 1, false, &viewProjection[0])
+	}
+
+	// Set model matrix
+	modelLoc := gl.GetUniformLocation(shader.program, gl.Str("model\x00"))
+	if modelLoc != -1 {
+		gl.UniformMatrix4fv(modelLoc, 1, false, &model.ModelMatrix[0])
+	}
+
+	// Set light uniforms
+	if light != nil {
+		// Standard light uniforms (for default shader)
+		lightPosLoc := gl.GetUniformLocation(shader.program, gl.Str("light.position\x00"))
+		if lightPosLoc != -1 {
+			gl.Uniform3f(lightPosLoc, light.Position[0], light.Position[1], light.Position[2])
+		}
+
+		lightColorLoc := gl.GetUniformLocation(shader.program, gl.Str("light.color\x00"))
+		if lightColorLoc != -1 {
+			gl.Uniform3f(lightColorLoc, light.Color[0], light.Color[1], light.Color[2])
+		}
+
+		lightIntensityLoc := gl.GetUniformLocation(shader.program, gl.Str("light.intensity\x00"))
+		if lightIntensityLoc != -1 {
+			gl.Uniform1f(lightIntensityLoc, light.Intensity)
+		}
+
+		// Water shader specific light uniforms
+		lightPosLocWater := gl.GetUniformLocation(shader.program, gl.Str("lightPos\x00"))
+		if lightPosLocWater != -1 {
+			gl.Uniform3f(lightPosLocWater, light.Position[0], light.Position[1], light.Position[2])
+		}
+
+		lightColorLocWater := gl.GetUniformLocation(shader.program, gl.Str("lightColor\x00"))
+		if lightColorLocWater != -1 {
+			gl.Uniform3f(lightColorLocWater, light.Color[0], light.Color[1], light.Color[2])
+		}
+
+		lightIntensityLocWater := gl.GetUniformLocation(shader.program, gl.Str("lightIntensity\x00"))
+		if lightIntensityLocWater != -1 {
+			gl.Uniform1f(lightIntensityLocWater, light.Intensity)
+		}
+	}
+
+	// Set view position (for specular lighting)
+	viewPosLoc := gl.GetUniformLocation(shader.program, gl.Str("viewPos\x00"))
+	if viewPosLoc != -1 {
+		gl.Uniform3f(viewPosLoc, camera.Position[0], camera.Position[1], camera.Position[2])
+	}
+}
+
+// setMaterialUniforms sets material-specific uniforms
+func (rend *OpenGLRenderer) setMaterialUniforms(shader *Shader, model *Model) {
+	if model.Material == nil {
+		return
+	}
+
+	// Set diffuse color
+	diffuseColorLoc := gl.GetUniformLocation(shader.program, gl.Str("diffuseColor\x00"))
+	if diffuseColorLoc != -1 {
+		gl.Uniform3fv(diffuseColorLoc, 1, &model.Material.DiffuseColor[0])
+	}
+
+	// Set specular color
+	specularColorLoc := gl.GetUniformLocation(shader.program, gl.Str("specularColor\x00"))
+	if specularColorLoc != -1 {
+		gl.Uniform3fv(specularColorLoc, 1, &model.Material.SpecularColor[0])
+	}
+
+	// Set shininess
+	shininessLoc := gl.GetUniformLocation(shader.program, gl.Str("shininess\x00"))
+	if shininessLoc != -1 {
+		gl.Uniform1f(shininessLoc, model.Material.Shininess)
+	}
+}
+
+// setShaderSpecificUniforms allows models to set custom uniforms for their shaders
+func (rend *OpenGLRenderer) setShaderSpecificUniforms(shader *Shader, model *Model) {
+	if model.CustomUniforms == nil {
+		return
+	}
+
+	// Set all custom uniforms stored in the model
+	for name, value := range model.CustomUniforms {
+		switch v := value.(type) {
+		case float32:
+			shader.SetFloat(name, v)
+		case int32:
+			shader.SetInt(name, v)
+		case mgl32.Vec3:
+			shader.SetVec3(name, v)
+		default:
+			// Skip unknown types
+		}
+	}
 }
 
 func (rend *OpenGLRenderer) Cleanup() {
@@ -270,7 +377,7 @@ func (rend *OpenGLRenderer) CreateTextureFromImage(img image.Image) (uint32, err
 	return textureID, nil
 }
 
-func genShader(source string, shaderType uint32) uint32 {
+func GenShader(source string, shaderType uint32) uint32 {
 	shader := gl.CreateShader(shaderType)
 	cSources, free := gl.Strs(source)
 	gl.ShaderSource(shader, 1, cSources, nil)
@@ -287,12 +394,19 @@ func genShader(source string, shaderType uint32) uint32 {
 		gl.GetShaderInfoLog(shader, logLength, nil, gl.Str(log))
 
 		logger.Log.Error("Failed to compile", zap.Uint32("shader type:", shaderType), zap.String("log", log))
+		fmt.Printf("SHADER COMPILATION ERROR: Type %d, Log: %s\n", shaderType, log)
+	} else {
+		shaderTypeName := "VERTEX"
+		if shaderType == gl.FRAGMENT_SHADER {
+			shaderTypeName = "FRAGMENT"
+		}
+		fmt.Printf("SHADER COMPILED SUCCESSFULLY: %s shader\n", shaderTypeName)
 	}
 
 	return shader
 }
 
-func genShaderProgram(vertexShader, fragmentShader uint32) uint32 {
+func GenShaderProgram(vertexShader, fragmentShader uint32) uint32 {
 	program := gl.CreateProgram()
 	gl.AttachShader(program, vertexShader)
 	gl.AttachShader(program, fragmentShader)
@@ -308,6 +422,9 @@ func genShaderProgram(vertexShader, fragmentShader uint32) uint32 {
 		gl.GetProgramInfoLog(program, logLength, nil, gl.Str(log))
 
 		logger.Log.Error("Failed to link program", zap.String("log", log))
+		fmt.Printf("SHADER PROGRAM LINK ERROR: %s\n", log)
+	} else {
+		fmt.Printf("SHADER PROGRAM LINKED SUCCESSFULLY: Program ID %d\n", program)
 	}
 	gl.DetachShader(program, vertexShader)
 	gl.DeleteShader(vertexShader)

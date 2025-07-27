@@ -12,6 +12,10 @@ type LightType int
 var FrustumCullingEnabled bool = false
 var FaceCullingEnabled bool = false
 var Debug bool = false
+var DepthTestEnabled bool = true // New flag for depth testing
+var ClearColorR float32 = 0.0    // Background clear color red
+var ClearColorG float32 = 0.0    // Background clear color green
+var ClearColorB float32 = 0.0    // Background clear color blue
 
 const (
 	STATIC_LIGHT LightType = iota

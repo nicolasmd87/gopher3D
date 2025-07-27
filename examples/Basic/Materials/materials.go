@@ -2,8 +2,8 @@ package main
 
 // This is a basic example of how to setup the engine and behaviour packages
 import (
-	behaviour "Gopher3D/internal/Behaviour"
-	loader "Gopher3D/internal/Loader"
+	behaviour "Gopher3D/internal/behaviour"
+	loader "Gopher3D/internal/loader"
 	"Gopher3D/internal/engine"
 	"Gopher3D/internal/renderer"
 

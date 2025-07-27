@@ -77,6 +77,65 @@ func LoadPlane(gridSize int, gridSpacing float32) (*renderer.Model, error) {
 	return model, nil
 }
 
+// LoadWaterSurface creates an optimized water surface with configurable resolution
+// for better performance and visual quality control
+func LoadWaterSurface(size float32, centerX, centerZ float32, resolution int) (*renderer.Model, error) {
+	// Validate resolution parameter
+	if resolution < 16 {
+		resolution = 16 // Minimum resolution for basic functionality
+	}
+	if resolution > 512 {
+		resolution = 512 // Maximum resolution to prevent memory issues
+	}
+
+	baseResolution := resolution
+
+	vertices := make([]mgl32.Vec3, 0, baseResolution*baseResolution)
+	indices := make([]int32, 0, (baseResolution-1)*(baseResolution-1)*6)
+
+	stepSize := size / float32(baseResolution-1)
+	startX := centerX - size*0.5
+	startZ := centerZ - size*0.5
+
+	// Generate vertices in a simple grid pattern
+	for x := 0; x < baseResolution; x++ {
+		for z := 0; z < baseResolution; z++ {
+			posX := startX + float32(x)*stepSize
+			posZ := startZ + float32(z)*stepSize
+
+			vertices = append(vertices, mgl32.Vec3{posX, 0, posZ})
+		}
+	}
+
+	// Generate triangle indices in the standard way
+	for x := 0; x < baseResolution-1; x++ {
+		for z := 0; z < baseResolution-1; z++ {
+			// Calculate vertex indices for this quad
+			topLeft := int32(x*baseResolution + z)
+			topRight := topLeft + 1
+			bottomLeft := int32((x+1)*baseResolution + z)
+			bottomRight := bottomLeft + 1
+
+			// Create two triangles for each quad
+			// Triangle 1: topLeft -> bottomLeft -> bottomRight
+			indices = append(indices, topLeft, bottomLeft, bottomRight)
+			// Triangle 2: topLeft -> bottomRight -> topRight
+			indices = append(indices, topLeft, bottomRight, topRight)
+		}
+	}
+
+	// Create the model
+	model := renderer.CreateModel(vertices, indices)
+
+	logger.Log.Info("Water surface created",
+		zap.Int("vertices", len(vertices)),
+		zap.Int("triangles", len(indices)/3),
+		zap.Float32("size", size),
+		zap.Int("resolution", baseResolution))
+
+	return model, nil
+}
+
 func LoadObject() *renderer.Model {
 	files, err := os.ReadDir("../obj")
 	if err != nil {
