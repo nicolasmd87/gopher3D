@@ -312,8 +312,9 @@ float warpedNoise(vec2 st, float warpStrength) {
 void main() {
     vec3 norm = normalize(fragNormal);
     
-    // More natural directional lighting - use light position but normalize distance effects
-    vec3 lightDir = normalize(lightPos - fragPosition * 0.001);  // Reduce position influence
+    // Calculate directional light direction (sun-like lighting)
+    vec3 lightDir = normalize(lightPos - fragPosition);  // For now, keep existing calculation
+    // TODO: For true directional light, this should be: vec3 lightDir = normalize(-lightDirection);
     
     vec3 viewDir = normalize(viewPos - fragPosition);
 
@@ -372,7 +373,7 @@ void main() {
     vec3 shallowWaterColor = vec3(0.05, 0.25, 0.45);
     vec3 surfaceColor = vec3(0.1, 0.3, 0.5);
     
-    // No foam calculations at all - pure water only (foam was causing rendering issues)
+    // No foam calculations at all - pure water only
     float totalFoam = 0.0;
     
     // Enhanced Fresnel effect for realistic reflection
@@ -417,12 +418,12 @@ void main() {
     vec3 fogColor = mix(vec3(0.4, 0.55, 0.7), vec3(0.35, 0.5, 0.65), pow(1.0 - fogDistance, 0.8));  // Darker fog
     waterColor = mix(waterColor, fogColor, pow(fogDistance, 2.5) * 0.3);  // Much less fog influence
     
-    // Much more subtle and uniform lighting
-    vec3 sunlightColor = vec3(1.0, 0.98, 0.95);  // Very subtle warm tint
+    // Enhanced lighting with proper sunlight color
+    vec3 sunlightColor = vec3(1.0, 0.9, 0.7);
     float diffuse = max(dot(norm, lightDir), 0.0);
-    vec3 ambientLight = vec3(0.4, 0.45, 0.55);  // Higher ambient for more uniform look
-    vec3 diffuseLight = diffuse * sunlightColor * 0.5;  // Much more subtle diffuse
-    vec3 specularLight = (spec1 + spec2 + spec3) * sunlightColor * fresnel * 0.3;  // Reduce specular
+    vec3 ambientLight = vec3(0.15, 0.22, 0.32) * (1.0 + caustics * 0.5);
+    vec3 diffuseLight = diffuse * lightColor * lightIntensity * 0.8;
+    vec3 specularLight = (spec1 + spec2 + spec3) * sunlightColor * lightIntensity * fresnel;
     
     // Rim lighting for water surface highlights
     float rimIntensity = pow(1.0 - dot(norm, viewDir), 2.5) * 0.2;
@@ -436,19 +437,19 @@ void main() {
         sparkles *= (1.0 - smoothstep(60.0, 180.0, distanceFromCamera));
     }
     
-    // Final color assembly with no foam mixing
+    // Final color assembly with enhanced blending
     vec3 finalColor = waterColor * (ambientLight + diffuseLight) + 
                      specularLight + 
                      subsurface + 
                      rimColor +
                      vec3(sparkles);
     
-    // No foam mixing - pure water only
-    // vec3 foamWithDetail = vec3(0.8, 0.85, 0.9) * (0.5 + 0.05 * totalFoam);
-    // finalColor = mix(finalColor, foamWithDetail, totalFoam * 0.15);
+    // Barely visible foam mixing - just tiny white dots on highest peaks
+    vec3 foamWithDetail = vec3(0.8, 0.85, 0.9) * (0.5 + 0.05 * totalFoam); // Use a default foam color
+    finalColor = mix(finalColor, foamWithDetail, totalFoam * 0.15);  // Extremely subtle foam visibility
     
-    // Consistent transparency
-    float alpha = mix(0.85, 0.95, fresnel) + sparkles;
+    // Dynamic transparency based on viewing angle and foam
+    float alpha = mix(0.85, 0.95, fresnel) + totalFoam * 0.12 + sparkles;
     alpha = clamp(alpha, 0.85, 1.0);
     
     FragColor = vec4(finalColor, alpha);
