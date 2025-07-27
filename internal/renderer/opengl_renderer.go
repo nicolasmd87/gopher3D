@@ -306,6 +306,18 @@ func (rend *OpenGLRenderer) setShaderSpecificUniforms(shader *Shader, model *Mod
 			shader.SetInt(name, v)
 		case mgl32.Vec3:
 			shader.SetVec3(name, v)
+		case []float32:
+			// Handle float arrays for wave parameters
+			location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
+			if location != -1 {
+				if name == "waveDirections" {
+					// Special handling for Vec3 arrays (3 floats per element)
+					gl.Uniform3fv(location, int32(len(v)/3), &v[0])
+				} else {
+					// Regular float arrays
+					gl.Uniform1fv(location, int32(len(v)), &v[0])
+				}
+			}
 		default:
 			// Skip unknown types
 		}

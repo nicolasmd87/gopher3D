@@ -141,66 +141,76 @@ uniform mat4 model;
 uniform mat4 viewProjection;
 uniform float time;
 
-// Enhanced Gerstner wave parameters for smoother water
-uniform int waveCount;
-uniform vec3 waveDirections[5];
-uniform float waveAmplitudes[5];
-uniform float waveFrequencies[5];
-uniform float waveSpeeds[5];
+// Enhanced wave uniforms
+uniform vec3 waveDirections[4];  // Back to 4 waves for debugging
+uniform float waveAmplitudes[4];
+uniform float waveFrequencies[4];
+uniform float waveSpeeds[4];
+uniform float wavePhases[4];      // Phase offsets for variation
+uniform float waveSteepness[4];   // Control wave shape
 
-vec3 calculateGerstnerWave(vec3 position, vec3 direction, float amplitude, float frequency, float speed, float time) {
-    float phase = dot(direction.xz, position.xz) * frequency + time * speed;
-    float sine = sin(phase);
-    float cosine = cos(phase);
+// Enhanced Gerstner wave with steepness control and phase offset
+vec3 calculateGerstnerWave(vec3 position, vec3 direction, float amplitude, float frequency, float speed, float phase, float steepness, float time) {
+    vec2 d = normalize(direction.xz);
+    float wave = dot(d, position.xz) * frequency + time * speed + phase;
+    float c = cos(wave);
+    float s = sin(wave);
     
-    // Gerstner wave displacement
-    vec3 displacement = vec3(0.0);
-    displacement.x = direction.x * amplitude * sine;
-    displacement.y = amplitude * cosine;
-    displacement.z = direction.z * amplitude * sine;
+    // Q factor controls wave steepness (0 = sine wave, higher = sharper peaks)
+    float Q = steepness / (frequency * amplitude * 6.0 + 0.01); // Prevent division by zero
     
-    return displacement;
+    return vec3(
+        Q * amplitude * d.x * c,  // Horizontal displacement X
+        amplitude * s,             // Vertical displacement
+        Q * amplitude * d.y * c   // Horizontal displacement Z
+    );
 }
 
-vec3 calculateGerstnerNormal(vec3 position, vec3 direction, float amplitude, float frequency, float speed, float time) {
-    float phase = dot(direction.xz, position.xz) * frequency + time * speed;
-    float sine = sin(phase);
-    float cosine = cos(phase);
+// Enhanced normal calculation with steepness
+vec3 calculateGerstnerNormal(vec3 position, vec3 direction, float amplitude, float frequency, float speed, float phase, float steepness, float time) {
+    vec2 d = normalize(direction.xz);
+    float wave = dot(d, position.xz) * frequency + time * speed + phase;
+    float c = cos(wave);
+    float s = sin(wave);
     
-    // Calculate partial derivatives for normal
-    float dPhaseDx = direction.x * frequency;
-    float dPhaseDz = direction.z * frequency;
+    float Q = steepness / (frequency * amplitude * 6.0 + 0.01);
+    float WA = frequency * amplitude;
     
-    float dYdx = -amplitude * frequency * direction.x * sine;
-    float dYdz = -amplitude * frequency * direction.z * sine;
-    
-    return vec3(dYdx, 1.0, dYdz);
+    return vec3(
+        -d.x * WA * c,               // Normal X component
+        1.0 - Q * WA * s,           // Normal Y component (reduced by horizontal displacement)
+        -d.y * WA * c               // Normal Z component
+    );
 }
 
 void main() {
-    vec3 worldPos = (model * vec4(aPos, 1.0)).xyz;
+    vec3 worldPos = vec3(model * vec4(aPos, 1.0));
+    
+    // Calculate displacement and normals from all waves
     vec3 totalDisplacement = vec3(0.0);
     vec3 totalNormal = vec3(0.0, 1.0, 0.0);
     
-    // Enhanced wave calculation with more natural parameters
-    for (int i = 0; i < min(waveCount, 5); i++) {
-        // Calculate smoother wave displacement
+    // Process 4 waves for debugging
+    for (int i = 0; i < 4; i++) {
         vec3 waveDisp = calculateGerstnerWave(
-            worldPos, 
-            waveDirections[i], 
-            waveAmplitudes[i], // Use full amplitude from Go code
-            waveFrequencies[i], 
-            waveSpeeds[i], 
+            worldPos,
+            waveDirections[i],
+            waveAmplitudes[i],
+            waveFrequencies[i],
+            waveSpeeds[i],
+            wavePhases[i],
+            waveSteepness[i],
             time
         );
         
-        // Calculate normal for this wave
         vec3 waveNormal = calculateGerstnerNormal(
             worldPos,
             waveDirections[i],
-            waveAmplitudes[i], // Use full amplitude from Go code
+            waveAmplitudes[i],
             waveFrequencies[i],
             waveSpeeds[i],
+            wavePhases[i],
+            waveSteepness[i],
             time
         );
         
@@ -208,9 +218,8 @@ void main() {
         totalNormal += waveNormal;
     }
     
-    // Add subtle high-frequency noise for micro-detail without sharp triangles
-    float microNoise = sin(worldPos.x * 0.3 + time * 0.8) * cos(worldPos.z * 0.4 + time * 0.6) * 0.02;
-    totalDisplacement.y += microNoise;
+    // Ensure displacement is visible
+    totalDisplacement.y *= 2.0; // Double the vertical displacement for visibility
     
     // Apply displacement
     worldPos += totalDisplacement;
@@ -223,7 +232,8 @@ void main() {
     fragNormal = totalNormal;
     
     gl_Position = viewProjection * vec4(worldPos, 1.0);
-}` + "\x00"
+}
+` + "\x00"
 
 var waterFragmentShaderSource = `#version 330 core
 
@@ -301,139 +311,145 @@ float warpedNoise(vec2 st, float warpStrength) {
 
 void main() {
     vec3 norm = normalize(fragNormal);
-    vec3 lightDir = normalize(lightPos - fragPosition);
+    
+    // More natural directional lighting - use light position but normalize distance effects
+    vec3 lightDir = normalize(lightPos - fragPosition * 0.001);  // Reduce position influence
+    
     vec3 viewDir = normalize(viewPos - fragPosition);
 
     float waveHeight = fragPosition.y;
     float distanceFromCamera = length(viewPos - fragPosition);
     
-    // Adaptive detail based on distance to maintain smoothness
-    float detailScale = mix(1.0, 0.3, smoothstep(0.0, 300.0, distanceFromCamera));
+    // Enhanced temporal coherence with better distance handling
+    float temporalPhase = time * 0.08;  // Slower for more natural movement
     
-    // Multi-scale coordinates with smoother scaling
-    vec2 coord1 = fragPosition.xz * 0.008 * detailScale + time * 0.02;
-    vec2 coord2 = fragPosition.xz * 0.025 * detailScale + time * 0.05;
-    vec2 coord3 = fragPosition.xz * 0.06 * detailScale + time * 0.12;
+    // Much more aggressive detail scaling for distance to eliminate patterns
+    float detailScale = mix(1.5, 0.15, smoothstep(30.0, 300.0, distanceFromCamera));
     
-    // Use rotation matrices to break grid alignment
-    mat2 rot1 = mat2(cos(1.2), sin(1.2), -sin(1.2), cos(1.2));
-    mat2 rot2 = mat2(cos(2.3), sin(2.3), -sin(2.3), cos(2.3));
+    // Multi-scale coordinates with better distance-based variation
+    vec2 coord1 = fragPosition.xz * 0.004 * detailScale + vec2(cos(temporalPhase), sin(temporalPhase * 1.1)) * 0.2;
+    vec2 coord2 = fragPosition.xz * 0.015 * detailScale + vec2(sin(temporalPhase * 1.4), cos(temporalPhase * 0.7)) * 0.4;
+    vec2 coord3 = fragPosition.xz * 0.045 * detailScale + vec2(cos(temporalPhase * 0.6), sin(temporalPhase * 1.3)) * 0.6;
+    
+    // More varied rotation angles that change with distance
+    float distanceFactor = smoothstep(0.0, 200.0, distanceFromCamera);
+    float angle1 = temporalPhase * 0.15 + 1.2 + distanceFactor * 2.0;
+    float angle2 = temporalPhase * 0.12 + 2.3 + distanceFactor * 1.5;
+    
+    mat2 rot1 = mat2(cos(angle1), sin(angle1), -sin(angle1), cos(angle1));
+    mat2 rot2 = mat2(cos(angle2), sin(angle2), -sin(angle2), cos(angle2));
     
     coord2 = rot1 * coord2;
     coord3 = rot2 * coord3;
     
-    // Generate smoother surface patterns
-    float surface1 = warpedNoise(coord1);
-    float surface2 = fbm(coord2) * 0.7;
-    float surface3 = noise(coord3) * 0.4;
+    // Moderate surface patterns for natural ocean
+    float surface1 = warpedNoise(coord1) * 0.2;
+    float surface2 = fbm(coord2) * 0.15;
+    float surface3 = ridgedNoise(coord3) * 0.1;
     
-    // Combine with natural weights and smooth transitions
-    float combinedSurface = surface1 * 0.5 + surface2 * 0.3 + surface3 * 0.2;
+    // Fade surface detail with distance to eliminate far patterns
+    float surfaceDetailFade = 1.0 - smoothstep(120.0, 350.0, distanceFromCamera);
+    surface1 *= surfaceDetailFade;
+    surface2 *= surfaceDetailFade;
+    surface3 *= surfaceDetailFade;
     
-    // Add normal perturbation to hide triangle edges
+    // Much more subtle wave-dependent surface detail
+    float waveInfluence = smoothstep(-0.6, 0.6, waveHeight);  // Wider range for smoother blending
+    float combinedSurface = surface1 + surface2 * waveInfluence * 0.3 + surface3 * (1.0 - waveInfluence) * 0.3;
+    
+    // Moderate normal perturbation
+    float normalStrength = mix(0.2, 0.05, smoothstep(0.0, 180.0, distanceFromCamera));
     vec3 surfaceGradient = vec3(
-        dFdx(combinedSurface) * 0.1,
+        dFdx(combinedSurface) * normalStrength,
         1.0,
-        dFdy(combinedSurface) * 0.1
+        dFdy(combinedSurface) * normalStrength
     );
-    norm = normalize(norm + surfaceGradient * 0.3);
+    norm = normalize(norm + surfaceGradient * 0.4);
     
-    // Enhanced water colors with smoother transitions
-    vec3 deepWaterColor = vec3(0.0, 0.02, 0.12);
-    vec3 mediumWaterColor = vec3(0.0, 0.12, 0.28);
+    // Multi-depth water colors for natural variation
+    vec3 deepWaterColor = vec3(0.0, 0.15, 0.35);
+    vec3 mediumWaterColor = vec3(0.0, 0.18, 0.4);
     vec3 shallowWaterColor = vec3(0.05, 0.25, 0.45);
-    vec3 surfaceColor = vec3(0.1, 0.35, 0.55);
-    vec3 foamColor = vec3(0.97, 0.99, 1.0);
-    vec3 sunlightColor = vec3(1.0, 0.88, 0.65);
+    vec3 surfaceColor = vec3(0.1, 0.3, 0.5);
     
-    // Smoother foam generation
-    vec2 foamCoord1 = fragPosition.xz * 0.03 * detailScale + time * 0.08;
-    vec2 foamCoord2 = fragPosition.xz * 0.08 * detailScale + time * 0.15;
+    // No foam calculations at all - pure water only (foam was causing rendering issues)
+    float totalFoam = 0.0;
     
-    // Rotate foam coordinates to break alignment
-    foamCoord1 = rot1 * foamCoord1;
-    foamCoord2 = rot2 * foamCoord2;
-    
-    float foam1 = warpedNoise(foamCoord1);
-    float foam2 = fbm(foamCoord2) * 0.6;
-    
-    float foamPattern = foam1 * 0.7 + foam2 * 0.4;
-    
-    // Much more subtle foam - only on the highest wave crests
-    float heightFoam = smoothstep(0.6, 0.9, waveHeight);        // Only on very high waves
-    float patternFoam = smoothstep(0.75, 0.95, foamPattern) * heightFoam * 0.4; // Much less intense
-    float crestFoam = smoothstep(0.7, 0.95, waveHeight) * (0.2 + 0.3 * foamPattern); // Very subtle
-    
-    float totalFoam = clamp(heightFoam * 0.3 + patternFoam * 0.5 + crestFoam * 0.4, 0.0, 0.6); // Much less foam overall
-    
-    // Enhanced Fresnel effect
-    float fresnel = pow(1.0 - max(dot(norm, viewDir), 0.0), 2.2);
-    fresnel = mix(0.02, 0.95, fresnel);
+    // Enhanced Fresnel effect for realistic reflection
+    float fresnel = pow(1.0 - max(dot(norm, viewDir), 0.0), 2.0);
+    fresnel = mix(0.02, 0.92, fresnel);
     
     // Multiple specular highlights for smoother reflection
     vec3 reflectDir = reflect(-lightDir, norm);
-    float spec1 = pow(max(dot(viewDir, reflectDir), 0.0), 200.0);
-    float spec2 = pow(max(dot(viewDir, reflectDir), 0.0), 64.0) * 0.4;
-    float spec3 = pow(max(dot(viewDir, reflectDir), 0.0), 16.0) * 0.2;
+    float spec1 = pow(max(dot(viewDir, reflectDir), 0.0), 180.0);
+    float spec2 = pow(max(dot(viewDir, reflectDir), 0.0), 45.0) * 0.4;
+    float spec3 = pow(max(dot(viewDir, reflectDir), 0.0), 12.0) * 0.2;
     
-    // Smoother caustics
-    vec2 causticsCoord = fragPosition.xz * 0.12 * detailScale + time * 0.04;
+    // Enhanced caustics for underwater lighting effects
+    vec2 causticsCoord = fragPosition.xz * 0.15 * detailScale + temporalPhase * 0.05;
     causticsCoord = rot1 * causticsCoord;
-    float caustics = pow(warpedNoise(causticsCoord), 2.5) * 0.35;
-    caustics *= smoothstep(0.0, 0.4, waveHeight);
+    float caustics = pow(warpedNoise(causticsCoord), 2.2) * 0.4;
+    caustics *= smoothstep(0.0, 0.5, waveHeight);
     
-    // Enhanced subsurface scattering
-    vec3 subsurface = vec3(0.0, 0.25, 0.6) * max(0.0, dot(-norm, lightDir)) * 0.5;
+    // Enhanced subsurface scattering for depth and translucency
+    vec3 subsurface = vec3(0.0, 0.3, 0.7) * max(0.0, dot(-norm, lightDir)) * 0.6;
+    subsurface *= (1.0 - smoothstep(0.0, 0.8, waveHeight)); // Less on high waves
     
-    // Smoother water color mixing
-    float depth1 = smoothstep(-0.8, 0.0, waveHeight);
-    float depth2 = smoothstep(-0.2, 0.4, waveHeight);
-    float depth3 = smoothstep(0.1, 0.6, waveHeight);
+    // Dynamic water color mixing based on wave height and surface patterns
+    // Much more uniform water color mixing - less height-dependent variation
+    // Nearly uniform water color - minimal wave height influence
+    float depth1 = smoothstep(-2.0, 2.0, waveHeight);  // Very wide range, almost no effect
+    float depth2 = smoothstep(-1.5, 1.5, waveHeight);  // Very smooth transitions
+    float depth3 = smoothstep(-1.0, 1.0, waveHeight);   // Minimal surface color change
     
-    vec3 waterColor = mix(deepWaterColor, mediumWaterColor, depth1);
-    waterColor = mix(waterColor, shallowWaterColor, depth2);
-    waterColor = mix(waterColor, surfaceColor, depth3);
+    vec3 waterColor = mix(deepWaterColor, mediumWaterColor, depth1 * 0.2);  // Very subtle
+    waterColor = mix(waterColor, shallowWaterColor, depth2 * 0.1);  // Almost no effect
+    waterColor = mix(waterColor, surfaceColor, depth3 * 0.05);  // Barely visible
     
-    // Add subtle surface variation
-    waterColor += vec3(combinedSurface * 0.008, combinedSurface * 0.015, combinedSurface * 0.012);
+    // No surface pattern color injection at all
+    // waterColor += vec3(combinedSurface * 0.0);
     
-    // Enhanced distance fog for smoother far appearance
-    float fogDistance = smoothstep(150.0, 800.0, distanceFromCamera);
-    vec3 fogColor = mix(vec3(0.6, 0.75, 0.9), vec3(0.4, 0.6, 0.8), pow(1.0 - fogDistance, 0.8));
-    waterColor = mix(waterColor, fogColor, pow(fogDistance, 1.5));
+    // Minimal surface pattern variation for uniform color
+    waterColor += vec3(combinedSurface * 0.002, combinedSurface * 0.003, combinedSurface * 0.002);
     
-    // Enhanced lighting
+    // Much more subtle atmospheric perspective - no more white washing
+    float fogDistance = smoothstep(300.0, 1000.0, distanceFromCamera);  // Much further distances
+    vec3 fogColor = mix(vec3(0.4, 0.55, 0.7), vec3(0.35, 0.5, 0.65), pow(1.0 - fogDistance, 0.8));  // Darker fog
+    waterColor = mix(waterColor, fogColor, pow(fogDistance, 2.5) * 0.3);  // Much less fog influence
+    
+    // Much more subtle and uniform lighting
+    vec3 sunlightColor = vec3(1.0, 0.98, 0.95);  // Very subtle warm tint
     float diffuse = max(dot(norm, lightDir), 0.0);
-    vec3 ambientLight = vec3(0.12, 0.20, 0.30) * (1.0 + caustics * 0.4);
-    vec3 diffuseLight = diffuse * lightColor * lightIntensity * 0.8;
-    vec3 specularLight = (spec1 + spec2 + spec3) * sunlightColor * lightIntensity * fresnel;
+    vec3 ambientLight = vec3(0.4, 0.45, 0.55);  // Higher ambient for more uniform look
+    vec3 diffuseLight = diffuse * sunlightColor * 0.5;  // Much more subtle diffuse
+    vec3 specularLight = (spec1 + spec2 + spec3) * sunlightColor * fresnel * 0.3;  // Reduce specular
     
-    // Smoother rim lighting
-    float rimIntensity = pow(1.0 - dot(norm, viewDir), 3.0) * 0.18;
-    vec3 rimColor = vec3(0.1, 0.25, 0.4) * rimIntensity;
+    // Rim lighting for water surface highlights
+    float rimIntensity = pow(1.0 - dot(norm, viewDir), 2.5) * 0.2;
+    vec3 rimColor = vec3(0.15, 0.3, 0.5) * rimIntensity;
     
-    // Distance-based sparkles for close detail
+    // Distance-based surface sparkles
     float sparkles = 0.0;
-    if (distanceFromCamera < 150.0) {
-        sparkles = pow(fbm(fragPosition.xz * 0.4 + time * 0.2), 8.0) * 0.04;
-        sparkles *= smoothstep(0.2, 0.7, waveHeight);
-        sparkles *= (1.0 - smoothstep(50.0, 150.0, distanceFromCamera));
+    if (distanceFromCamera < 180.0) {
+        sparkles = pow(fbm(fragPosition.xz * 0.5 + temporalPhase * 0.3), 6.0) * 0.06;
+        sparkles *= smoothstep(0.3, 0.8, waveHeight);
+        sparkles *= (1.0 - smoothstep(60.0, 180.0, distanceFromCamera));
     }
     
-    // Final color assembly with smoother blending
+    // Final color assembly with no foam mixing
     vec3 finalColor = waterColor * (ambientLight + diffuseLight) + 
                      specularLight + 
                      subsurface + 
                      rimColor +
                      vec3(sparkles);
     
-    // Smoother foam mixing
-    vec3 foamWithDetail = foamColor * (0.9 + 0.1 * foamPattern);
-    finalColor = mix(finalColor, foamWithDetail, totalFoam);
+    // No foam mixing - pure water only
+    // vec3 foamWithDetail = vec3(0.8, 0.85, 0.9) * (0.5 + 0.05 * totalFoam);
+    // finalColor = mix(finalColor, foamWithDetail, totalFoam * 0.15);
     
-    // Enhanced transparency
-    float alpha = mix(0.88, 0.96, fresnel) + totalFoam * 0.08 + sparkles;
-    alpha = clamp(alpha, 0.88, 1.0);
+    // Consistent transparency
+    float alpha = mix(0.85, 0.95, fresnel) + sparkles;
+    alpha = clamp(alpha, 0.85, 1.0);
     
     FragColor = vec4(finalColor, alpha);
 }
