@@ -35,6 +35,7 @@ The engine is still in early stages but includes advanced rendering features.
 To run the Gopher3D engine, ensure you have the following dependencies:
 
 - **Go**: The engine is written in Go, so Go must be installed on your machine
+- **GCC**: Required for CGO compilation
 - **OpenGL**: The engine currently supports OpenGL for rendering
 - **GLFW**: Required for managing windowing and input across different platforms
 
