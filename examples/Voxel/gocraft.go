@@ -2,9 +2,10 @@ package main
 
 import (
 	behaviour "Gopher3D/internal/behaviour"
-	loader "Gopher3D/internal/loader"
 	"Gopher3D/internal/engine"
+	loader "Gopher3D/internal/loader"
 	"Gopher3D/internal/renderer"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -41,28 +42,49 @@ func main() {
 }
 
 func (mb *GoCraftBehaviour) Start() {
-	mb.engine.Light = renderer.CreateLight()
+	// FINAL FIX: Ultra-high dramatic lighting with fixed normals!
+	mb.engine.Light = renderer.CreatePointLight(
+		mgl32.Vec3{200, 5000, 200},
+		mgl32.Vec3{1.0, 0.95, 0.8},
+		3.5,
+		8000.0,
+	)
+	mb.engine.Light.AmbientStrength = 0.15 // Lower ambient for more dramatic shadows
 	mb.engine.Light.Type = renderer.STATIC_LIGHT
-	mb.engine.Light.Position = mgl32.Vec3{1000, 1000, 0}
+
 	mb.engine.Camera.InvertMouse = false
-	mb.engine.Camera.Position = mgl32.Vec3{500, 50, 500}
+	mb.engine.Camera.Position = mgl32.Vec3{100, 120, 100}
 	mb.engine.Camera.Speed = 200
 
-	// Adjust world size and noise
-	mb.worldHeight = 1500
-	mb.worldWidth = 1500
-	mb.noiseDistortion = 22
+	// Enhanced world generation for beautiful varied terrain
+	mb.worldHeight = 400
+	mb.worldWidth = 400
+	mb.noiseDistortion = 20
 
-	// Enable face culling for performance
+	// Enable face culling and depth testing for better performance and z-fighting reduction
 	mb.engine.SetFaceCulling(true)
 
-	// Load the cube model with instancing enabled
-	model, err := loader.LoadObjectInstance("../resources/obj/Cube.obj", false, mb.worldHeight*mb.worldWidth)
+	// Set skybox color for background
+	renderer.SetSkyboxColor(0.5, 0.7, 1.0) // Bright day sky blue
+	err := mb.engine.SetSkybox("dark_sky") // Create skybox with that color
+	if err != nil {
+		fmt.Printf("Could not set skybox: %v\n", err)
+	} else {
+		fmt.Println("Voxel skybox created with bright day sky color")
+	}
+
+	// Load the cube model with instancing enabled - FORCE normal recalculation to fix lighting
+	model, err := loader.LoadObjectInstance("../resources/obj/Cube.obj", true, mb.worldHeight*mb.worldWidth)
 	if err != nil {
 		panic(err)
 	}
+	// Apply texture - SetTexture handles errors internally with logging
 	model.SetTexture("../resources/textures/Grass.png")
-	model.Scale = mgl32.Vec3{1, 1, 1}
+	model.Scale = mgl32.Vec3{0.5, 0.5, 0.5}
+
+	// Beautiful enhanced grass material properties
+	model.SetMatte(0.3, 0.6, 0.15) // Richer, more vibrant grass green
+	model.SetExposure(1.1)         // Slightly higher exposure for prettier lighting
 	mb.cubeModel = model
 
 	// Add the model to the engine
@@ -80,18 +102,27 @@ func (mb *GoCraftBehaviour) UpdateFixed() {
 	// No fixed update required for this example
 }
 
-// Create the world using instanced rendering with spacing to prevent overlap
+// Create the beautiful world using instanced rendering with perfect anti-z-fighting spacing
 func createWorld(mb *GoCraftBehaviour) {
 	var index int
-	spacing := 2.0 // Adjust this value to add more spacing between cubes
+	spacing := 0.5
+
 	for x := 0; x < mb.worldHeight; x++ {
 		for z := 0; z < mb.worldWidth; z++ {
-			// Generate noise for the Y-axis (height)
-			y := p.Noise2D(float64(x)*0.1, float64(z)*0.1)
-			y = scaleNoise(mb, y)
+			// Enhanced multi-octave noise for realistic terrain
+			baseY := p.Noise2D(float64(x)*0.05, float64(z)*0.05)   // Large features
+			detailY := p.Noise2D(float64(x)*0.15, float64(z)*0.15) // Medium details
+			fineY := p.Noise2D(float64(x)*0.3, float64(z)*0.3)     // Fine details
 
-			// Set the instance position for each cube with spacing applied
-			mb.cubeModel.SetInstancePosition(index, mgl32.Vec3{float32(x) * float32(spacing), float32(y), float32(z) * float32(spacing)})
+			// Combine different noise scales for realistic terrain
+			combinedY := baseY*0.6 + detailY*0.3 + fineY*0.1
+			y := scaleNoise(mb, combinedY)
+
+			mb.cubeModel.SetInstancePosition(index, mgl32.Vec3{
+				float32(x) * float32(spacing),
+				float32(y),
+				float32(z) * float32(spacing),
+			})
 			index++
 		}
 	}
@@ -101,6 +132,14 @@ func createWorld(mb *GoCraftBehaviour) {
 }
 
 func scaleNoise(mb *GoCraftBehaviour, noiseVal float64) float64 {
-	// Scale and adjust the noise value to suit the height range of your terrain
-	return (noiseVal / 2) * mb.noiseDistortion
+	scaledNoise := noiseVal * mb.noiseDistortion
+
+	if scaledNoise < -5 {
+		scaledNoise = -5
+	}
+	if scaledNoise > 25 {
+		scaledNoise = 25
+	}
+
+	return scaledNoise
 }

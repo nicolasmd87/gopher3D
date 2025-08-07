@@ -198,8 +198,16 @@ func (rend *VulkanRenderer) CreateTextureFromImage(img image.Image) (uint32, err
 	return 0, nil
 }
 
+func (rend *VulkanRenderer) SetSkybox(skybox *Skybox) {
+	// TODO: Implement Vulkan skybox support
+}
+
 func (rend *VulkanRenderer) Cleanup() {
 
+}
+
+func (rend *VulkanRenderer) UpdateViewport(width, height int32) {
+	// Vulkan viewport is handled differently, but we need to implement the interface
 }
 
 func (rend *VulkanRenderer) SetDebugMode(debug bool) {

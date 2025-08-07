@@ -19,6 +19,10 @@ var DefaultMaterial = &Material{
 	SpecularColor: [3]float32{1.0, 1.0, 1.0},
 	Shininess:     32.0,
 	TextureID:     0,
+	// Modern PBR defaults
+	Metallic:  0.0, // Non-metallic by default
+	Roughness: 0.5, // Medium roughness
+	Exposure:  1.0, // Standard exposure
 }
 
 //go:embed resources/default.png
@@ -62,6 +66,10 @@ type Material struct {
 	SpecularColor [3]float32
 	Shininess     float32
 	TextureID     uint32 // OpenGL texture ID
+	// Modern PBR properties
+	Metallic  float32 // 0.0 = dielectric, 1.0 = metallic
+	Roughness float32 // 0.0 = mirror, 1.0 = completely rough
+	Exposure  float32 // HDR exposure control
 }
 
 func (m *Model) X() float32 {
@@ -91,6 +99,12 @@ func (m *Model) Rotate(angleX, angleY, angleZ float32) {
 // SetPosition sets the position of the model
 func (m *Model) SetPosition(x, y, z float32) {
 	m.Position = mgl32.Vec3{x, y, z}
+	m.updateModelMatrix()
+	m.IsDirty = true
+}
+
+func (m *Model) SetScale(x, y, z float32) {
+	m.Scale = mgl32.Vec3{x, y, z}
 	m.updateModelMatrix()
 	m.IsDirty = true
 }
@@ -189,6 +203,53 @@ func (m *Model) SetSpecularColor(r, g, b float32) {
 	m.IsDirty = true // Mark the model as dirty for re-rendering
 }
 
+// Modern PBR material setters
+func (m *Model) SetMaterialPBR(metallic, roughness float32) {
+	if m.Material == nil {
+		logger.Log.Info("Setting default material")
+		m.Material = DefaultMaterial
+	}
+	m.Material.Metallic = metallic
+	m.Material.Roughness = roughness
+	m.IsDirty = true
+}
+
+func (m *Model) SetExposure(exposure float32) {
+	if m.Material == nil {
+		logger.Log.Info("Setting default material")
+		m.Material = DefaultMaterial
+	}
+	m.Material.Exposure = exposure
+	m.IsDirty = true
+}
+
+// Preset materials for easy use
+func (m *Model) SetMetallicMaterial(r, g, b, roughness float32) {
+	m.SetDiffuseColor(r, g, b)
+	m.SetMaterialPBR(1.0, roughness) // Fully metallic
+}
+
+func (m *Model) SetPlasticMaterial(r, g, b, roughness float32) {
+	m.SetDiffuseColor(r, g, b)
+	m.SetMaterialPBR(0.0, roughness) // Non-metallic
+}
+
+func (m *Model) SetRoughMetal(r, g, b float32) {
+	m.SetMetallicMaterial(r, g, b, 0.8) // Rough metal
+}
+
+func (m *Model) SetPolishedMetal(r, g, b float32) {
+	m.SetMetallicMaterial(r, g, b, 0.1) // Polished metal
+}
+
+func (m *Model) SetMatte(r, g, b float32) {
+	m.SetPlasticMaterial(r, g, b, 0.9) // Matte surface
+}
+
+func (m *Model) SetGlossy(r, g, b float32) {
+	m.SetPlasticMaterial(r, g, b, 0.2) // Glossy surface
+}
+
 func (m *Model) SetTexture(texturePath string) {
 	// TODO: Use THE CONFIG to know which renderer to use
 	textureID, err := (&OpenGLRenderer{}).LoadTexture(texturePath)
@@ -243,7 +304,7 @@ func (m *Model) SetInstancePosition(index int, position mgl32.Vec3) {
 		rotationMatrix := m.Rotation.Mat4()
 		translationMatrix := mgl32.Translate3D(position.X(), position.Y(), position.Z())
 
-		// Apply scale -> rotate -> translate transformations
+		// Apply translation * rotation * scale transformations
 		m.InstanceModelMatrices[index] = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
 	}
 }

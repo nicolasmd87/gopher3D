@@ -5,6 +5,7 @@ import (
 	"Gopher3D/internal/engine"
 	loader "Gopher3D/internal/loader"
 	"Gopher3D/internal/renderer"
+	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -73,7 +74,15 @@ func (bhb *BlackHoleBehaviour) Start() {
 	bhb.engine.Camera.InvertMouse = false
 	bhb.engine.Camera.Position = mgl.Vec3{200, 150, 1000}
 	bhb.engine.Camera.Speed = 900
-	bhb.engine.Light = renderer.CreateLight()
+
+	// Fixed star lighting - no more beige
+	bhb.engine.Light = renderer.CreatePointLight(
+		mgl.Vec3{-1200, 600, 500}, // Same position as sun
+		mgl.Vec3{1.0, 0.95, 0.8},  // Warm star color
+		4.0, 2000.0,               // Lower intensity to prevent beige
+	)
+	bhb.engine.Light.AmbientStrength = 0.2 // Lower ambient
+	bhb.engine.Light.Temperature = 5800    // Sun-like star temperature
 	bhb.engine.Light.Type = renderer.STATIC_LIGHT
 
 	// Create and add a black hole to the scene
@@ -92,19 +101,28 @@ func (bhb *BlackHoleBehaviour) Start() {
 		panic(err)
 	}
 	redModel.Scale = mgl.Vec3{1, 1, 1}
-	redModel.SetDiffuseColor(255.0, 0.0, 0.0) // Red
+
+	// Balanced plasma particles - no more beige
+	redModel.SetPolishedMetal(1.0, 0.2, 0.0) // Metallic red
+	redModel.SetExposure(1.2)                // Lower exposure to prevent beige
 	bhb.redModel = redModel
 	bhb.engine.AddModel(redModel)
 
 	// Load the blue particle model with instancing enabled
-	blueModel, err := loader.LoadObjectInstance("../resources/obj/Sphere_Low.obj", true, instances)
+	blueModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_Low.obj", true, instances)
 	if err != nil {
 		panic(err)
 	}
 	blueModel.Scale = mgl.Vec3{1, 1, 1}
-	blueModel.SetDiffuseColor(0.0, 0.0, 230.0) // Blue
+
+	// Balanced plasma particles - no more beige
+	blueModel.SetPolishedMetal(0.0, 0.4, 1.0) // Metallic blue
+	blueModel.SetExposure(1.2)                // Lower exposure to prevent beige
 	bhb.blueModel = blueModel
 	bhb.engine.AddModel(blueModel)
+
+	// NO SUN - just particles and lighting
+	fmt.Printf("Black hole scene initialized - particles only!\n")
 
 	// Seed the random number generator
 	rand.Seed(time.Now().UnixNano())
