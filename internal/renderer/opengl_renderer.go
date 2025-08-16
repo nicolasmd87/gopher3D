@@ -172,8 +172,10 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 			if !shader.isCompiled {
 				shader.Compile()
 			}
+			// Using custom shader
 		} else {
 			shader = &rend.defaultShader
+			// Using default shader
 		}
 
 		// Switch shader if needed

@@ -139,18 +139,18 @@ func (m *Model) CalculateBoundingSphere() {
 }
 
 func (m *Model) updateModelMatrix() {
-	// Matrix multiplication order: scale -> rotate -> translate
+	// Matrix multiplication order: scale * rotation * translation (OpenGL convention)
 	scaleMatrix := mgl32.Scale3D(m.Scale[0], m.Scale[1], m.Scale[2])
 	rotationMatrix := m.Rotation.Mat4()
 	translationMatrix := mgl32.Translate3D(m.Position[0], m.Position[1], m.Position[2])
-	// Combine the transformations: ModelMatrix = translation * rotation * scale
-	m.ModelMatrix = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
+	// Combine the transformations: ModelMatrix = scale * rotation * translation
+	m.ModelMatrix = scaleMatrix.Mul4(rotationMatrix).Mul4(translationMatrix)
 	// If the model is instanced, update the instance matrices automatically
 	if m.IsInstanced && len(m.InstanceModelMatrices) > 0 {
 		for i := 0; i < m.InstanceCount; i++ {
 			instancePosition := m.InstanceModelMatrices[i].Col(3).Vec3() // Retrieve the instance position
-			instanceMatrix := mgl32.Translate3D(instancePosition.X(), instancePosition.Y(), instancePosition.Z()).
-				Mul4(rotationMatrix).Mul4(scaleMatrix)
+			instanceMatrix := scaleMatrix.Mul4(rotationMatrix).Mul4(
+				mgl32.Translate3D(instancePosition.X(), instancePosition.Y(), instancePosition.Z()))
 			m.InstanceModelMatrices[i] = instanceMatrix
 		}
 	}
@@ -304,8 +304,8 @@ func (m *Model) SetInstancePosition(index int, position mgl32.Vec3) {
 		rotationMatrix := m.Rotation.Mat4()
 		translationMatrix := mgl32.Translate3D(position.X(), position.Y(), position.Z())
 
-		// Apply translation * rotation * scale transformations
-		m.InstanceModelMatrices[index] = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
+		// Apply scale * rotation * translation transformations (OpenGL convention)
+		m.InstanceModelMatrices[index] = scaleMatrix.Mul4(rotationMatrix).Mul4(translationMatrix)
 	}
 }
 

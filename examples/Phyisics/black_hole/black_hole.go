@@ -96,7 +96,7 @@ func (bhb *BlackHoleBehaviour) Start() {
 	instances := 100000
 
 	// Load the red particle model with instancing enabled
-	redModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_Low.obj", true, instances)
+	redModel, err := loader.LoadObjectInstance("../s../resources/obj/Sphere_Low.obj", true, instances)
 	if err != nil {
 		panic(err)
 	}
