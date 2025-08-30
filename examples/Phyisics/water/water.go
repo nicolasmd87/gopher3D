@@ -13,14 +13,17 @@ import (
 )
 
 const (
-	OceanSize        = 900000 // Massive photorealistic ocean - 100x bigger
-	WaterResolution  = 4096   // Higher resolution for massive scale
-	WaveSpeed        = 0.6    // Slower, more realistic wave speed for large scale
-	Amplitude        = 8.0    // Larger waves for massive ocean scale
-	MaxWaves         = 4      // Match shader expectation (4 waves)
-	WindSpeed        = 7.0    // Natural wind speed
-	WaveAge          = 1.3    // Natural wave development
-	DayCycleDuration = 300.0  // 5 minutes for full day cycle
+	OceanSize       = 900000 // Massive photorealistic ocean - 900km
+	WaterResolution = 2048   // Higher resolution for massive scale
+	WaveSpeed       = 0.6    // Slower, more realistic wave speed for large scale
+	MaxWaves        = 4      // Match shader expectation (4 waves)
+	WindSpeed       = 7.0    // Natural wind speed
+	WaveAge         = 1.3    // Natural wave development
+)
+
+// Configurable wave parameters - modify these to change wave behavior
+var (
+	Amplitude = float32(500.0)
 )
 
 type WaterSimulation struct {
@@ -60,21 +63,23 @@ func NewWaterSimulation(engine *engine.Gopher) {
 	for i := 0; i < MaxWaves; i++ {
 		var baseAmplitude, baseFreq float32
 
+		// GPU Gems: Large geometric waves with realistic physics
 		if i == 0 {
-			baseAmplitude = Amplitude * 1.0
-			baseFreq = 0.0001 // Much lower frequency for massive ocean
+			baseAmplitude = Amplitude * 1.2 // Primary ocean swell
+			baseFreq = 0.00008              // Very long wavelength (~12.5km)
 		} else if i == 1 {
-			baseAmplitude = Amplitude * 0.7
-			baseFreq = 0.0002
+			baseAmplitude = Amplitude * 0.8 // Secondary swell
+			baseFreq = 0.00015              // Long wavelength (~6.7km)
 		} else if i == 2 {
-			baseAmplitude = Amplitude * 0.5
-			baseFreq = 0.0005
+			baseAmplitude = Amplitude * 0.6 // Wind waves
+			baseFreq = 0.0004               // Medium wavelength (~2.5km)
 		} else {
-			baseAmplitude = Amplitude * 0.3
-			baseFreq = 0.001
+			baseAmplitude = Amplitude * 0.4 // Small wind waves
+			baseFreq = 0.0008               // Shorter wavelength (~1.25km)
 		}
 
-		baseAngle := float32(i) * 90.0 * math.Pi / 180.0 // 90-degree spread between waves
+		// GPU Gems: Wave directions with realistic 45° separation
+		baseAngle := float32(i) * 45.0 * math.Pi / 180.0 // 45-degree spread for interference
 		dirX := float32(math.Cos(float64(baseAngle)))
 		dirZ := float32(math.Sin(float64(baseAngle)))
 		ws.waveDirections[i] = mgl32.Vec3{dirX, 0.0, dirZ}.Normalize()
@@ -82,15 +87,18 @@ func NewWaterSimulation(engine *engine.Gopher) {
 		ws.waveAmplitudes[i] = baseAmplitude
 		ws.waveFrequencies[i] = baseFreq
 
-		ws.waveSpeeds[i] = WaveSpeed * (0.8 + float32(i)*0.1)
+		// GPU Gems: Physics-based wave speed (deep water: speed ∝ sqrt(wavelength))
+		wavelength := 2.0 * math.Pi / float64(baseFreq)
+		physicalSpeed := float32(0.002 * math.Sqrt(wavelength)) // Realistic physics
+		ws.waveSpeeds[i] = physicalSpeed
 
-		ws.wavePhases[i] = float32(i) * math.Pi / 2.0
+		ws.wavePhases[i] = float32(i) * math.Pi / 3.0 // 60° phase offset
 
-		ws.waveSteepness[i] = 0.5 + float32(i)*0.15
+		ws.waveSteepness[i] = 0.2 + float32(i)*0.1 // Gentle progressive steepness
 
-		fmt.Printf("DEBUG: Wave %d - Dir: [%.2f, %.2f, %.2f], Amp: %.3f, Freq: %.5f, Speed: %.2f\n",
+		fmt.Printf("DEBUG: GPU Gems Wave %d - Dir: [%.2f, %.2f, %.2f], Amp: %.3f, Freq: %.5f, Speed: %.2f, λ=%.0fm\n",
 			i, ws.waveDirections[i].X(), ws.waveDirections[i].Y(), ws.waveDirections[i].Z(),
-			ws.waveAmplitudes[i], ws.waveFrequencies[i], ws.waveSpeeds[i])
+			ws.waveAmplitudes[i], ws.waveFrequencies[i], ws.waveSpeeds[i], wavelength)
 	}
 
 	ws.sunModel = nil
@@ -144,11 +152,8 @@ func (ws *WaterSimulation) Start() {
 	model.SetMaterialPBR(0.02, 0.1)         // Slightly metallic with low roughness for realistic water
 	model.SetExposure(1.2)                  // Slightly enhanced exposure for better light reflection
 	model.Shader = ws.shader                // Apply custom water shader to water surface
-
 	ws.model = model
-
 	ws.setupWaterUniforms()
-
 	ws.engine.AddModel(model)
 	sunModel, err := loader.LoadObjectWithPath("../../resources/obj/Sphere.obj", true)
 	if err != nil {
@@ -167,6 +172,9 @@ func (ws *WaterSimulation) Start() {
 		ws.engine.AddModel(sunModel)
 	}
 
+	// Add underwater objects for depth perception
+	ws.addUnderwaterObjects()
+
 	ws.startTime = time.Now()
 	ws.currentTime = 0.0
 	ws.SetFixedDaylight()
@@ -180,6 +188,46 @@ func (ws *WaterSimulation) Update() {
 }
 
 func (ws *WaterSimulation) UpdateFixed() {}
+
+// addUnderwaterObjects adds objects beneath the water surface to show depth
+func (ws *WaterSimulation) addUnderwaterObjects() {
+	oceanCenter := float32(OceanSize / 2)
+
+	// Add several underwater cubes at different depths and positions
+	underwaterPositions := []mgl32.Vec3{
+		{oceanCenter - 15000, -25.0, oceanCenter - 10000}, // Shallow cube
+		{oceanCenter + 20000, -45.0, oceanCenter + 15000}, // Medium depth cube
+		{oceanCenter - 25000, -65.0, oceanCenter + 20000}, // Deep cube
+		{oceanCenter + 10000, -35.0, oceanCenter - 18000}, // Another medium cube
+		{oceanCenter, -55.0, oceanCenter + 5000},          // Central deep cube
+	}
+
+	for i, pos := range underwaterPositions {
+		cube, err := loader.LoadObjectWithPath("../../resources/obj/Cube.obj", true)
+		if err != nil {
+			fmt.Printf("Warning: Could not load underwater cube %d: %v\n", i, err)
+			continue
+		}
+
+		// Scale based on depth (deeper objects appear smaller due to perspective)
+		depth := -pos.Y()
+		scale := mgl32.Vec3{800 + depth*5, 800 + depth*5, 800 + depth*5} // Larger cubes, scaled by depth
+		cube.Scale = scale
+		cube.SetPosition(pos.X(), pos.Y(), pos.Z())
+
+		// Set underwater coloration (blue-green tint, less red due to water absorption)
+		redChannel := float32(0.2 - depth*0.003)   // Red disappears with depth
+		greenChannel := float32(0.4 - depth*0.002) // Green reduces slower
+		blueChannel := float32(0.6)                // Blue remains strong underwater
+
+		cube.SetDiffuseColor(redChannel, greenChannel, blueChannel)
+		cube.SetMaterialPBR(0.1, 0.8) // Slightly metallic, rough surface for underwater look
+		cube.SetExposure(1.0)
+
+		ws.engine.AddModel(cube)
+		fmt.Printf("Added underwater cube %d at depth %.1f with scale %.0f\n", i, depth, scale.X())
+	}
+}
 
 // SetFixedDaylight sets up a fixed bright daylight scene for water reflection
 func (ws *WaterSimulation) SetFixedDaylight() {
@@ -244,6 +292,12 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 	ws.model.CustomUniforms["waveSpeeds"] = speeds
 	ws.model.CustomUniforms["wavePhases"] = phases
 	ws.model.CustomUniforms["waveSteepness"] = steepness
+	// Caustics configuration - easily adjustable
+	ws.model.CustomUniforms["enableCaustics"] = false                  // Set to true to enable caustics
+	ws.model.CustomUniforms["causticsIntensity"] = float32(0.3)        // Caustics strength
+	ws.model.CustomUniforms["causticsScale"] = float32(0.003)          // Caustics pattern scale
+	ws.model.CustomUniforms["waterPlaneHeight"] = float32(5.0)         // Water surface height
+	ws.model.CustomUniforms["causticsSpeed"] = mgl32.Vec2{0.02, 0.015} // Animation speed
 
 	// Configure water with clean API - minimal fog
 	waterConfig := renderer.WaterConfig{
@@ -271,10 +325,18 @@ func (ws *WaterSimulation) updateDynamicWaterUniforms() {
 	ws.model.CustomUniforms["lightPos"] = ws.engine.Light.Position        // Point light position
 	ws.model.CustomUniforms["lightColor"] = ws.engine.Light.Color         // Light color
 	ws.model.CustomUniforms["lightIntensity"] = ws.engine.Light.Intensity // Light intensity
+
+	// Don't override caustics settings every frame - they're set once in setupWaterUniforms
+	// Only update time-based uniforms here
 	ws.model.CustomUniforms["skyColor"] = ws.lastSkyColor
 	ws.model.CustomUniforms["horizonColor"] = mgl32.Vec3{
 		ws.lastSkyColor.X() * 0.85,
 		ws.lastSkyColor.Y() * 0.85,
 		ws.lastSkyColor.Z() * 0.85,
 	}
+
+	// Apply caustics uniforms to all models in the scene (for underwater objects)
+	// Note: This is a simplified approach for the water example.
+	// In a production engine, you'd want a cleaner API for global uniforms.
+	// For now, we'll just apply to our known underwater objects via their individual uniforms.
 }

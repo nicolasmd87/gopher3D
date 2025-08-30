@@ -289,6 +289,9 @@ void main() {
     
     vec3 color = ambient + Lo;
     
+    // GPU Gems Chapter 2: Caustics are handled in water shader for now
+    // Future: Add caustics support to default shader with proper uniform checking
+    
     // HDR exposure and tone mapping for normal objects
     color = color * exposure;
     color = ACESFilm(color);
@@ -322,37 +325,45 @@ uniform float waveSpeeds[4];
 uniform float wavePhases[4];      // Phase offsets for variation
 uniform float waveSteepness[4];   // Control wave shape
 
-// Enhanced Gerstner wave with steepness control and phase offset
+// GPU Gems enhanced Gerstner wave with wave sharpening
 vec3 calculateGerstnerWave(vec3 position, vec3 direction, float amplitude, float frequency, float speed, float phase, float steepness, float time) {
     vec2 d = normalize(direction.xz);
     float wave = dot(d, position.xz) * frequency + time * speed + phase;
     float c = cos(wave);
     float s = sin(wave);
     
+    // Gentle wave sharpening: slightly sharper peaks, wider troughs
+    float k = 1.2; // Mild sharpening factor (1.0 = sine wave, >1.0 = sharper peaks)
+    float sharpened_s = pow((s + 1.0) * 0.5, k) * 2.0 - 1.0; // Normalize to [-1,1] then sharpen
+    
     // Q factor controls wave steepness (0 = sine wave, higher = sharper peaks)
     float Q = steepness / (frequency * amplitude * 6.0 + 0.01); // Prevent division by zero
     
     return vec3(
-        Q * amplitude * d.x * c,  // Horizontal displacement X
-        amplitude * s,             // Vertical displacement
-        Q * amplitude * d.y * c   // Horizontal displacement Z
+        Q * amplitude * d.x * c,      // Horizontal displacement X
+        amplitude * sharpened_s,      // Sharpened vertical displacement
+        Q * amplitude * d.y * c       // Horizontal displacement Z
     );
 }
 
-// Enhanced normal calculation with steepness
+// GPU Gems normal calculation with wave sharpening
 vec3 calculateGerstnerNormal(vec3 position, vec3 direction, float amplitude, float frequency, float speed, float phase, float steepness, float time) {
     vec2 d = normalize(direction.xz);
     float wave = dot(d, position.xz) * frequency + time * speed + phase;
     float c = cos(wave);
     float s = sin(wave);
     
+    // Derivative of sharpened wave function
+    float k = 1.2;
+    float sharpened_derivative = k * pow((s + 1.0) * 0.5, k - 1.0);
+    
     float Q = steepness / (frequency * amplitude * 6.0 + 0.01);
     float WA = frequency * amplitude;
     
     return vec3(
-        -d.x * WA * c,               // Normal X component
-        1.0 - Q * WA * s,           // Normal Y component (reduced by horizontal displacement)
-        -d.y * WA * c               // Normal Z component
+        -d.x * WA * c * sharpened_derivative,    // Sharpened normal X component
+        1.0 - Q * WA * s,                       // Normal Y component
+        -d.y * WA * c * sharpened_derivative     // Sharpened normal Z component
     );
 }
 
@@ -392,7 +403,7 @@ void main() {
     }
     
     // Natural wave displacement for photorealistic appearance
-    totalDisplacement.y *= 3.0; // Moderate vertical displacement for natural look
+    totalDisplacement.y *= 1.5; // Gentle vertical displacement to prevent artifacts
     
     // Apply displacement
     worldPos += totalDisplacement;
@@ -421,6 +432,13 @@ uniform vec3 lightColor;
 uniform float lightIntensity;
 uniform vec3 viewPos;
 uniform float time;
+
+// GPU Gems Chapter 2: Caustics uniforms
+uniform bool enableCaustics;
+uniform float causticsIntensity;
+uniform float causticsScale;
+uniform float waterPlaneHeight;  // Height of water surface for ray intersection
+uniform vec2 causticsSpeed;
 
 // Configurable fog parameters
 uniform bool enableFog;
@@ -492,6 +510,56 @@ float ridgedNoise(vec2 st) {
 float warpedNoise(vec2 st, float warpStrength) {
     vec2 warp = vec2(fbm(st + vec2(0.0, 0.0)), fbm(st + vec2(5.2, 1.3)));
     return fbm(st + warp * warpStrength);
+}
+
+// GPU Gems Chapter 2: Wave function gradient for caustics
+// Based on the wave height function, compute surface gradients
+vec2 computeWaveGradient(vec2 position, float time) {
+    float epsilon = 0.1;
+    
+    // Sample wave height at multiple points to compute gradient
+    float h0 = 0.0;  // Center height
+    float hx = 0.0;  // Height offset in X
+    float hy = 0.0;  // Height offset in Y
+    
+    // Simplified wave function for caustics (faster than full Gerstner calculation)
+    for (int i = 0; i < 2; i++) { // Use first 2 waves for efficiency
+        float freq = 0.02 + float(i) * 0.01;
+        float amp = 1.0 - float(i) * 0.3;
+        float speed = 0.5 + float(i) * 0.2;
+        float phase = float(i) * 0.5;
+        
+        h0 += amp * sin(position.x * freq + position.y * freq * 0.7 + time * speed + phase);
+        hx += amp * sin((position.x + epsilon) * freq + position.y * freq * 0.7 + time * speed + phase);
+        hy += amp * sin(position.x * freq + (position.y + epsilon) * freq * 0.7 + time * speed + phase);
+    }
+    
+    // Compute gradient (partial derivatives)
+    return vec2((hx - h0) / epsilon, (hy - h0) / epsilon);
+}
+
+// GPU Gems Chapter 2: Ray-plane intersection for caustic projection
+vec3 rayPlaneIntersection(vec3 rayOrigin, vec3 rayDirection, vec3 planeNormal, float planeDistance) {
+    // GPU Gems optimized version (assumes plane normal always points up)
+    float t = (planeDistance - rayOrigin.z) / rayDirection.z;
+    return rayOrigin + rayDirection * t;
+}
+
+// Simplified caustic pattern for cleaner water
+float generateCaustics(vec3 worldPos, float time) {
+    if (!enableCaustics) return 0.0;
+    
+    // Much simpler caustics - just gentle light variation
+    vec2 causticsCoord = worldPos.xz * 0.0001 + time * 0.01;
+    
+    // Single, smooth caustic pattern
+    float caustic = sin(causticsCoord.x * 4.0) * sin(causticsCoord.y * 4.0) * 0.5 + 0.5;
+    caustic = smoothstep(0.3, 0.7, caustic) * 0.1; // Very subtle
+    
+    // Simple distance attenuation
+    float distanceAttenuation = 1.0 / (1.0 + length(worldPos.xz - viewPos.xz) * 0.00001);
+    
+    return caustic * causticsIntensity * distanceAttenuation * 0.5; // Much more subtle
 }
 
 void main() {
@@ -663,18 +731,33 @@ void main() {
         sparkles *= (1.0 - smoothstep(30.0, 100.0, distanceFromCamera));
     }
     
-    // Natural ocean color composition
-    vec3 baseColor = waterColor * (ambientLight + diffuseLight);
+    // Enhanced ocean depth and transparency
+    float waterDepth = 50.0 + waveHeight * 5.0; // Simulated depth variation
+    float depthFactor = clamp(waterDepth / 100.0, 0.1, 1.0);
     
-    // Very subtle caustics integration
-    baseColor += vec3(caustics) * sunlightColor * 0.2;
+    // Depth-based color absorption (red disappears first, blue penetrates deepest)
+    vec3 depthAbsorption = vec3(
+        exp(-depthFactor * 0.8),  // Red absorption
+        exp(-depthFactor * 0.4),  // Green absorption  
+        exp(-depthFactor * 0.1)   // Blue penetrates deepest
+    );
+    
+    // Apply depth coloration
+    vec3 depthColor = waterColor * depthAbsorption;
+    depthColor = mix(depthColor, vec3(0.0, 0.1, 0.3), depthFactor * 0.6); // Deeper blue
+    
+    vec3 baseColor = depthColor * (ambientLight + diffuseLight);
+    
+    // GPU Gems Chapter 2: Enhanced caustics integration  
+    float gpuGemsCaustics = generateCaustics(fragPosition, time);
+    baseColor += vec3(gpuGemsCaustics) * sunlightColor * (1.0 - depthFactor * 0.3);
     
     vec3 finalColor = baseColor + 
-                     specularLight * 0.7 +     // Reduced specular intensity
-                     subsurface +              // Minimal subsurface
+                     specularLight * 0.8 +     // Enhanced specular for water surface
+                     subsurface +              
                      rimColor;
     
-    // Natural brightness scaling
+    // Depth-enhanced brightness
     finalColor *= clamp(lightIntensity * 1.8, 0.05, 1.0);
     
     // Minimal foam mixing
@@ -683,9 +766,23 @@ void main() {
         finalColor = mix(finalColor, foamColor, totalFoam * 0.3);
     }
     
-    // More natural transparency
-    float alpha = mix(0.88, 0.92, fresnel) + totalFoam * 0.08 + sparkles * 0.3;
-    alpha = clamp(alpha, 0.88, 0.95);  // Tighter alpha range for more consistent water
+    // Depth-based transparency for realistic ocean depth
+    float baseAlpha = 0.85;
+    
+    // Viewing angle affects transparency (more transparent at shallow angles)
+    float viewAngle = dot(norm, viewDir);
+    float angleTransparency = mix(0.7, 0.95, pow(viewAngle, 0.5));
+    
+    // Depth affects opacity (deeper water is more opaque)
+    float depthOpacity = mix(0.8, 0.95, depthFactor);
+    
+    // Distance-based transparency (distant water appears more opaque due to atmosphere)
+    float distanceOpacity = mix(0.85, 0.95, smoothstep(1000.0, 20000.0, distanceFromCamera));
+    
+    // Combine all transparency factors
+    float alpha = baseAlpha * angleTransparency * depthOpacity * distanceOpacity;
+    alpha += fresnel * 0.1 + totalFoam * 0.15;
+    alpha = clamp(alpha, 0.75, 0.98);
     
     FragColor = vec4(finalColor, alpha);
 }
