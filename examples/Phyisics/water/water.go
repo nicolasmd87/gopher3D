@@ -13,14 +13,14 @@ import (
 )
 
 const (
-	OceanSize        = 1000  // Reasonable ocean size for visibility
-	WaterResolution  = 256   // Lower resolution for performance
-	WaveSpeed        = 0.6   // Natural wave speed
-	Amplitude        = 2.5   // Natural wave height
-	MaxWaves         = 4     // Match shader expectation (4 waves)
-	WindSpeed        = 7.0   // Natural wind speed
-	WaveAge          = 1.3   // Natural wave development
-	DayCycleDuration = 300.0 // 5 minutes for full day cycle
+	OceanSize        = 900000 // Massive photorealistic ocean - 100x bigger
+	WaterResolution  = 4096   // Higher resolution for massive scale
+	WaveSpeed        = 0.6    // Slower, more realistic wave speed for large scale
+	Amplitude        = 8.0    // Larger waves for massive ocean scale
+	MaxWaves         = 4      // Match shader expectation (4 waves)
+	WindSpeed        = 7.0    // Natural wind speed
+	WaveAge          = 1.3    // Natural wave development
+	DayCycleDuration = 300.0  // 5 minutes for full day cycle
 )
 
 type WaterSimulation struct {
@@ -53,33 +53,27 @@ func NewWaterSimulation(engine *engine.Gopher) {
 		waveSpeeds:      make([]float32, MaxWaves),
 		wavePhases:      make([]float32, MaxWaves),
 		waveSteepness:   make([]float32, MaxWaves),
-		sunAngle:        0.0, // Start sun at dawn
+		sunAngle:        0.0,
 	}
 
 	// Initialize wave parameters for 4 waves
 	for i := 0; i < MaxWaves; i++ {
-		// Create different wave layers
 		var baseAmplitude, baseFreq float32
 
 		if i == 0 {
-			// Primary ocean swell
 			baseAmplitude = Amplitude * 1.0
-			baseFreq = 0.01
+			baseFreq = 0.0001 // Much lower frequency for massive ocean
 		} else if i == 1 {
-			// Secondary swell
 			baseAmplitude = Amplitude * 0.7
-			baseFreq = 0.015
+			baseFreq = 0.0002
 		} else if i == 2 {
-			// Medium waves
 			baseAmplitude = Amplitude * 0.5
-			baseFreq = 0.025
+			baseFreq = 0.0005
 		} else {
-			// Small detail waves
 			baseAmplitude = Amplitude * 0.3
-			baseFreq = 0.04
+			baseFreq = 0.001
 		}
 
-		// Simple directional spread for 4 waves
 		baseAngle := float32(i) * 90.0 * math.Pi / 180.0 // 90-degree spread between waves
 		dirX := float32(math.Cos(float64(baseAngle)))
 		dirZ := float32(math.Sin(float64(baseAngle)))
@@ -88,61 +82,49 @@ func NewWaterSimulation(engine *engine.Gopher) {
 		ws.waveAmplitudes[i] = baseAmplitude
 		ws.waveFrequencies[i] = baseFreq
 
-		// Simple wave speeds
 		ws.waveSpeeds[i] = WaveSpeed * (0.8 + float32(i)*0.1)
 
-		// Simple phase offsets
 		ws.wavePhases[i] = float32(i) * math.Pi / 2.0
 
-		// Simple steepness
-		ws.waveSteepness[i] = 0.3 + float32(i)*0.1
+		ws.waveSteepness[i] = 0.5 + float32(i)*0.15
 
 		fmt.Printf("DEBUG: Wave %d - Dir: [%.2f, %.2f, %.2f], Amp: %.3f, Freq: %.5f, Speed: %.2f\n",
 			i, ws.waveDirections[i].X(), ws.waveDirections[i].Y(), ws.waveDirections[i].Z(),
 			ws.waveAmplitudes[i], ws.waveFrequencies[i], ws.waveSpeeds[i])
 	}
 
-	// Store references to models to create later when OpenGL context is ready
-	ws.sunModel = nil // Will be created in Start() method
+	ws.sunModel = nil
 
 	behaviour.GlobalBehaviourManager.Add(ws)
 }
 
 func main() {
-	fmt.Println("DEBUG: Starting water example")
 
 	engine := engine.NewGopher(engine.OPENGL)
 	engine.SetDebugMode(false) // Turn off wireframe for clearer view
 	NewWaterSimulation(engine)
-
-	fmt.Println("DEBUG: About to start rendering...")
-	engine.Render(600, 200) // Proper window position
+	engine.Width = 1920
+	engine.Height = 1080
+	engine.Render(0, 0) // Proper window position
 }
 
 func (ws *WaterSimulation) Start() {
-	fmt.Println("DEBUG: WaterSimulation Start() called")
 
 	ws.engine.Camera.InvertMouse = false
-	ws.engine.SetFrustumCulling(false) // Disable frustum culling to ensure sun sphere is visible
-	ws.engine.SetFaceCulling(false)    // Disable face culling for debugging
 
-	// Red background was affecting ALL examples - removed
-	fmt.Println("DEBUG: Testing default shader with green plane")
+	oceanCenter := float32(OceanSize / 2)                                           // This matches the center used in LoadWaterSurface
+	ws.engine.Camera.Position = mgl32.Vec3{oceanCenter, 20000, oceanCenter + 50000} // Much higher position for 900km ocean
 
-	// Initialize camera - positioned to see the massive ocean and sun
-	oceanCenter := float32(OceanSize / 2)                                       // This matches the center used in LoadWaterSurface
-	ws.engine.Camera.Position = mgl32.Vec3{oceanCenter, 100, oceanCenter + 200} // Position camera to see ocean and sun
-	// Do NOT call LookAt here; it sets radians into degree-based yaw/pitch and breaks orientation
-	ws.engine.Camera.Speed = 300 // Faster speed for exploring the massive ocean
+	// Configure camera projection for massive ocean scale - engine handles projection updates automatically
+	ws.engine.Camera.SetNear(10.0)     // Larger near plane for massive scale
+	ws.engine.Camera.SetFar(2000000.0) // Much farther for 900km ocean
+	ws.engine.Camera.Speed = 15000     // Much faster speed for exploring the massive ocean
 
-	fmt.Printf("DEBUG: Camera positioned at %v, looking at ocean center (%.0f,0,%.0f)\n", ws.engine.Camera.Position, oceanCenter, oceanCenter)
-
-	// Sun-like directional lighting using engine API
-	ws.engine.Light = renderer.CreateSunlight(mgl32.Vec3{0.2, -0.7, 0.3})
-	ws.engine.Light.Intensity = 1.8
-	ws.engine.Light.AmbientStrength = 0.25
+	oceanCenter = float32(OceanSize / 2)
+	sunPosition := mgl32.Vec3{oceanCenter, 100000.0, oceanCenter}                                        // Much higher sun position
+	ws.engine.Light = renderer.CreatePointLight(sunPosition, mgl32.Vec3{1.0, 0.98, 0.9}, 3.0, 1000000.0) // Brighter light with much larger range for massive scale
+	ws.engine.Light.AmbientStrength = 0.08                                                               // Much lower ambient for photorealistic contrast
 	ws.engine.Light.Type = renderer.STATIC_LIGHT
-	fmt.Printf("DEBUG: Directional sun light positioned at %v\n", ws.engine.Light.Position)
 
 	// Skybox - follow the same API used in other examples
 	ws.lastSkyColor = mgl32.Vec3{0.5, 0.7, 1.0}
@@ -156,157 +138,72 @@ func (ws *WaterSimulation) Start() {
 	if err != nil {
 		panic("Failed to load water surface: " + err.Error())
 	}
-	fmt.Printf("DEBUG: Optimized water surface loaded with OceanSize=%d, Resolution=%d\n", OceanSize, WaterResolution)
 
-	// Natural water material for realistic appearance
-	model.SetDiffuseColor(0.15, 0.35, 0.7) // Natural ocean blue
-	// No exposure setting - keep it simple
-	model.Shader = ws.shader // Apply custom water shader to water surface
-
-	// Debug shader assignment
-	fmt.Printf("DEBUG: Water shader IsValid(): %v\n", ws.shader.IsValid())
-	fmt.Println("DEBUG: Using CUSTOM WATER SHADER")
+	// Enhanced water material for realistic appearance
+	model.SetDiffuseColor(0.05, 0.25, 0.55) // Deeper, more realistic ocean blue
+	model.SetMaterialPBR(0.02, 0.1)         // Slightly metallic with low roughness for realistic water
+	model.SetExposure(1.2)                  // Slightly enhanced exposure for better light reflection
+	model.Shader = ws.shader                // Apply custom water shader to water surface
 
 	ws.model = model
 
-	// Set up static water uniforms once (handled automatically by engine)
 	ws.setupWaterUniforms()
 
 	ws.engine.AddModel(model)
-	fmt.Println("DEBUG: Model added to engine")
-
-	// Create sun sphere - same approach as other examples
-	fmt.Println("DEBUG: Creating sun sphere...")
 	sunModel, err := loader.LoadObjectWithPath("../../resources/obj/Sphere.obj", true)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to load sun sphere: %v\n", err)
 	} else {
-		// Set sun properties - EXACTLY like Voxel example
-		sunModel.Scale = mgl32.Vec3{50, 50, 50}  // Large sun
-		sunModel.SetPolishedMetal(1.0, 0.9, 0.7) // Bright yellow sun
-		sunModel.SetExposure(2.6)                // Very bright so it "shines"
+		sunModel.Scale = mgl32.Vec3{10000, 10000, 10000} // Massive sun - 20x bigger for visibility at 900km ocean scale
+		sunModel.SetDiffuseColor(1.0, 0.95, 0.8)         // Bright natural sun color
+		sunModel.SetMaterialPBR(0.0, 0.0)                // Non-metallic, mirror smooth for maximum brightness
+		sunModel.SetExposure(30.0)                       // Even higher exposure for maximum brightness
 
-		// Set sun position - high above horizon and large so it's clearly visible
 		oceanCenter := float32(OceanSize / 2)
-		sunModel.SetPosition(oceanCenter, 1200.0, oceanCenter)
-		sunModel.Scale = mgl32.Vec3{150, 150, 150}
-		sunModel.SetExposure(5.0)
+		sunModel.SetPosition(oceanCenter, 15000.0, oceanCenter) // Closer to camera for better visibility
 
-		// Store reference - EXACTLY like Voxel example
 		ws.sunModel = sunModel
 
-		// Add sun to engine - EXACTLY like Voxel example
 		ws.engine.AddModel(sunModel)
-
-		fmt.Printf("DEBUG: Sun sphere added to scene - Scale: %v, Position: %v\n",
-			sunModel.Scale, sunModel.Position)
 	}
 
-	// Start at daytime so scene isn't initially dark
-	// Offset startTime so Update() computes midday on first frame
-	middayOffset := time.Duration(int(DayCycleDuration*0.25)) * time.Second
-	ws.startTime = time.Now().Add(-middayOffset)
-	ws.currentTime = float32(time.Since(ws.startTime).Seconds())
-	ws.UpdateMovingSun()
-
-	fmt.Println("DEBUG: Ocean surface initialization complete - GPU waves active")
+	ws.startTime = time.Now()
+	ws.currentTime = 0.0
+	ws.SetFixedDaylight()
 }
 
 func (ws *WaterSimulation) Update() {
-	// Update time for wave animation
 	ws.currentTime = float32(time.Since(ws.startTime).Seconds())
 
-	// Update moving sun
-	ws.UpdateMovingSun()
-
-	// Only update dynamic water uniforms (time and light direction)
 	ws.updateDynamicWaterUniforms()
 
-	// TODO: Add space key to look at sun (need to implement key input)
-
-	// Debug every 30 seconds
-	if int(ws.currentTime)%30 == 0 && int(ws.currentTime*10)%10 == 0 {
-		fmt.Printf("DEBUG: Time: %.1fs, Sun Angle: %.1f°\n", ws.currentTime, ws.sunAngle)
-	}
 }
 
 func (ws *WaterSimulation) UpdateFixed() {}
 
-// UpdateMovingSun updates the sun position and lighting based on time for full day cycle
-func (ws *WaterSimulation) UpdateMovingSun() {
-	// Full day cycle: 0° = dawn, 90° = noon, 180° = dusk, 270° = midnight
-	sunSpeed := float32(360.0 / DayCycleDuration) // Full 360° cycle
-	ws.sunAngle = float32(math.Mod(float64(ws.currentTime*sunSpeed), 360.0))
-
-	// Calculate sun position in 3D space
-	sunRad := mgl32.DegToRad(ws.sunAngle)
-
-	// Calculate sun height for lighting (simple fixed height)
-	sunHeight := float32(200.0) / 1500.0 // Normalize height for lighting calculations
-
-	// Keep sun sphere in fixed position (don't update position every frame)
-	// The sun sphere is already positioned in Start() and should stay there
-
-	// Simple light direction from sun to ocean center
-	lightDir := mgl32.Vec3{0, -1, 0}.Normalize() // Light shines down from sun
-	ws.engine.Light.Direction = lightDir
-
-	// Calculate sun height for lighting and sky color (0 = horizon, 1 = zenith)
-	sunHeight = float32(math.Sin(float64(sunRad)))
-
-	// Set light color and intensity based on sun angle for realistic day cycle
-	var lightIntensity float32
-	var lightColor mgl32.Vec3
-
-	if ws.sunAngle < 10.0 || ws.sunAngle > 350.0 {
-		// Night - moon lighting (sun below horizon)
-		lightColor = mgl32.Vec3{0.8, 0.85, 1.0} // Cool moonlight
-		lightIntensity = 0.05
-	} else if ws.sunAngle < 30.0 || ws.sunAngle > 330.0 {
-		// Dawn/Dusk - warm colors (sun low on horizon)
-		lightColor = mgl32.Vec3{1.0, 0.7, 0.4} // Warm sunrise/sunset
-		lightIntensity = 0.2 + sunHeight*0.4
-	} else if ws.sunAngle < 60.0 || ws.sunAngle > 300.0 {
-		// Early morning/Late afternoon
-		lightColor = mgl32.Vec3{1.0, 0.9, 0.7} // Soft daylight
-		lightIntensity = 0.4 + sunHeight*0.6
-	} else {
-		// Midday - bright natural sunlight
-		lightColor = mgl32.Vec3{1.0, 0.98, 0.95} // Bright white sunlight
-		lightIntensity = 0.8 + sunHeight*0.4
-	}
+// SetFixedDaylight sets up a fixed bright daylight scene for water reflection
+func (ws *WaterSimulation) SetFixedDaylight() {
+	// Set photorealistic daylight colors and intensity
+	lightColor := mgl32.Vec3{1.0, 0.98, 0.95} // Bright white sunlight
+	lightIntensity := float32(2.2)            // Dimmer overall lighting for photorealism
 
 	ws.engine.Light.Color = lightColor
 	ws.engine.Light.Intensity = lightIntensity
 
-	// Daylight skybox color; dark at night; warm at dawn/dusk
-	var sky mgl32.Vec3
-	switch {
-	case ws.engine.Light.Intensity < 0.2:
-		sky = mgl32.Vec3{0.05, 0.06, 0.1} // Night: very dark blue
-	case ws.sunAngle < 30.0 || ws.sunAngle > 330.0:
-		sky = mgl32.Vec3{1.0, 0.6, 0.3} // Dawn/Dusk: warm
-	default:
-		sky = mgl32.Vec3{0.5, 0.7, 1.0} // Day
-	}
+	// Set photorealistic daylight sky color
+	sky := mgl32.Vec3{0.4, 0.6, 0.9} // More natural, slightly dimmer sky for photorealism
 	ws.lastSkyColor = sky
 	ws.engine.UpdateSkyboxColor(sky.X(), sky.Y(), sky.Z())
 
-	// Update sun sphere color based on time of day
+	// Ensure sun sphere stays bright
 	if ws.sunModel != nil {
-		// Keep sun bright and shining
 		ws.sunModel.SetDiffuseColor(1.0, 0.9, 0.6) // Bright yellow sun
-
-		// Debug sun position every 30 seconds
-		if int(ws.currentTime)%30 == 0 && int(ws.currentTime*10)%10 == 0 {
-			fmt.Printf("SUN: Time=%.1fs, Angle=%.1f°, Pos=(%.0f, %.0f, %.0f), Light=%.2f\n",
-				ws.currentTime, ws.sunAngle,
-				ws.sunModel.Position.X(), ws.sunModel.Position.Y(), ws.sunModel.Position.Z(),
-				ws.engine.Light.Intensity)
-		}
+		fmt.Printf("SUN: Fixed daylight - Pos=(%.0f, %.0f, %.0f), Light Intensity=%.2f\n",
+			ws.sunModel.Position.X(), ws.sunModel.Position.Y(), ws.sunModel.Position.Z(),
+			ws.engine.Light.Intensity)
 	}
 
-	// Keep skybox simple - no changes
+	fmt.Println("DEBUG: Fixed daylight scene configured - bright sun for water reflections")
 }
 
 // setupWaterUniforms sets up static water uniforms once (handled automatically by engine)
@@ -369,9 +266,11 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 
 // updateDynamicWaterUniforms updates only the time-based uniforms
 func (ws *WaterSimulation) updateDynamicWaterUniforms() {
-	// Update time, light direction and sky colors dynamically
+	// Update time, light position (for point light) and sky colors dynamically
 	ws.model.CustomUniforms["time"] = ws.currentTime
-	ws.model.CustomUniforms["lightDirection"] = ws.engine.Light.Direction
+	ws.model.CustomUniforms["lightPos"] = ws.engine.Light.Position        // Point light position
+	ws.model.CustomUniforms["lightColor"] = ws.engine.Light.Color         // Light color
+	ws.model.CustomUniforms["lightIntensity"] = ws.engine.Light.Intensity // Light intensity
 	ws.model.CustomUniforms["skyColor"] = ws.lastSkyColor
 	ws.model.CustomUniforms["horizonColor"] = mgl32.Vec3{
 		ws.lastSkyColor.X() * 0.85,

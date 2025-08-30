@@ -68,8 +68,6 @@ func main() {
 }
 
 func (bhb *BlackHoleBehaviour) Start() {
-	//startCPUProfile()
-	//defer stopCPUProfile()
 
 	bhb.engine.Camera.InvertMouse = false
 	bhb.engine.Camera.Position = mgl.Vec3{200, 150, 1000}

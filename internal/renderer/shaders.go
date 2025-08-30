@@ -204,6 +204,17 @@ vec3 ACESFilm(vec3 x) {
 void main() {
     vec4 texColor = texture(textureSampler, fragTexCoord);
     
+    // Check for emissive objects first - bypass all lighting for sun-like objects
+    if (exposure > 10.0) {
+        // For emissive objects like sun spheres - uniform bright emission
+        vec3 albedo = diffuseColor * texColor.rgb;
+        vec3 emissiveColor = albedo * 2.0; // Strong uniform emission
+        emissiveColor = ACESFilm(emissiveColor);
+        emissiveColor = pow(emissiveColor, vec3(1.0/2.2)); // Gamma correction
+        FragColor = vec4(emissiveColor, texColor.a);
+        return; // Skip all lighting calculations
+    }
+    
     // Pre-calculate expensive operations once
     vec3 tempAdjustedLightColor = light.color * kelvinToRGB(light.temperature);
     vec3 norm = normalize(Normal);
@@ -278,7 +289,7 @@ void main() {
     
     vec3 color = ambient + Lo;
     
-    // HDR exposure and tone mapping
+    // HDR exposure and tone mapping for normal objects
     color = color * exposure;
     color = ACESFilm(color);
     
@@ -380,8 +391,8 @@ void main() {
         totalNormal += waveNormal;
     }
     
-    // Ensure displacement is visible
-    totalDisplacement.y *= 2.0; // Double the vertical displacement for visibility
+    // Natural wave displacement for photorealistic appearance
+    totalDisplacement.y *= 3.0; // Moderate vertical displacement for natural look
     
     // Apply displacement
     worldPos += totalDisplacement;
@@ -486,8 +497,8 @@ float warpedNoise(vec2 st, float warpStrength) {
 void main() {
     vec3 norm = normalize(fragNormal);
     
-    // Calculate light direction - use directional light for sun-like lighting
-    vec3 lightDir = normalize(-lightDirection);  // Negate for proper lighting direction
+    // Calculate light direction from point light position
+    vec3 lightDir = normalize(lightPos - fragPosition);
     
     vec3 viewDir = normalize(viewPos - fragPosition);
 
@@ -513,11 +524,27 @@ void main() {
     vec3 surfaceGradient = vec3(0.0, 1.0, 0.0); // No surface gradient
     norm = normalize(norm + surfaceGradient * 0.1); // Minimal perturbation
     
-    // Single uniform water color - no variations to eliminate all patterns
-    vec3 waterColor = vec3(0.08, 0.25, 0.45);  // Single uniform ocean blue
+    // Photorealistic water color with depth and distance effects
+    float waveInfluence = clamp(waveHeight * 0.2, -0.1, 0.1); // Wave height influence on color
+    vec3 deepWaterColor = vec3(0.01, 0.08, 0.25);   // Very deep ocean blue for photorealism
+    vec3 shallowWaterColor = vec3(0.05, 0.15, 0.35); // Slightly lighter for wave peaks
+    vec3 baseWaterColor = mix(deepWaterColor, shallowWaterColor, waveInfluence + 0.1);
     
-    // No foam calculations at all - pure water only
+    // Distance-based color shift for massive ocean scale
+    float distanceFactor = smoothstep(1000.0, 50000.0, distanceFromCamera);
+    vec3 distantWaterColor = vec3(0.3, 0.5, 0.7); // Lighter blue-gray for distant water
+    vec3 waterColor = mix(baseWaterColor, distantWaterColor, distanceFactor * 0.6);
+    
+    // Subtle foam for photorealistic ocean
     float totalFoam = 0.0;
+    
+    // Very subtle foam only on the highest wave peaks
+    if (waveHeight > 3.0) {
+        float foamFromHeight = smoothstep(3.0, 6.0, waveHeight) * 0.15; // Much less foam
+        totalFoam = foamFromHeight;
+    }
+    
+    totalFoam = clamp(totalFoam, 0.0, 0.2); // Much lower maximum foam
     
     // Modern Fresnel effect for realistic water reflections
     float fresnel = pow(1.0 - max(dot(norm, viewDir), 0.0), 2.0);
@@ -545,25 +572,23 @@ void main() {
     // Cook-Torrance BRDF
     vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.001);
     
-    // Completely disable caustics in low light to eliminate dark patches
+    // Subtle caustics for natural water appearance
     float caustics = 0.0;
-    if (lightIntensity > 1.3) {
-        // Only enable caustics in very bright midday
-        vec2 causticsCoord = fragPosition.xz * 0.05 * detailScale + temporalPhase * 0.01;
-        caustics = pow(warpedNoise(causticsCoord), 4.0) * 0.1;
-        caustics *= smoothstep(0.0, 0.2, waveHeight);
-        // Gradual fade-in to prevent sudden appearance
-        caustics *= smoothstep(1.3, 1.5, lightIntensity);
+    if (lightIntensity > 2.0) {
+        // Very subtle caustics only in bright conditions
+        vec2 causticsCoord = fragPosition.xz * 0.005 * detailScale + temporalPhase * 0.03;
+        caustics = pow(noise(causticsCoord), 6.0) * 0.08; // Much subtler
+        caustics *= smoothstep(2.0, 3.0, lightIntensity);
     }
     
-    // Completely disable subsurface scattering in low light to eliminate dark patches
-    vec3 subsurface = vec3(0.0, 0.0, 0.0);
-    if (lightIntensity > 1.3) {
-        // Only enable subsurface in very bright midday
-        subsurface = vec3(0.0, 0.2, 0.5) * max(0.0, dot(-norm, lightDir)) * 0.3;
-        subsurface *= (1.0 - smoothstep(0.0, 0.5, waveHeight));
-        // Gradual fade-in to prevent sudden appearance
-        subsurface *= smoothstep(1.3, 1.5, lightIntensity);
+    // Very subtle subsurface scattering
+    vec3 subsurface = vec3(0.0);
+    if (lightIntensity > 2.0) {
+        // Minimal subsurface effect
+        vec3 subsurfaceColor = vec3(0.05, 0.15, 0.25); // Subtle blue tint
+        float subsurfaceStrength = max(0.0, dot(-norm, lightDir)) * 0.1;
+        subsurface = subsurfaceColor * subsurfaceStrength;
+        subsurface *= smoothstep(2.0, 3.0, lightIntensity);
     }
     
     // No surface pattern color injection - clean water surface
@@ -621,9 +646,10 @@ void main() {
     // PBR diffuse and specular lighting with sky influence
     vec3 diffuseLight = diffuse * lightColor * lightIntensity * 0.8; // Proper water diffuse
     
-    // Sky-influenced specular for realistic reflections
-    vec3 skyInfluencedSpecular = mix(sunlightColor, skyColor, 0.3); // 30% sky influence
-    vec3 specularLight = specular * skyInfluencedSpecular * lightIntensity * 0.3; // Reduced from 0.6 to 0.3
+    // Photorealistic specular with distance attenuation
+    vec3 skyInfluencedSpecular = mix(lightColor, skyColor, 0.15); // Use actual light color with minimal sky influence
+    float specularFalloff = 1.0 / (1.0 + distanceFromCamera * 0.00002); // Distance falloff for massive scale
+    vec3 specularLight = specular * skyInfluencedSpecular * lightIntensity * 0.8 * specularFalloff; // Strong sun reflections with falloff
     
     // Subtle rim lighting
     float rimIntensity = pow(1.0 - dot(norm, viewDir), 3.0) * 0.05;
@@ -637,20 +663,25 @@ void main() {
         sparkles *= (1.0 - smoothstep(30.0, 100.0, distanceFromCamera));
     }
     
-    // Modern PBR final color assembly - proper lighting
+    // Natural ocean color composition
     vec3 baseColor = waterColor * (ambientLight + diffuseLight);
+    
+    // Very subtle caustics integration
+    baseColor += vec3(caustics) * sunlightColor * 0.2;
+    
     vec3 finalColor = baseColor + 
-                     specularLight +           // Additive specular
-                     subsurface * 0.4 +        // Subtle subsurface
-                     rimColor +
-                     vec3(sparkles * 0.3);     // Very subtle sparkles
+                     specularLight * 0.7 +     // Reduced specular intensity
+                     subsurface +              // Minimal subsurface
+                     rimColor;
     
-    // Ensure water gets very dark when light intensity is low
-    finalColor *= clamp(lightIntensity * 4.0, 0.02, 1.0);
+    // Natural brightness scaling
+    finalColor *= clamp(lightIntensity * 1.8, 0.05, 1.0);
     
-    // Very subtle foam mixing - barely visible
-    vec3 foamWithDetail = vec3(0.75, 0.8, 0.85) * (0.3 + 0.02 * totalFoam); // More subtle foam color
-    finalColor = mix(finalColor, foamWithDetail, totalFoam * 0.08);  // Even more subtle foam visibility
+    // Minimal foam mixing
+    if (totalFoam > 0.05) {
+        vec3 foamColor = vec3(0.8, 0.85, 0.9); // Less bright foam
+        finalColor = mix(finalColor, foamColor, totalFoam * 0.3);
+    }
     
     // More natural transparency
     float alpha = mix(0.88, 0.92, fresnel) + totalFoam * 0.08 + sparkles * 0.3;
