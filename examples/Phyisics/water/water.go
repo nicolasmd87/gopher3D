@@ -14,7 +14,7 @@ import (
 
 const (
 	OceanSize       = 900000 // Massive photorealistic ocean - 900km
-	WaterResolution = 2048   // Higher resolution for massive scale
+	WaterResolution = 4096   // Higher resolution for massive scale
 	WaveSpeed       = 0.6    // Slower, more realistic wave speed for large scale
 	MaxWaves        = 4      // Match shader expectation (4 waves)
 	WindSpeed       = 7.0    // Natural wind speed
@@ -96,9 +96,6 @@ func NewWaterSimulation(engine *engine.Gopher) {
 
 		ws.waveSteepness[i] = 0.2 + float32(i)*0.1 // Gentle progressive steepness
 
-		fmt.Printf("DEBUG: GPU Gems Wave %d - Dir: [%.2f, %.2f, %.2f], Amp: %.3f, Freq: %.5f, Speed: %.2f, λ=%.0fm\n",
-			i, ws.waveDirections[i].X(), ws.waveDirections[i].Y(), ws.waveDirections[i].Z(),
-			ws.waveAmplitudes[i], ws.waveFrequencies[i], ws.waveSpeeds[i], wavelength)
 	}
 
 	ws.sunModel = nil
@@ -117,11 +114,13 @@ func main() {
 }
 
 func (ws *WaterSimulation) Start() {
+	// Disable frustum culling to ensure sun is always rendered
+	ws.engine.SetFrustumCulling(false)
 
 	ws.engine.Camera.InvertMouse = false
 
 	oceanCenter := float32(OceanSize / 2)                                           // This matches the center used in LoadWaterSurface
-	ws.engine.Camera.Position = mgl32.Vec3{oceanCenter, 20000, oceanCenter + 50000} // Much higher position for 900km ocean
+	ws.engine.Camera.Position = mgl32.Vec3{oceanCenter, 15000, oceanCenter + 40000} // Lower position for natural horizon view
 
 	// Configure camera projection for massive ocean scale - engine handles projection updates automatically
 	ws.engine.Camera.SetNear(10.0)     // Larger near plane for massive scale
@@ -129,9 +128,13 @@ func (ws *WaterSimulation) Start() {
 	ws.engine.Camera.Speed = 15000     // Much faster speed for exploring the massive ocean
 
 	oceanCenter = float32(OceanSize / 2)
-	// Create SUN as a directional light (not point light!)
-	sunDirection := mgl32.Vec3{0.3, -1.0, 0.2}.Normalize()                                           // Sun coming from above at slight angle
-	ws.engine.Light = renderer.CreateDirectionalLight(sunDirection, mgl32.Vec3{1.0, 0.98, 0.9}, 4.5) // Much brighter directional sun light
+	// Calculate sun direction based on actual sun position for consistency
+	cameraPos := mgl32.Vec3{oceanCenter, 20000, oceanCenter + 50000}
+	sunPos := mgl32.Vec3{oceanCenter + 200000, 100000.0, oceanCenter + 200000} // Match new distant sun position
+	// For directional light, we need direction that light rays travel (from sun to objects)
+	sunDirection := cameraPos.Sub(sunPos).Normalize() // Direction from sun toward camera (light ray direction)
+
+	ws.engine.Light = renderer.CreateDirectionalLight(sunDirection, mgl32.Vec3{1.0, 0.98, 0.9}, 4.5) // Use direction as-is
 	ws.engine.Light.AmbientStrength = 0.25                                                           // Higher ambient for natural ocean lighting
 	ws.engine.Light.Type = renderer.STATIC_LIGHT
 
@@ -148,40 +151,54 @@ func (ws *WaterSimulation) Start() {
 		panic("Failed to load water surface: " + err.Error())
 	}
 
-	// Enhanced water material for realistic appearance
-	model.SetDiffuseColor(0.05, 0.25, 0.55) // Deeper, more realistic ocean blue
-	model.SetMaterialPBR(0.02, 0.1)         // Slightly metallic with low roughness for realistic water
-	model.SetExposure(1.2)                  // Slightly enhanced exposure for better light reflection
-	model.Shader = ws.shader                // Apply custom water shader to water surface
+	// DEBUG: Check if water model was loaded properly
+	fmt.Printf("DEBUG WATER LOADED: Vertices=%d, Faces=%d, InterleavedData=%d\n",
+		len(model.Vertices), len(model.Faces), len(model.InterleavedData))
+
+	// Enhanced water material for realistic appearance - natural ocean water
+	model.SetDiffuseColor(0.06, 0.22, 0.45) // Natural ocean blue matching shader
+	model.SetMaterialPBR(0.0, 0.4)          // Non-metallic (0.0) with higher roughness for matte appearance
+	model.SetExposure(1.0)                  // Standard exposure, brightness controlled by lighting
+
+	model.Shader = ws.shader // Apply custom water shader to water surface
 
 	// GPU Gems Chapter 9 & 11: Shadow settings will be applied via CustomUniforms
 	ws.model = model
 	ws.setupWaterUniforms()
 	ws.engine.AddModel(model)
+
+	// Load sun model following the same pattern as other examples
 	sunModel, err := loader.LoadObjectWithPath("../../resources/obj/Sphere.obj", true)
 	if err != nil {
-		fmt.Printf("ERROR: Failed to load sun sphere: %v\n", err)
-	} else {
-		sunModel.Scale = mgl32.Vec3{10000, 10000, 10000} // Massive sun - 20x bigger for visibility at 900km ocean scale
-		sunModel.SetDiffuseColor(1.0, 0.95, 0.8)         // Bright natural sun color
-		sunModel.SetMaterialPBR(0.0, 0.0)                // Non-metallic, mirror smooth for maximum brightness
-		sunModel.SetExposure(30.0)                       // Even higher exposure for maximum brightness
-
-		oceanCenter := float32(OceanSize / 2)
-		// Position sun much higher for 900km ocean scale - visible from anywhere
-		sunModel.SetPosition(oceanCenter, 200000.0, oceanCenter) // Much higher sun position for massive scale
-
-		ws.sunModel = sunModel
-
-		ws.engine.AddModel(sunModel)
+		fmt.Printf("ERROR: Failed to load sphere sun: %v\n", err)
+		return
 	}
 
-	// Add underwater objects for depth perception
-	ws.addUnderwaterObjects()
+	// DEBUG: Check if sun model was loaded properly
+	fmt.Printf("DEBUG SUN LOADED: Vertices=%d, Faces=%d, InterleavedData=%d\n",
+		len(sunModel.Vertices), len(sunModel.Faces), len(sunModel.InterleavedData))
+
+	// Configure sun model properties - Very large and bright sun
+	sunModel.Scale = mgl32.Vec3{50000, 50000, 50000} // Large 50km diameter sun
+	sunModel.SetDiffuseColor(1.0, 0.95, 0.8)         // Warm sun color
+	sunModel.SetMaterialPBR(0.0, 0.0)                // Non-metallic, mirror smooth for maximum brightness
+	sunModel.SetExposure(150.0)                      // Very high exposure to trigger emissive mode
+
+	oceanCenter = float32(OceanSize / 2)
+	// Position sun high in the sky where it should be visible
+	sunModel.SetPosition(oceanCenter+150000, 200000.0, oceanCenter+50000) // High in sky, visible above horizon
+
+	// Ensure sun uses default shader for emissive properties
+	ws.sunModel = sunModel
+	ws.engine.AddModel(sunModel)
+
+	// DEBUG: Check if VAO was created after AddModel
+	fmt.Printf("DEBUG SUN AFTER AddModel: VAO=%d, VBO=%d, EBO=%d\n",
+		sunModel.VAO, sunModel.VBO, sunModel.EBO)
 
 	ws.startTime = time.Now()
 	ws.currentTime = 0.0
-	ws.SetFixedDaylight()
+	ws.SetFixedDaylight() // Re-enabled to ensure proper sun visibility
 }
 
 func (ws *WaterSimulation) Update() {
@@ -193,59 +210,11 @@ func (ws *WaterSimulation) Update() {
 
 func (ws *WaterSimulation) UpdateFixed() {}
 
-// addUnderwaterObjects adds objects beneath the water surface to show depth
-func (ws *WaterSimulation) addUnderwaterObjects() {
-	oceanCenter := float32(OceanSize / 2)
-
-	// Add several underwater cubes at different depths and positions
-	underwaterPositions := []mgl32.Vec3{
-		{oceanCenter - 15000, -25.0, oceanCenter - 10000}, // Shallow cube
-		{oceanCenter + 20000, -45.0, oceanCenter + 15000}, // Medium depth cube
-		{oceanCenter - 25000, -65.0, oceanCenter + 20000}, // Deep cube
-		{oceanCenter + 10000, -35.0, oceanCenter - 18000}, // Another medium cube
-		{oceanCenter, -55.0, oceanCenter + 5000},          // Central deep cube
-	}
-
-	for i, pos := range underwaterPositions {
-		cube, err := loader.LoadObjectWithPath("../../resources/obj/Cube.obj", true)
-		if err != nil {
-			fmt.Printf("Warning: Could not load underwater cube %d: %v\n", i, err)
-			continue
-		}
-
-		// Scale based on depth (deeper objects appear smaller due to perspective)
-		depth := -pos.Y()
-		scale := mgl32.Vec3{800 + depth*5, 800 + depth*5, 800 + depth*5} // Larger cubes, scaled by depth
-		cube.Scale = scale
-		cube.SetPosition(pos.X(), pos.Y(), pos.Z())
-
-		// Set underwater coloration (blue-green tint, less red due to water absorption)
-		redChannel := float32(0.2 - depth*0.003)   // Red disappears with depth
-		greenChannel := float32(0.4 - depth*0.002) // Green reduces slower
-		blueChannel := float32(0.6)                // Blue remains strong underwater
-
-		cube.SetDiffuseColor(redChannel, greenChannel, blueChannel)
-		cube.SetMaterialPBR(0.1, 0.8) // Slightly metallic, rough surface for underwater look
-		cube.SetExposure(1.0)
-
-		// GPU Gems: Enable shadows for underwater objects via CustomUniforms
-		if cube.CustomUniforms == nil {
-			cube.CustomUniforms = make(map[string]interface{})
-		}
-		cube.CustomUniforms["enableShadows"] = true
-		cube.CustomUniforms["shadowIntensity"] = float32(0.4) // Slightly darker shadows underwater
-		cube.CustomUniforms["shadowSoftness"] = float32(0.2)
-
-		ws.engine.AddModel(cube)
-		fmt.Printf("Added underwater cube %d at depth %.1f with scale %.0f\n", i, depth, scale.X())
-	}
-}
-
 // SetFixedDaylight sets up a fixed bright daylight scene for water reflection
 func (ws *WaterSimulation) SetFixedDaylight() {
-	// Set photorealistic daylight colors and intensity
+	// Set natural daylight colors and intensity
 	lightColor := mgl32.Vec3{1.0, 0.98, 0.95} // Bright white sunlight
-	lightIntensity := float32(2.2)            // Dimmer overall lighting for photorealism
+	lightIntensity := float32(2.8)            // Natural intensity for realistic water
 
 	ws.engine.Light.Color = lightColor
 	ws.engine.Light.Intensity = lightIntensity
@@ -304,17 +273,19 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 	ws.model.CustomUniforms["waveSpeeds"] = speeds
 	ws.model.CustomUniforms["wavePhases"] = phases
 	ws.model.CustomUniforms["waveSteepness"] = steepness
-	// Caustics configuration - easily adjustable
-	ws.model.CustomUniforms["enableCaustics"] = false                  // Set to true to enable caustics
-	ws.model.CustomUniforms["causticsIntensity"] = float32(0.3)        // Caustics strength
-	ws.model.CustomUniforms["causticsScale"] = float32(0.003)          // Caustics pattern scale
-	ws.model.CustomUniforms["waterPlaneHeight"] = float32(5.0)         // Water surface height
-	ws.model.CustomUniforms["causticsSpeed"] = mgl32.Vec2{0.02, 0.015} // Animation speed
+	// Apply photorealistic Advanced Rendering configuration for professional water
+	waterRenderConfig := renderer.WaterPhotorealisticConfig()
+	// Professional settings for smooth, natural appearance
+	waterRenderConfig.MeshSmoothingIntensity = 0.85 // High smoothing without artifacts
+	waterRenderConfig.FilteringQuality = 3          // High quality filtering
+	waterRenderConfig.AntiAliasing = true
+	waterRenderConfig.NormalSmoothingRadius = 1.2 // Natural smoothing radius
+	waterRenderConfig.EnableCaustics = false      // Disable for clean appearance
+	waterRenderConfig.NoiseIntensity = 0.0        // No surface noise for uniform color
+	renderer.ApplyAdvancedRenderingConfig(ws.model, waterRenderConfig)
 
-	// GPU Gems Chapter 9 & 11: Shadow configuration for water
-	ws.model.CustomUniforms["enableShadows"] = true
-	ws.model.CustomUniforms["shadowIntensity"] = float32(0.3) // 30% shadow darkness
-	ws.model.CustomUniforms["shadowSoftness"] = float32(0.2)  // Chapter 11: Soft shadow edges
+	// Water-specific uniforms
+	ws.model.CustomUniforms["waterPlaneHeight"] = float32(5.0) // Water surface height
 
 	// Configure water with clean API - minimal fog
 	waterConfig := renderer.WaterConfig{
