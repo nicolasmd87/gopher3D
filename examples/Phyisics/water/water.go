@@ -129,9 +129,10 @@ func (ws *WaterSimulation) Start() {
 	ws.engine.Camera.Speed = 15000     // Much faster speed for exploring the massive ocean
 
 	oceanCenter = float32(OceanSize / 2)
-	sunPosition := mgl32.Vec3{oceanCenter, 100000.0, oceanCenter}                                        // Much higher sun position
-	ws.engine.Light = renderer.CreatePointLight(sunPosition, mgl32.Vec3{1.0, 0.98, 0.9}, 3.0, 1000000.0) // Brighter light with much larger range for massive scale
-	ws.engine.Light.AmbientStrength = 0.08                                                               // Much lower ambient for photorealistic contrast
+	// Create SUN as a directional light (not point light!)
+	sunDirection := mgl32.Vec3{0.3, -1.0, 0.2}.Normalize()                                           // Sun coming from above at slight angle
+	ws.engine.Light = renderer.CreateDirectionalLight(sunDirection, mgl32.Vec3{1.0, 0.98, 0.9}, 4.5) // Much brighter directional sun light
+	ws.engine.Light.AmbientStrength = 0.25                                                           // Higher ambient for natural ocean lighting
 	ws.engine.Light.Type = renderer.STATIC_LIGHT
 
 	// Skybox - follow the same API used in other examples
@@ -152,6 +153,8 @@ func (ws *WaterSimulation) Start() {
 	model.SetMaterialPBR(0.02, 0.1)         // Slightly metallic with low roughness for realistic water
 	model.SetExposure(1.2)                  // Slightly enhanced exposure for better light reflection
 	model.Shader = ws.shader                // Apply custom water shader to water surface
+
+	// GPU Gems Chapter 9 & 11: Shadow settings will be applied via CustomUniforms
 	ws.model = model
 	ws.setupWaterUniforms()
 	ws.engine.AddModel(model)
@@ -165,7 +168,8 @@ func (ws *WaterSimulation) Start() {
 		sunModel.SetExposure(30.0)                       // Even higher exposure for maximum brightness
 
 		oceanCenter := float32(OceanSize / 2)
-		sunModel.SetPosition(oceanCenter, 15000.0, oceanCenter) // Closer to camera for better visibility
+		// Position sun much higher for 900km ocean scale - visible from anywhere
+		sunModel.SetPosition(oceanCenter, 200000.0, oceanCenter) // Much higher sun position for massive scale
 
 		ws.sunModel = sunModel
 
@@ -223,6 +227,14 @@ func (ws *WaterSimulation) addUnderwaterObjects() {
 		cube.SetDiffuseColor(redChannel, greenChannel, blueChannel)
 		cube.SetMaterialPBR(0.1, 0.8) // Slightly metallic, rough surface for underwater look
 		cube.SetExposure(1.0)
+
+		// GPU Gems: Enable shadows for underwater objects via CustomUniforms
+		if cube.CustomUniforms == nil {
+			cube.CustomUniforms = make(map[string]interface{})
+		}
+		cube.CustomUniforms["enableShadows"] = true
+		cube.CustomUniforms["shadowIntensity"] = float32(0.4) // Slightly darker shadows underwater
+		cube.CustomUniforms["shadowSoftness"] = float32(0.2)
 
 		ws.engine.AddModel(cube)
 		fmt.Printf("Added underwater cube %d at depth %.1f with scale %.0f\n", i, depth, scale.X())
@@ -298,6 +310,11 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 	ws.model.CustomUniforms["causticsScale"] = float32(0.003)          // Caustics pattern scale
 	ws.model.CustomUniforms["waterPlaneHeight"] = float32(5.0)         // Water surface height
 	ws.model.CustomUniforms["causticsSpeed"] = mgl32.Vec2{0.02, 0.015} // Animation speed
+
+	// GPU Gems Chapter 9 & 11: Shadow configuration for water
+	ws.model.CustomUniforms["enableShadows"] = true
+	ws.model.CustomUniforms["shadowIntensity"] = float32(0.3) // 30% shadow darkness
+	ws.model.CustomUniforms["shadowSoftness"] = float32(0.2)  // Chapter 11: Soft shadow edges
 
 	// Configure water with clean API - minimal fog
 	waterConfig := renderer.WaterConfig{
