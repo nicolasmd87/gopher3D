@@ -193,8 +193,7 @@ func NewVoxelWorldBehaviour(engine *engine.Gopher) {
 }
 
 func main() {
-	engine := engine.NewGopher(engine.OPENGL) // or engine.VULKAN
-
+	engine := engine.NewGopher(engine.OPENGL)
 	NewVoxelWorldBehaviour(engine)
 
 	engine.Width = 1920
@@ -205,11 +204,21 @@ func main() {
 }
 
 func (vb *VoxelWorldBehaviour) Start() {
-	// Natural directional lighting for voxels
+	// Natural directional lighting for voxels - sun directly above
+	// Test different light directions to find the correct coordinate system
+	// Try Y+ first (maybe Y is inverted in this engine)
+	lightDirection := mgl32.Vec3{0.0, 1.0, 0.0} // Try positive Y (maybe "up" is positive)
+
+	// Debug: Print the light direction we're testing
+	fmt.Printf("DEBUG: Testing light direction: (%.3f, %.3f, %.3f)\n",
+		lightDirection.X(), lightDirection.Y(), lightDirection.Z())
+	fmt.Printf("DEBUG: If Y=1.0 works, then 'up' is positive Y\n")
+	fmt.Printf("DEBUG: If Y=-1.0 works, then 'up' is negative Y\n")
+
 	vb.engine.Light = renderer.CreateDirectionalLight(
-		mgl32.Vec3{-0.4, -0.7, -0.3}, // More natural sun angle
-		mgl32.Vec3{1.0, 0.98, 0.9},   // Natural sunlight (less orange)
-		3.5,                          // Moderate intensity
+		lightDirection,             // Sun directly above, pointing straight down
+		mgl32.Vec3{1.0, 0.98, 0.9}, // Natural sunlight
+		2.5,                        // Reduced intensity (was 3.5)
 	)
 	vb.engine.Light.AmbientStrength = 0.2 // Higher ambient for visibility
 	vb.engine.Light.Temperature = 5500.0  // Natural daylight temperature
@@ -221,7 +230,7 @@ func (vb *VoxelWorldBehaviour) Start() {
 
 	// Enable optimizations for voxel rendering
 	vb.engine.SetFaceCulling(true)
-	vb.engine.SetFrustumCulling(false) // Disable frustum culling to fix disappearing voxels
+	vb.engine.SetFrustumCulling(true) // Re-enable with fixed bounding sphere calculation
 
 	// Natural sky colors
 	renderer.SetSkyboxColor(0.7, 0.8, 1.0) // More natural blue sky

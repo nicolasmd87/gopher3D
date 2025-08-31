@@ -55,10 +55,11 @@ type Model struct {
 	IsBatched               bool
 	IsInstanced             bool
 	InstanceCount           int
-	InstanceModelMatrices   []mgl32.Mat4           // Instance model matrices
-	InstanceMatricesUpdated bool                   // Flag to track if matrices need GPU upload
-	Shader                  Shader                 // Custom shader for this model
-	CustomUniforms          map[string]interface{} // Custom uniforms for this model
+	InstanceModelMatrices   []mgl32.Mat4 // Instance model matrices
+	InstanceMatricesUpdated bool         // Flag to track if matrices need GPU upload
+	// InstanceBoundingBox     [2]mgl32.Vec3          // Cached bounding box for instances [min, max]
+	Shader         Shader                 // Custom shader for this model
+	CustomUniforms map[string]interface{} // Custom uniforms for this model
 }
 
 type Material struct {
@@ -114,8 +115,32 @@ func (m *Model) CalculateBoundingSphere() {
 	if !FrustumCullingEnabled {
 		return
 	}
+
+	// Declare variables for both paths
 	var center mgl32.Vec3
 	var maxDistanceSq float32
+
+	// For instanced models, create a simple but effective bounding sphere
+	if m.IsInstanced && len(m.InstanceModelMatrices) > 0 {
+		// Simple approach: use first and last instance to estimate bounds
+		// This is generic and works for any instanced model type
+
+		firstPos := m.InstanceModelMatrices[0].Col(3).Vec3()
+		lastPos := m.InstanceModelMatrices[len(m.InstanceModelMatrices)-1].Col(3).Vec3()
+
+		// Calculate center between first and last instance
+		center = firstPos.Add(lastPos).Mul(0.5)
+
+		// Calculate radius to cover both instances plus some margin
+		distance := firstPos.Sub(lastPos).Len()
+		maxDistanceSq = (distance*0.5 + 100.0) * (distance*0.5 + 100.0) // Add margin
+
+		m.BoundingSphereCenter = center
+		m.BoundingSphereRadius = float32(math.Sqrt(float64(maxDistanceSq)))
+		return
+	}
+
+	// For non-instanced models, use the original calculation
 
 	numVertices := len(m.Vertices) / 3 // Assuming 3 float32s per vertex
 	for i := 0; i < numVertices; i++ {

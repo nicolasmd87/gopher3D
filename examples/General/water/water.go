@@ -13,12 +13,12 @@ import (
 )
 
 const (
-	OceanSize       = 90000 // Massive photorealistic ocean - 900km
-	WaterResolution = 4096  // Higher resolution for massive scale
-	WaveSpeed       = 0.6   // Slower, more realistic wave speed for large scale
-	MaxWaves        = 4     // Match shader expectation (4 waves)
-	WindSpeed       = 7.0   // Natural wind speed
-	WaveAge         = 1.3   // Natural wave development
+	OceanSize       = 900000 // Massive photorealistic ocean - 900km
+	WaterResolution = 4096   // Higher resolution for massive scale
+	WaveSpeed       = 0.6    // Slower, more realistic wave speed for large scale
+	MaxWaves        = 4      // Match shader expectation (4 waves)
+	WindSpeed       = 7.0    // Natural wind speed
+	WaveAge         = 1.3    // Natural wave development
 )
 
 // Configurable wave parameters - modify these to change wave behavior
@@ -128,11 +128,14 @@ func (ws *WaterSimulation) Start() {
 	ws.engine.Camera.Speed = 15000     // Much faster speed for exploring the massive ocean
 
 	oceanCenter = float32(OceanSize / 2)
-	// Calculate sun direction based on actual sun position for consistency
-	cameraPos := mgl32.Vec3{oceanCenter, 20000, oceanCenter + 50000}
-	sunPos := mgl32.Vec3{oceanCenter + 200000, 100000.0, oceanCenter + 200000} // Match new distant sun position
-	// For directional light, we need direction that light rays travel (from sun to objects)
-	sunDirection := cameraPos.Sub(sunPos).Normalize() // Direction from sun toward camera (light ray direction)
+	// Use the same coordinate system that works for voxels (Y=1.0 is "up")
+	// Sun high in the sky, pointing down at a natural angle
+	sunDirection := mgl32.Vec3{0.2, 0.9, 0.3}.Normalize() // Sun high above, slight angle
+
+	// Debug: Print the sun direction we're using
+	fmt.Printf("DEBUG: Using fixed sun direction: (%.3f, %.3f, %.3f)\n",
+		sunDirection.X(), sunDirection.Y(), sunDirection.Z())
+	fmt.Printf("DEBUG: Y=%.3f means sun is above (same as working voxel example)\n", sunDirection.Y())
 
 	ws.engine.Light = renderer.CreateDirectionalLight(sunDirection, mgl32.Vec3{1.0, 0.98, 0.9}, 4.5) // Use direction as-is
 	ws.engine.Light.AmbientStrength = 0.25                                                           // Higher ambient for natural ocean lighting

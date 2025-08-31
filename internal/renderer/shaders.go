@@ -411,7 +411,7 @@ void main() {
     
     // Calculate light direction and attenuation based on light type
     if (light.isDirectional == 1) {
-        lightDir = normalize(-light.direction);
+        lightDir = normalize(light.direction); // Direction is FROM light TO objects
     } else {
         // High-precision point light calculation for perfect reflections
         vec3 lightVec = light.position - FragPos;
@@ -836,8 +836,8 @@ void main() {
     // Calculate light direction based on light type (directional vs point light)
     vec3 lightDir;
     if (lightDirection.x != 0.0 || lightDirection.y != 0.0 || lightDirection.z != 0.0) {
-        // Directional light (like sun)
-        lightDir = normalize(-lightDirection);
+        // Directional light (like sun) - direction is already FROM sun TO objects
+        lightDir = normalize(lightDirection);
     } else {
         // Point light
         lightDir = normalize(lightPos - fragPosition);
