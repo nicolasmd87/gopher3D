@@ -205,8 +205,6 @@ func main() {
 }
 
 func (vb *VoxelWorldBehaviour) Start() {
-	fmt.Println("🏗️  Initializing Professional Voxel World...")
-
 	// Natural directional lighting for voxels
 	vb.engine.Light = renderer.CreateDirectionalLight(
 		mgl32.Vec3{-0.4, -0.7, -0.3}, // More natural sun angle
@@ -227,21 +225,16 @@ func (vb *VoxelWorldBehaviour) Start() {
 
 	// Natural sky colors
 	renderer.SetSkyboxColor(0.7, 0.8, 1.0) // More natural blue sky
-	err := vb.engine.SetSkybox("dark_sky") // Use existing skybox
-	if err != nil {
-		fmt.Printf("Could not set skybox: %v\n", err)
-	} else {
-		fmt.Println("✅ Voxel world skybox created")
-	}
+	vb.engine.SetSkybox("dark_sky")        // Use existing skybox
 
 	chunkSize := 16
-	worldSizeX := 16
-	worldSizeZ := 16
+	worldSizeX := 200
+	worldSizeZ := 200
 	maxHeight := 32
 	voxelSize := float32(1.0)
 
 	cubeGeometry := loader.CreateCubeGeometry(voxelSize)
-	vb.voxelWorld = loader.NewVoxelWorld(chunkSize, worldSizeX, worldSizeZ, maxHeight, voxelSize, cubeGeometry)
+	vb.voxelWorld = loader.NewVoxelWorld(chunkSize, worldSizeX, worldSizeZ, maxHeight, voxelSize, cubeGeometry, loader.InstancedMode)
 	vb.noiseGen = renderer.DefaultImprovedPerlinNoise()
 	vb.registry = NewVoxelRegistry()
 
@@ -261,13 +254,59 @@ func (vb *VoxelWorldBehaviour) Start() {
 	vb.renderingConfig.EnableMeshSmoothing = false // Keep voxels crisp and blocky
 	vb.renderingConfig.TessellationQuality = 1     // Low tessellation for blocks
 
-	fmt.Println("⚙️  Generating terrain (this may take a moment)...")
 	start := time.Now()
 
 	totalChunks := worldSizeX * worldSizeZ
-	GenerateExampleTerrain(vb.voxelWorld, vb.noiseGen)
 
-	// Create SINGLE instanced model for ALL voxels (massive performance boost)
+	vb.voxelWorld.GenerateVoxelsParallel(func(x, y, z int) (loader.VoxelID, bool) {
+		worldX := float64(x)
+		worldZ := float64(z)
+		waterLevel := 8
+
+		terrainNoise := vb.noiseGen.Noise2D(worldX*0.01, worldZ*0.01) * 15
+		caveNoise := vb.noiseGen.Noise3D(worldX*0.05, float64(y)*0.05, worldZ*0.05)
+		terrainHeight := int(terrainNoise) + 10
+
+		if caveNoise > 0.4 {
+			return AIR, false
+		}
+
+		temperatureNoise := vb.noiseGen.Noise2D(worldX*0.001+500, worldZ*0.001+500)
+		moistureNoise := vb.noiseGen.Noise2D(worldX*0.002+1000, worldZ*0.002+1000)
+
+		var voxelID loader.VoxelID = AIR
+
+		if y <= terrainHeight {
+			if y <= waterLevel {
+				if temperatureNoise > 0.3 {
+					voxelID = SAND
+				} else {
+					voxelID = STONE
+				}
+			} else if y == terrainHeight && y > waterLevel {
+				if moistureNoise > 0.2 && temperatureNoise > 0.1 {
+					voxelID = GRASS
+				} else if temperatureNoise > 0.4 {
+					voxelID = SAND
+				} else {
+					voxelID = DIRT
+				}
+			} else if y > terrainHeight-3 {
+				if moistureNoise > 0.3 {
+					voxelID = DIRT
+				} else {
+					voxelID = STONE
+				}
+			} else {
+				voxelID = STONE
+			}
+		} else if y <= waterLevel {
+			voxelID = WATER
+		}
+
+		return voxelID, voxelID != AIR
+	})
+
 	start = time.Now()
 
 	voxelModel, err := vb.voxelWorld.CreateInstancedModel()
@@ -275,36 +314,11 @@ func (vb *VoxelWorldBehaviour) Start() {
 		panic(fmt.Sprintf("Failed to create instanced voxel model: %v", err))
 	}
 
-	// Set all voxel positions in one go
-	instanceIndex := 0
-	for x := 0; x < worldSizeX; x++ {
-		for z := 0; z < worldSizeZ; z++ {
-			chunk := vb.voxelWorld.Chunks[x][z]
-			for cx := 0; cx < chunkSize; cx++ {
-				for cy := 0; cy < maxHeight; cy++ {
-					for cz := 0; cz < chunkSize; cz++ {
-						voxel := chunk.Voxels[cx][cy][cz]
-						if voxel.Active && instanceIndex < vb.voxelWorld.ActiveVoxels {
-							// Create transformation matrix for this voxel
-							transform := mgl32.Translate3D(
-								voxel.Position.X(),
-								voxel.Position.Y(),
-								voxel.Position.Z(),
-							)
-							voxelModel.InstanceModelMatrices[instanceIndex] = transform
-							instanceIndex++
-						}
-					}
-				}
-			}
-		}
-	}
-
 	// Apply advanced rendering configuration
 	renderer.ApplyAdvancedRenderingConfig(voxelModel, vb.renderingConfig)
 
 	// Natural materials for voxels
-	voxelModel.SetTexture("../resources/textures/Grass.png")
+	voxelModel.SetTexture("../../resources/textures/Grass.png")
 	voxelModel.SetMatte(0.3, 0.7, 0.2) // Natural grass colors
 	voxelModel.SetExposure(1.1)        // Natural exposure
 
@@ -313,22 +327,17 @@ func (vb *VoxelWorldBehaviour) Start() {
 	vb.engine.AddModel(voxelModel)
 
 	instancingTime := time.Since(start)
-	fmt.Printf("🚀 Instanced model created in %.3fs with %d instances\n",
-		instancingTime.Seconds(), instanceIndex)
+	fmt.Printf("Instanced model created in %.3fs with %d instances\n",
+		instancingTime.Seconds(), vb.voxelWorld.ActiveVoxels)
 
-	fmt.Println("🎮 Professional High-Performance Voxel World initialized!")
-	fmt.Println("🎯 Use WASD to move, mouse to look around")
-	fmt.Printf("📊 World stats: %d chunks, %d voxels, 1 draw call!\n",
+	fmt.Printf("World stats: %d chunks, %d voxels, 1 draw call!\n",
 		totalChunks, vb.voxelWorld.ActiveVoxels)
 }
 
 func (vb *VoxelWorldBehaviour) Update() {
-	// All voxels are rendered in a single instanced draw call
-	// No per-frame updates needed for static voxel world
-	// Future: Add LOD, frustum culling, or dynamic voxel updates here
+
 }
 
 func (vb *VoxelWorldBehaviour) UpdateFixed() {
-	// Fixed update for physics if needed
-	// Future: Add voxel physics, collisions, or modifications here
+
 }

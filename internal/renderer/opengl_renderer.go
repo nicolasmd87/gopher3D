@@ -34,6 +34,8 @@ func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
 
 	if Debug {
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
+	} else {
+		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
 	}
 	gl.GenBuffers(1, &rend.instanceVBO)
 	FrustumCullingEnabled = false
@@ -113,6 +115,9 @@ func (model *Model) RemoveModelInstance(index int) {
 }
 
 func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
+	// Force fill mode
+	gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
+
 	// Use skybox color for clear color if skybox is present
 	if rend.skybox != nil && rend.skybox.Shader.skyColor != (mgl32.Vec3{}) {
 		// Use skybox color as background
@@ -210,7 +215,10 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 		// Render the model
 		gl.BindVertexArray(model.VAO)
 		if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
-			rend.UpdateInstanceMatrices(model)
+			if model.InstanceMatricesUpdated {
+				rend.UpdateInstanceMatrices(model)
+				model.InstanceMatricesUpdated = false
+			}
 			gl.DrawElementsInstanced(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil, int32(model.InstanceCount))
 			shader.SetInt("isInstanced", 1)
 		} else {

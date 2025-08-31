@@ -29,35 +29,36 @@ var DefaultMaterial = &Material{
 var defaultTextureFS embed.FS
 
 type Model struct {
-	Id                    int
-	Name                  string
-	Position              mgl32.Vec3
-	Scale                 mgl32.Vec3
-	Rotation              mgl32.Quat
-	Vertices              []float32
-	Indices               []uint32
-	vertexBuffer          vk.Buffer
-	vertexMemory          vk.DeviceMemory
-	indexBuffer           vk.Buffer
-	indexMemory           vk.DeviceMemory
-	Normals               []float32
-	Faces                 []int32
-	TextureCoords         []float32
-	InterleavedData       []float32
-	Material              *Material
-	VAO                   uint32 // Vertex Array Object
-	VBO                   uint32 // Vertex Buffer Object
-	EBO                   uint32 // Element Buffer Object
-	ModelMatrix           mgl32.Mat4
-	BoundingSphereCenter  mgl32.Vec3
-	BoundingSphereRadius  float32
-	IsDirty               bool
-	IsBatched             bool
-	IsInstanced           bool
-	InstanceCount         int
-	InstanceModelMatrices []mgl32.Mat4           // Instance model matrices
-	Shader                Shader                 // Custom shader for this model
-	CustomUniforms        map[string]interface{} // Custom uniforms for this model
+	Id                      int
+	Name                    string
+	Position                mgl32.Vec3
+	Scale                   mgl32.Vec3
+	Rotation                mgl32.Quat
+	Vertices                []float32
+	Indices                 []uint32
+	vertexBuffer            vk.Buffer
+	vertexMemory            vk.DeviceMemory
+	indexBuffer             vk.Buffer
+	indexMemory             vk.DeviceMemory
+	Normals                 []float32
+	Faces                   []int32
+	TextureCoords           []float32
+	InterleavedData         []float32
+	Material                *Material
+	VAO                     uint32 // Vertex Array Object
+	VBO                     uint32 // Vertex Buffer Object
+	EBO                     uint32 // Element Buffer Object
+	ModelMatrix             mgl32.Mat4
+	BoundingSphereCenter    mgl32.Vec3
+	BoundingSphereRadius    float32
+	IsDirty                 bool
+	IsBatched               bool
+	IsInstanced             bool
+	InstanceCount           int
+	InstanceModelMatrices   []mgl32.Mat4           // Instance model matrices
+	InstanceMatricesUpdated bool                   // Flag to track if matrices need GPU upload
+	Shader                  Shader                 // Custom shader for this model
+	CustomUniforms          map[string]interface{} // Custom uniforms for this model
 }
 
 type Material struct {
