@@ -13,12 +13,12 @@ import (
 )
 
 const (
-	OceanSize       = 900000 // Massive photorealistic ocean - 900km
-	WaterResolution = 4096   // Higher resolution for massive scale
-	WaveSpeed       = 0.6    // Slower, more realistic wave speed for large scale
-	MaxWaves        = 4      // Match shader expectation (4 waves)
-	WindSpeed       = 7.0    // Natural wind speed
-	WaveAge         = 1.3    // Natural wave development
+	OceanSize       = 90000 // Massive photorealistic ocean - 900km
+	WaterResolution = 4096  // Higher resolution for massive scale
+	WaveSpeed       = 0.6   // Slower, more realistic wave speed for large scale
+	MaxWaves        = 4     // Match shader expectation (4 waves)
+	WindSpeed       = 7.0   // Natural wind speed
+	WaveAge         = 1.3   // Natural wave development
 )
 
 // Configurable wave parameters - modify these to change wave behavior
@@ -98,7 +98,7 @@ func NewWaterSimulation(engine *engine.Gopher) {
 
 	}
 
-	ws.sunModel = nil
+	//ws.sunModel = nil
 
 	behaviour.GlobalBehaviourManager.Add(ws)
 }
@@ -140,7 +140,9 @@ func (ws *WaterSimulation) Start() {
 
 	// Skybox - follow the same API used in other examples
 	ws.lastSkyColor = mgl32.Vec3{0.5, 0.7, 1.0}
+
 	renderer.SetSkyboxColor(ws.lastSkyColor.X(), ws.lastSkyColor.Y(), ws.lastSkyColor.Z())
+
 	if err := ws.engine.SetSkybox("dark_sky"); err != nil {
 		fmt.Printf("Could not set skybox: %v\n", err)
 	}

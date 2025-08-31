@@ -14,7 +14,7 @@ type Shader struct {
 	vertexSource   string
 	fragmentSource string
 	program        uint32
-	Name           string "default"
+	Name           string `default:"default"`
 	isCompiled     bool
 	skyColor       mgl32.Vec3 // For solid color skybox
 }
@@ -176,6 +176,19 @@ uniform bool enableShadows;  // Enable shadow volume rendering
 uniform float shadowIntensity; // How dark shadows should be (0.0 = black, 1.0 = no shadow)
 uniform float shadowSoftness; // Chapter 11: Shadow edge softness for antialiasing
 
+// GPU Gems Chapter 5: Improved Perlin Noise Support
+uniform bool enablePerlinNoise;
+uniform float noiseScale;
+uniform int noiseOctaves;
+uniform float noiseIntensity;
+
+// Additional advanced rendering uniforms
+uniform bool enableAmbientOcclusion;
+uniform float aoIntensity;
+uniform float aoRadius;
+uniform bool enableHighQualityFiltering;
+uniform int filteringQuality;
+
 out vec4 FragColor;
 
 // Convert color temperature (Kelvin) to RGB multiplier
@@ -243,6 +256,131 @@ vec3 ACESFilm(vec3 x) {
     float d = 0.59;
     float e = 0.14;
     return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+}
+
+// GPU Gems Chapter 5: Improved Perlin Noise Implementation
+// Simplified GLSL version of the improved Perlin noise with quintic interpolation
+
+// Permutation table values (simplified for GLSL)
+const int PERM[256] = int[256](
+    151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,
+    8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,
+    35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,
+    134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,
+    55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,
+    18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,
+    250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,
+    189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,
+    172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,
+    228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,
+    107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,
+    138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180
+);
+
+// Simple hash function for GLSL
+int hash(int x, int y, int z) {
+    return PERM[(PERM[(PERM[x & 255] + y) & 255] + z) & 255];
+}
+
+// Quintic interpolation (6t^5 - 15t^4 + 10t^3)
+float fade(float t) {
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+// Linear interpolation
+float lerp(float t, float a, float b) {
+    return a + t * (b - a);
+}
+
+// Gradient vectors (simplified set from GPU Gems)
+vec3 getGradient(int hash) {
+    int h = hash & 15;
+    float u = h < 8 ? 1.0 : -1.0;
+    float v = (h & 1) == 0 ? 1.0 : -1.0;
+    float w = (h & 2) == 0 ? 1.0 : -1.0;
+    
+    if (h < 4) return vec3(u, v, 0.0);
+    else if (h < 8) return vec3(u, 0.0, w);
+    else if (h < 12) return vec3(0.0, v, w);
+    else return vec3(u, v, w);
+}
+
+// Simplified 3D Perlin noise for GLSL
+float perlinNoise3D(vec3 p) {
+    // Find unit cube containing point
+    ivec3 i = ivec3(floor(p));
+    vec3 f = p - vec3(i);
+    
+    // Compute fade curves
+    vec3 u = vec3(fade(f.x), fade(f.y), fade(f.z));
+    
+    // Get gradients at cube corners
+    int n000 = hash(i.x, i.y, i.z);
+    int n001 = hash(i.x, i.y, i.z + 1);
+    int n010 = hash(i.x, i.y + 1, i.z);
+    int n011 = hash(i.x, i.y + 1, i.z + 1);
+    int n100 = hash(i.x + 1, i.y, i.z);
+    int n101 = hash(i.x + 1, i.y, i.z + 1);
+    int n110 = hash(i.x + 1, i.y + 1, i.z);
+    int n111 = hash(i.x + 1, i.y + 1, i.z + 1);
+    
+    // Compute dot products
+    float d000 = dot(getGradient(n000), f);
+    float d001 = dot(getGradient(n001), f - vec3(0, 0, 1));
+    float d010 = dot(getGradient(n010), f - vec3(0, 1, 0));
+    float d011 = dot(getGradient(n011), f - vec3(0, 1, 1));
+    float d100 = dot(getGradient(n100), f - vec3(1, 0, 0));
+    float d101 = dot(getGradient(n101), f - vec3(1, 0, 1));
+    float d110 = dot(getGradient(n110), f - vec3(1, 1, 0));
+    float d111 = dot(getGradient(n111), f - vec3(1, 1, 1));
+    
+    // Interpolate
+    return lerp(u.z,
+        lerp(u.y,
+            lerp(u.x, d000, d100),
+            lerp(u.x, d010, d110)),
+        lerp(u.y,
+            lerp(u.x, d001, d101),
+            lerp(u.x, d011, d111)));
+}
+
+// Multi-octave noise (turbulence)
+float turbulence(vec3 p, int octaves) {
+    float value = 0.0;
+    float amplitude = 1.0;
+    float frequency = 1.0;
+    float maxValue = 0.0;
+    
+    for (int i = 0; i < octaves && i < 8; i++) {
+        value += perlinNoise3D(p * frequency) * amplitude;
+        maxValue += amplitude;
+        amplitude *= 0.5;
+        frequency *= 2.0;
+    }
+    
+    return value / maxValue;
+}
+
+// Ambient occlusion calculation
+float calculateAO(vec3 position, vec3 normal, float radius, float intensity) {
+    // Simple screen-space ambient occlusion approximation
+    float occlusion = 0.0;
+    int samples = 4;
+    
+    for (int i = 0; i < samples; i++) {
+        float angle = float(i) * 3.14159 * 2.0 / float(samples);
+        vec3 sampleDir = vec3(cos(angle), sin(angle), 0.5);
+        sampleDir = normalize(sampleDir);
+        
+        // Project sample direction using surface normal
+        vec3 hemisphereDir = normalize(normal + sampleDir * 0.5);
+        
+        // Simple depth-based occlusion
+        float depth = length(position + hemisphereDir * radius);
+        occlusion += 1.0 / (1.0 + depth * depth * 0.1);
+    }
+    
+    return 1.0 - (occlusion / float(samples)) * intensity;
 }
 
 void main() {
@@ -328,7 +466,28 @@ void main() {
     // Ambient lighting with improved calculation
     vec3 ambient = light.ambientStrength * tempAdjustedLightColor * albedo;
     
-    vec3 color = ambient + Lo;
+    // GPU Gems Chapter 5: Apply Perlin noise for surface detail if enabled
+    vec3 finalAlbedo = albedo;
+    if (enablePerlinNoise) {
+        vec3 noiseCoord = FragPos * noiseScale;
+        float noiseValue = turbulence(noiseCoord, noiseOctaves);
+        
+        // Apply noise as surface detail variation
+        vec3 noiseColor = mix(albedo, albedo * 1.2, noiseValue * noiseIntensity);
+        finalAlbedo = mix(albedo, noiseColor, noiseIntensity);
+    }
+    
+    // Recalculate lighting with enhanced albedo
+    vec3 enhancedLo = (kD * finalAlbedo / 3.14159265359 + specular) * radiance * NdotL;
+    vec3 enhancedAmbient = light.ambientStrength * tempAdjustedLightColor * finalAlbedo;
+    
+    vec3 color = enhancedAmbient + enhancedLo;
+    
+    // GPU Gems Chapter 17: Apply ambient occlusion if enabled
+    if (enableAmbientOcclusion) {
+        float aoFactor = calculateAO(FragPos, norm, aoRadius, aoIntensity);
+        color *= aoFactor;
+    }
     
     // GPU Gems Chapter 2: Caustics are handled in water shader for now
     // Future: Add caustics support to default shader with proper uniform checking
