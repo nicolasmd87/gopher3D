@@ -1454,7 +1454,10 @@ void main() {
     }
     
     // Calculate proper water transparency based on depth and viewing angle
-    float alpha = mix(0.3, 0.6, fresnel); // More transparent water
+    float alpha = mix(0.4, 0.7, fresnel); // Balanced transparency
+    
+    // Make water darker to distinguish from skybox
+    finalColor *= 0.6; // Darken the water color
     // GPU Gems Chapter 9 & 11: Apply realistic water shadows
     if (enableShadows) {
         float shadowFactor = 1.0;

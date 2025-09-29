@@ -19,8 +19,10 @@ This project serves as a learning platform for 3D graphics programming concepts 
 - **Modern PBR Implementation**: Physically-based rendering with metallic/roughness workflow
 - **Advanced BRDF Models**: GGX distribution, Fresnel reflectance, energy conservation
 - **Directional & Point Lights**: Configurable lighting with temperature and attenuation
-- **Material Extensions**: Clearcoat, sheen, and transmission models for specialized materials
-- **HDR Pipeline**: ACES tone mapping with gamma correction
+- **Hemisphere Lighting**: Improved lighting model preventing harsh cutoffs and "two halves" artifacts
+- **Material System**: Complete PBR material properties with automatic fallbacks for incomplete materials
+- **Specialized Materials**: Glass, metal, plastic presets with realistic optical properties
+- **HDR Pipeline**: ACES tone mapping with gamma correction and exposure control
 
 ### Specialized Systems
 - **Voxel Rendering**: GPU-instanced voxel worlds with procedural terrain generation
@@ -106,7 +108,7 @@ go run sand.go
 ### Advanced Lighting Demo
 **Path**: `examples/Basic/Lights/lighting_demo.go`
 
-Comprehensive demonstration of the engine's modern lighting capabilities:
+Engine's lighting capabilities:
 - Physically-based rendering (PBR) materials
 - Multiple material types (metals, plastics, glass)
 - Advanced BRDF models (clearcoat, sheen, transmission)
@@ -118,7 +120,7 @@ Comprehensive demonstration of the engine's modern lighting capabilities:
 ### Voxel World Rendering
 **Path**: `examples/Voxel/Cube/voxel_world.go`
 
-Demonstrates large-scale voxel rendering with modern lighting:
+Large-scale voxel rendering with modern lighting:
 - GPU-instanced voxel rendering
 - Procedural terrain generation using Perlin noise
 - Advanced lighting integration for voxel materials
@@ -131,7 +133,6 @@ GPU-based water surface simulation:
 - Gerstner wave implementation
 - Custom water shader with Fresnel effects
 - Dynamic wave parameters
-- Realistic water lighting
 
 ### Particle Simulations
 **Paths**: `examples/General/black_hole/`, `examples/General/sand/`
@@ -154,7 +155,6 @@ Gopher3D/
 │   ├── behaviour/       # Component system
 │   └── logger/          # Logging utilities
 ├── examples/            # Demonstration programs
-│   ├── Basic/Lights/    # Advanced lighting demo
 │   ├── Voxel/Cube/      # Voxel world rendering
 │   └── General/         # Water and particle simulations
 └── resources/           # Textures and models
@@ -194,7 +194,6 @@ Gopher3D/
 ### Research Areas
 - **Real-time Ray Tracing**: Explore RT capabilities for reflections and GI
 - **Compute Shaders**: GPU-based particle systems and simulations
-- **Advanced Water**: FFT-based ocean simulation and underwater rendering
 
 ## Contributing
 
@@ -260,5 +259,5 @@ This project welcomes contributions from developers interested in 3D graphics pr
 
 
 
-rgo 
+ 
 

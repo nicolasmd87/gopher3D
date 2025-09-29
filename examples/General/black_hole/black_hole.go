@@ -98,7 +98,7 @@ func (bhb *BlackHoleBehaviour) Start() {
 	if err != nil {
 		panic(err)
 	}
-	redModel.Scale = mgl.Vec3{1, 1, 1}
+	redModel.Scale = mgl.Vec3{0.3, 0.3, 0.3} // Much smaller particles
 
 	// Balanced plasma particles - no more beige
 	redModel.SetPolishedMetal(1.0, 0.2, 0.0) // Metallic red
@@ -111,7 +111,7 @@ func (bhb *BlackHoleBehaviour) Start() {
 	if err != nil {
 		panic(err)
 	}
-	blueModel.Scale = mgl.Vec3{1, 1, 1}
+	blueModel.Scale = mgl.Vec3{0.3, 0.3, 0.3} // Much smaller particles
 
 	// Balanced plasma particles - no more beige
 	blueModel.SetPolishedMetal(0.0, 0.4, 1.0) // Metallic blue

@@ -374,6 +374,9 @@ func (m *Model) SetInstancePosition(index int, position mgl32.Vec3) {
 
 		// Apply scale * rotation * translation transformations (OpenGL convention)
 		m.InstanceModelMatrices[index] = scaleMatrix.Mul4(rotationMatrix).Mul4(translationMatrix)
+
+		// Mark instance matrices as needing GPU update
+		m.InstanceMatricesUpdated = true
 	}
 }
 
