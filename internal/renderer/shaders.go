@@ -629,12 +629,7 @@ void main() {
     vec3 norm = normalize(Normal);
     vec3 viewDir = normalize(viewPos - FragPos);
     
-    // Early exit for very dark areas (performance optimization)
-    float minLightContribution = 0.001;
-    if (light.intensity < minLightContribution && light.ambientStrength < minLightContribution) {
-        FragColor = vec4(texColor.rgb * 0.01, texColor.a); // Very dark fallback
-        return;
-    }
+    // Remove early exit that was causing rendering issues
     
     vec3 lightDir;
     float attenuation = 1.0;
@@ -697,7 +692,7 @@ void main() {
     
     // BRDF calculations with optimized dot products
     // Ensure minimum roughness to prevent point light artifacts
-    float adjustedRoughness = max(roughness, 0.15); // Higher minimum roughness for softer highlights
+    float adjustedRoughness = max(roughness, 0.08); // Balanced minimum roughness
     float NDF = distributionGGX(norm, halfwayDir, adjustedRoughness);
     float G = geometrySmith(norm, viewDir, lightDir, adjustedRoughness);
     vec3 F = fresnelSchlick(HdotV, F0);
@@ -712,8 +707,8 @@ void main() {
     
     // Reduce specular intensity to prevent point light artifacts
     // Apply view-dependent attenuation to make highlights more natural
-    float viewAttenuation = pow(NdotV, 0.8); // Soften highlights at grazing angles
-    specular *= viewAttenuation * 0.1; // Much more subtle specular intensity
+    float viewAttenuation = pow(NdotV, 0.6); // Moderate softening
+    specular *= viewAttenuation * 0.5; // Moderate specular reduction
     
     // Calculate modern PBR extensions
     vec3 clearcoat = calculateClearcoat(norm, viewDir, lightDir, halfwayDir, albedo);
@@ -760,27 +755,28 @@ void main() {
     // Use the properly calculated Lo from energy conservation with fill light
     vec3 color = ambient + fillLightContrib + Lo;
     
-    // Apply modern lighting effects
+    // Apply modern lighting effects (simplified to avoid artifacts)
     
+    // Disable complex effects that might cause artifacts
     // SSAO (Screen Space Ambient Occlusion)
-    float ssaoFactor = calculateSSAO(FragPos, norm);
-    color *= ssaoFactor;
+    // float ssaoFactor = calculateSSAO(FragPos, norm);
+    // color *= ssaoFactor;
     
     // Volumetric lighting
-    vec3 volumetric = calculateVolumetricLighting(FragPos, light.position, viewPos);
-    color += volumetric;
+    // vec3 volumetric = calculateVolumetricLighting(FragPos, light.position, viewPos);
+    // color += volumetric;
     
     // Global Illumination
-    vec3 gi = calculateGlobalIllumination(FragPos, norm, finalAlbedo);
-    color += gi;
+    // vec3 gi = calculateGlobalIllumination(FragPos, norm, finalAlbedo);
+    // color += gi;
     
-    // Environment reflections (skybox-based) - re-enabled with conservative contribution
+    // Environment reflections (skybox-based) - simplified
     vec3 envReflection = calculateEnvironmentReflection(norm, viewDir, roughness, metallic);
-    color += envReflection * 0.5; // Reduced contribution to prevent washing out
+    color += envReflection * 0.1; // Much more subtle to avoid artifacts
     
-    // Inter-object reflections (ball-to-ball)
-    vec3 interReflection = calculateInterObjectReflections(FragPos, norm, viewDir, roughness, metallic);
-    color += interReflection;
+    // Disable inter-object reflections that might cause artifacts
+    // vec3 interReflection = calculateInterObjectReflections(FragPos, norm, viewDir, roughness, metallic);
+    // color += interReflection;
     
     // GPU Gems Chapter 2: Caustics are handled in water shader for now
     // Future: Add caustics support to default shader with proper uniform checking
@@ -1457,8 +1453,8 @@ void main() {
         finalColor = mix(finalColor, foamColor, foamMix);
     }
     
-    // FORCE TRANSPARENCY - ignore all calculations and use minimal alpha
-    float alpha = 0.001; // Force almost zero alpha for complete transparency
+    // Calculate proper water transparency based on depth and viewing angle
+    float alpha = mix(0.3, 0.6, fresnel); // More transparent water
     // GPU Gems Chapter 9 & 11: Apply realistic water shadows
     if (enableShadows) {
         float shadowFactor = 1.0;

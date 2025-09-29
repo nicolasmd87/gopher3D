@@ -104,7 +104,7 @@ func (mld *ModernLightingDemo) createScene() {
 	}
 
 	for i, pos := range positions {
-		sphere, err := loader.LoadObjectWithPath("../../resources/obj/Sphere.obj", true)
+		sphere, err := loader.LoadObjectWithPath("../../resources/obj/Sphere.obj", false)
 		if err != nil {
 			fmt.Printf("Warning: Could not load sphere, using cube instead\n")
 			sphere, err = loader.LoadObjectWithPath("../../resources/obj/Cube.obj", true)
@@ -240,7 +240,15 @@ func (mld *ModernLightingDemo) setMaterialShowcase() {
 
 		mld.models[i].SetExposure(1.0) // Standard exposure
 		mld.models[i].SetAlpha(1.0)    // Ensure fully opaque
-		fmt.Printf("   Sphere %d: %s (Metallic=%.1f, Roughness=%.1f)\n", i+1, materialTypes[i], mld.models[i].Material.Metallic, mld.models[i].Material.Roughness)
+
+		// Safely access material properties
+		metallic := float32(0.0)
+		roughness := float32(0.5)
+		if mld.models[i].Material != nil {
+			metallic = mld.models[i].Material.Metallic
+			roughness = mld.models[i].Material.Roughness
+		}
+		fmt.Printf("   Sphere %d: %s (Metallic=%.1f, Roughness=%.1f)\n", i+1, materialTypes[i], metallic, roughness)
 	}
 }
 

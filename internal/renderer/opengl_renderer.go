@@ -77,8 +77,14 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 	gl.EnableVertexAttribArray(2)
 
 	if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
-		gl.BindBuffer(gl.ARRAY_BUFFER, rend.instanceVBO)
+		// Create a dedicated instance VBO for this model
+		var instanceVBO uint32
+		gl.GenBuffers(1, &instanceVBO)
+		gl.BindBuffer(gl.ARRAY_BUFFER, instanceVBO)
 		gl.BufferData(gl.ARRAY_BUFFER, len(model.InstanceModelMatrices)*int(unsafe.Sizeof(mgl32.Mat4{})), gl.Ptr(model.InstanceModelMatrices), gl.DYNAMIC_DRAW)
+
+		// Store the instance VBO in the model for later updates
+		model.InstanceVBO = instanceVBO
 
 		for i := 0; i < 4; i++ {
 			gl.EnableVertexAttribArray(3 + uint32(i))
@@ -141,7 +147,7 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	// Enable alpha blending for transparency
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	
+
 	// For transparent objects, disable depth writing but keep depth testing
 	// This will be handled per-model based on alpha value
 	viewProjection := camera.GetViewProjection()
@@ -202,7 +208,7 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 		// Set material uniforms if applicable
 		if model.Material != nil {
 			rend.setMaterialUniforms(shader, model)
-			
+
 			// Handle transparency depth writing
 			if model.Material.Alpha < 0.99 {
 				gl.DepthMask(false) // Disable depth writing for transparent objects
@@ -237,12 +243,12 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 				rend.UpdateInstanceMatrices(model)
 				model.InstanceMatricesUpdated = false
 			}
+			shader.SetInt("isInstanced", 1) // Set BEFORE draw call!
 			gl.DrawElementsInstanced(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil, int32(model.InstanceCount))
-			shader.SetInt("isInstanced", 1)
 		} else {
 			// Regular draw
+			shader.SetInt("isInstanced", 0) // Set BEFORE draw call!
 			gl.DrawElements(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil)
-			shader.SetInt("isInstanced", 0)
 		}
 		gl.BindVertexArray(0)
 	}
@@ -631,8 +637,8 @@ func CreateSunlight(direction mgl32.Vec3) *Light {
 }
 
 func (rend *OpenGLRenderer) UpdateInstanceMatrices(model *Model) {
-	if len(model.InstanceModelMatrices) > 0 {
-		gl.BindBuffer(gl.ARRAY_BUFFER, rend.instanceVBO)
+	if len(model.InstanceModelMatrices) > 0 && model.InstanceVBO != 0 {
+		gl.BindBuffer(gl.ARRAY_BUFFER, model.InstanceVBO)
 		gl.BufferData(gl.ARRAY_BUFFER, len(model.InstanceModelMatrices)*int(unsafe.Sizeof(mgl32.Mat4{})), gl.Ptr(model.InstanceModelMatrices), gl.DYNAMIC_DRAW)
 	}
 }

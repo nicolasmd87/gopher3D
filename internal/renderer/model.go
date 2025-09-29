@@ -49,6 +49,7 @@ type Model struct {
 	VAO                     uint32 // Vertex Array Object
 	VBO                     uint32 // Vertex Buffer Object
 	EBO                     uint32 // Element Buffer Object
+	InstanceVBO             uint32 // Instance Vertex Buffer Object (for instanced rendering)
 	ModelMatrix             mgl32.Mat4
 	BoundingSphereCenter    mgl32.Vec3
 	BoundingSphereRadius    float32
@@ -213,40 +214,58 @@ func ApplyModelTransformation(vertex, position, scale mgl32.Vec3, rotation mgl32
 	return transformedVertex
 }
 
-func (m *Model) SetDiffuseColor(r, g, b float32) {
+// ensureMaterial creates a new material instance if one doesn't exist or fixes incomplete materials
+func (m *Model) ensureMaterial() {
 	if m.Material == nil {
-		logger.Log.Info("Setting default material")
-		m.Material = DefaultMaterial
+		logger.Log.Info("Creating new default material")
+		// Create a new material instance instead of sharing DefaultMaterial
+		m.Material = &Material{
+			Name:          "default",
+			DiffuseColor:  [3]float32{1.0, 1.0, 1.0},
+			SpecularColor: [3]float32{1.0, 1.0, 1.0},
+			Shininess:     32.0,
+			TextureID:     0,
+			Metallic:      0.0,
+			Roughness:     0.5,
+			Exposure:      1.0,
+			Alpha:         1.0,
+		}
+	} else {
+		// Fix incomplete materials (from MTL files that only set Name)
+		// Only fix if ALL critical values are zero, indicating incomplete initialization
+		if m.Material.Alpha == 0.0 && m.Material.Roughness == 0.0 && m.Material.Exposure == 0.0 && m.Material.Shininess == 0.0 {
+			logger.Log.Info("Fixing incomplete material: " + m.Material.Name)
+			// Set proper defaults for incomplete materials
+			m.Material.Roughness = 0.5  // Medium roughness
+			m.Material.Exposure = 1.0   // Standard exposure
+			m.Material.Alpha = 1.0      // Fully opaque
+			m.Material.Shininess = 32.0 // Default shininess
+		}
 	}
+}
+
+func (m *Model) SetDiffuseColor(r, g, b float32) {
+	m.ensureMaterial()
 	m.Material.DiffuseColor = [3]float32{r, g, b}
 	m.IsDirty = true // Mark the model as dirty for re-rendering
 }
 
 func (m *Model) SetSpecularColor(r, g, b float32) {
-	if m.Material == nil {
-		logger.Log.Info("Setting default material")
-		m.Material = DefaultMaterial
-	}
+	m.ensureMaterial()
 	m.Material.SpecularColor = [3]float32{r, g, b}
 	m.IsDirty = true // Mark the model as dirty for re-rendering
 }
 
 // Modern PBR material setters
 func (m *Model) SetMaterialPBR(metallic, roughness float32) {
-	if m.Material == nil {
-		logger.Log.Info("Setting default material")
-		m.Material = DefaultMaterial
-	}
+	m.ensureMaterial()
 	m.Material.Metallic = metallic
 	m.Material.Roughness = roughness
 	m.IsDirty = true
 }
 
 func (m *Model) SetExposure(exposure float32) {
-	if m.Material == nil {
-		logger.Log.Info("Setting default material")
-		m.Material = DefaultMaterial
-	}
+	m.ensureMaterial()
 	m.Material.Exposure = exposure
 	m.IsDirty = true
 }
@@ -280,10 +299,7 @@ func (m *Model) SetGlossy(r, g, b float32) {
 
 // Set transparency/alpha
 func (m *Model) SetAlpha(alpha float32) {
-	if m.Material == nil {
-		logger.Log.Info("Setting default material")
-		m.Material = DefaultMaterial
-	}
+	m.ensureMaterial()
 	m.Material.Alpha = alpha
 	m.IsDirty = true
 }
