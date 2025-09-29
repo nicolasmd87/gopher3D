@@ -68,6 +68,27 @@ func (c *Camera) UpdateProjection() {
 	c.Projection = mgl32.Perspective(mgl32.DegToRad(c.Fov), c.AspectRatio, c.Near, c.Far)
 }
 
+// Setter methods that automatically update projection
+func (c *Camera) SetNear(near float32) {
+	c.Near = near
+	c.UpdateProjection()
+}
+
+func (c *Camera) SetFar(far float32) {
+	c.Far = far
+	c.UpdateProjection()
+}
+
+func (c *Camera) SetFov(fov float32) {
+	c.Fov = fov
+	c.UpdateProjection()
+}
+
+func (c *Camera) SetAspectRatio(aspectRatio float32) {
+	c.AspectRatio = aspectRatio
+	c.UpdateProjection()
+}
+
 func (c *Camera) GetViewProjection() mgl32.Mat4 {
 	view := mgl32.LookAtV(c.Position, c.Position.Add(c.Front), c.Up)
 	return c.Projection.Mul4(view)

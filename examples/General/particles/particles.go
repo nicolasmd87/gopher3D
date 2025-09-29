@@ -48,7 +48,14 @@ func (pb *ParticleBehaviour) Start() {
 	pb.engine.Camera.InvertMouse = false
 	pb.engine.Camera.Position = mgl.Vec3{0, 50, 1000}
 	pb.engine.Camera.Speed = 400
-	pb.engine.Light = renderer.CreateLight()
+
+	// Dynamic studio lighting for vibrant particle showcase
+	pb.engine.Light = renderer.CreatePointLight(
+		mgl.Vec3{0, 200, 300},    // Elevated position for dramatic lighting
+		mgl.Vec3{1.0, 0.95, 0.9}, // Warm white with slight golden tint
+		3.5, 800.0,               // Higher intensity and range for particle field
+	)
+	pb.engine.Light.AmbientStrength = 0.15 // Moderate ambient to see all particles
 	pb.engine.Light.Type = renderer.STATIC_LIGHT
 
 	pb.engine.SetFrustumCulling(false)
@@ -81,18 +88,23 @@ func createModelInstance(pb *ParticleBehaviour, color string, numInstances int) 
 	}
 	model.Scale = mgl.Vec3{5, 5, 5}
 
-	// Set color for the instance
+	// Set vibrant PBR materials for each particle type with appropriate surface properties
 	switch color {
 	case "red":
-		model.SetDiffuseColor(255.0, 0.0, 0.0)
+		model.SetGlossy(0.9, 0.1, 0.1) // Glossy red plastic-like finish
+		model.SetExposure(1.3)         // Higher exposure for vibrant red
 	case "yellow":
-		model.SetDiffuseColor(255.0, 255.0, 0.0)
+		model.SetPolishedMetal(1.0, 0.8, 0.1) // Metallic gold appearance
+		model.SetExposure(1.4)                // High exposure for golden shine
 	case "green":
-		model.SetDiffuseColor(0.0, 255.0, 0.0)
+		model.SetMatte(0.1, 0.8, 0.2) // Matte green like jade
+		model.SetExposure(1.1)        // Natural exposure
 	case "blue":
-		model.SetDiffuseColor(0.0, 0.0, 255.0)
+		model.SetGlossy(0.1, 0.3, 0.9) // Glossy blue ceramic
+		model.SetExposure(1.2)         // Enhanced blue vibrancy
 	case "purple":
-		model.SetDiffuseColor(75, 0, 130)
+		model.SetRoughMetal(0.6, 0.2, 0.8) // Rough metallic purple
+		model.SetExposure(1.25)            // Balanced exposure
 	}
 	model.Material.Name = "Particle_" + color
 	pb.engine.AddModel(model)

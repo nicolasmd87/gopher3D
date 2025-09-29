@@ -19,41 +19,49 @@ var DefaultMaterial = &Material{
 	SpecularColor: [3]float32{1.0, 1.0, 1.0},
 	Shininess:     32.0,
 	TextureID:     0,
+	// Modern PBR defaults
+	Metallic:  0.0, // Non-metallic by default
+	Roughness: 0.5, // Medium roughness
+	Exposure:  1.0, // Standard exposure
+	Alpha:     1.0, // Fully opaque by default
 }
 
 //go:embed resources/default.png
 var defaultTextureFS embed.FS
 
 type Model struct {
-	Id                    int
-	Name                  string
-	Position              mgl32.Vec3
-	Scale                 mgl32.Vec3
-	Rotation              mgl32.Quat
-	Vertices              []float32
-	Indices               []uint32
-	vertexBuffer          vk.Buffer
-	vertexMemory          vk.DeviceMemory
-	indexBuffer           vk.Buffer
-	indexMemory           vk.DeviceMemory
-	Normals               []float32
-	Faces                 []int32
-	TextureCoords         []float32
-	InterleavedData       []float32
-	Material              *Material
-	VAO                   uint32 // Vertex Array Object
-	VBO                   uint32 // Vertex Buffer Object
-	EBO                   uint32 // Element Buffer Object
-	ModelMatrix           mgl32.Mat4
-	BoundingSphereCenter  mgl32.Vec3
-	BoundingSphereRadius  float32
-	IsDirty               bool
-	IsBatched             bool
-	IsInstanced           bool
-	InstanceCount         int
-	InstanceModelMatrices []mgl32.Mat4           // Instance model matrices
-	Shader                Shader                 // Custom shader for this model
-	CustomUniforms        map[string]interface{} // Custom uniforms for this model
+	Id                      int
+	Name                    string
+	Position                mgl32.Vec3
+	Scale                   mgl32.Vec3
+	Rotation                mgl32.Quat
+	Vertices                []float32
+	Indices                 []uint32
+	vertexBuffer            vk.Buffer
+	vertexMemory            vk.DeviceMemory
+	indexBuffer             vk.Buffer
+	indexMemory             vk.DeviceMemory
+	Normals                 []float32
+	Faces                   []int32
+	TextureCoords           []float32
+	InterleavedData         []float32
+	Material                *Material
+	VAO                     uint32 // Vertex Array Object
+	VBO                     uint32 // Vertex Buffer Object
+	EBO                     uint32 // Element Buffer Object
+	InstanceVBO             uint32 // Instance Vertex Buffer Object (for instanced rendering)
+	ModelMatrix             mgl32.Mat4
+	BoundingSphereCenter    mgl32.Vec3
+	BoundingSphereRadius    float32
+	IsDirty                 bool
+	IsBatched               bool
+	IsInstanced             bool
+	InstanceCount           int
+	InstanceModelMatrices   []mgl32.Mat4 // Instance model matrices
+	InstanceMatricesUpdated bool         // Flag to track if matrices need GPU upload
+	// InstanceBoundingBox     [2]mgl32.Vec3          // Cached bounding box for instances [min, max]
+	Shader         Shader                 // Custom shader for this model
+	CustomUniforms map[string]interface{} // Custom uniforms for this model
 }
 
 type Material struct {
@@ -62,6 +70,11 @@ type Material struct {
 	SpecularColor [3]float32
 	Shininess     float32
 	TextureID     uint32 // OpenGL texture ID
+	// Modern PBR properties
+	Metallic  float32 // 0.0 = dielectric, 1.0 = metallic
+	Roughness float32 // 0.0 = mirror, 1.0 = completely rough
+	Exposure  float32 // HDR exposure control
+	Alpha     float32 // Transparency (0.0 = transparent, 1.0 = opaque)
 }
 
 func (m *Model) X() float32 {
@@ -95,12 +108,42 @@ func (m *Model) SetPosition(x, y, z float32) {
 	m.IsDirty = true
 }
 
+func (m *Model) SetScale(x, y, z float32) {
+	m.Scale = mgl32.Vec3{x, y, z}
+	m.updateModelMatrix()
+	m.IsDirty = true
+}
+
 func (m *Model) CalculateBoundingSphere() {
 	if !FrustumCullingEnabled {
 		return
 	}
+
+	// Declare variables for both paths
 	var center mgl32.Vec3
 	var maxDistanceSq float32
+
+	// For instanced models, create a simple but effective bounding sphere
+	if m.IsInstanced && len(m.InstanceModelMatrices) > 0 {
+		// Simple approach: use first and last instance to estimate bounds
+		// This is generic and works for any instanced model type
+
+		firstPos := m.InstanceModelMatrices[0].Col(3).Vec3()
+		lastPos := m.InstanceModelMatrices[len(m.InstanceModelMatrices)-1].Col(3).Vec3()
+
+		// Calculate center between first and last instance
+		center = firstPos.Add(lastPos).Mul(0.5)
+
+		// Calculate radius to cover both instances plus some margin
+		distance := firstPos.Sub(lastPos).Len()
+		maxDistanceSq = (distance*0.5 + 100.0) * (distance*0.5 + 100.0) // Add margin
+
+		m.BoundingSphereCenter = center
+		m.BoundingSphereRadius = float32(math.Sqrt(float64(maxDistanceSq)))
+		return
+	}
+
+	// For non-instanced models, use the original calculation
 
 	numVertices := len(m.Vertices) / 3 // Assuming 3 float32s per vertex
 	for i := 0; i < numVertices; i++ {
@@ -125,18 +168,18 @@ func (m *Model) CalculateBoundingSphere() {
 }
 
 func (m *Model) updateModelMatrix() {
-	// Matrix multiplication order: scale -> rotate -> translate
+	// Matrix multiplication order: scale * rotation * translation (OpenGL convention)
 	scaleMatrix := mgl32.Scale3D(m.Scale[0], m.Scale[1], m.Scale[2])
 	rotationMatrix := m.Rotation.Mat4()
 	translationMatrix := mgl32.Translate3D(m.Position[0], m.Position[1], m.Position[2])
-	// Combine the transformations: ModelMatrix = translation * rotation * scale
-	m.ModelMatrix = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
+	// Combine the transformations: ModelMatrix = scale * rotation * translation
+	m.ModelMatrix = scaleMatrix.Mul4(rotationMatrix).Mul4(translationMatrix)
 	// If the model is instanced, update the instance matrices automatically
 	if m.IsInstanced && len(m.InstanceModelMatrices) > 0 {
 		for i := 0; i < m.InstanceCount; i++ {
 			instancePosition := m.InstanceModelMatrices[i].Col(3).Vec3() // Retrieve the instance position
-			instanceMatrix := mgl32.Translate3D(instancePosition.X(), instancePosition.Y(), instancePosition.Z()).
-				Mul4(rotationMatrix).Mul4(scaleMatrix)
+			instanceMatrix := scaleMatrix.Mul4(rotationMatrix).Mul4(
+				mgl32.Translate3D(instancePosition.X(), instancePosition.Y(), instancePosition.Z()))
 			m.InstanceModelMatrices[i] = instanceMatrix
 		}
 	}
@@ -171,22 +214,108 @@ func ApplyModelTransformation(vertex, position, scale mgl32.Vec3, rotation mgl32
 	return transformedVertex
 }
 
-func (m *Model) SetDiffuseColor(r, g, b float32) {
+// ensureMaterial creates a new material instance if one doesn't exist or fixes incomplete materials
+func (m *Model) ensureMaterial() {
 	if m.Material == nil {
-		logger.Log.Info("Setting default material")
-		m.Material = DefaultMaterial
+		logger.Log.Info("Creating new default material")
+		// Create a new material instance instead of sharing DefaultMaterial
+		m.Material = &Material{
+			Name:          "default",
+			DiffuseColor:  [3]float32{1.0, 1.0, 1.0},
+			SpecularColor: [3]float32{1.0, 1.0, 1.0},
+			Shininess:     32.0,
+			TextureID:     0,
+			Metallic:      0.0,
+			Roughness:     0.5,
+			Exposure:      1.0,
+			Alpha:         1.0,
+		}
+	} else {
+		// Fix incomplete materials (from MTL files that only set Name)
+		// Only fix if ALL critical values are zero, indicating incomplete initialization
+		if m.Material.Alpha == 0.0 && m.Material.Roughness == 0.0 && m.Material.Exposure == 0.0 && m.Material.Shininess == 0.0 {
+			logger.Log.Info("Fixing incomplete material: " + m.Material.Name)
+			// Set proper defaults for incomplete materials
+			m.Material.Roughness = 0.5  // Medium roughness
+			m.Material.Exposure = 1.0   // Standard exposure
+			m.Material.Alpha = 1.0      // Fully opaque
+			m.Material.Shininess = 32.0 // Default shininess
+		}
 	}
+}
+
+func (m *Model) SetDiffuseColor(r, g, b float32) {
+	m.ensureMaterial()
 	m.Material.DiffuseColor = [3]float32{r, g, b}
 	m.IsDirty = true // Mark the model as dirty for re-rendering
 }
 
 func (m *Model) SetSpecularColor(r, g, b float32) {
-	if m.Material == nil {
-		logger.Log.Info("Setting default material")
-		m.Material = DefaultMaterial
-	}
+	m.ensureMaterial()
 	m.Material.SpecularColor = [3]float32{r, g, b}
 	m.IsDirty = true // Mark the model as dirty for re-rendering
+}
+
+// Modern PBR material setters
+func (m *Model) SetMaterialPBR(metallic, roughness float32) {
+	m.ensureMaterial()
+	m.Material.Metallic = metallic
+	m.Material.Roughness = roughness
+	m.IsDirty = true
+}
+
+func (m *Model) SetExposure(exposure float32) {
+	m.ensureMaterial()
+	m.Material.Exposure = exposure
+	m.IsDirty = true
+}
+
+// Preset materials for easy use
+func (m *Model) SetMetallicMaterial(r, g, b, roughness float32) {
+	m.SetDiffuseColor(r, g, b)
+	m.SetMaterialPBR(1.0, roughness) // Fully metallic
+}
+
+func (m *Model) SetPlasticMaterial(r, g, b, roughness float32) {
+	m.SetDiffuseColor(r, g, b)
+	m.SetMaterialPBR(0.0, roughness) // Non-metallic
+}
+
+func (m *Model) SetRoughMetal(r, g, b float32) {
+	m.SetMetallicMaterial(r, g, b, 0.8) // Rough metal
+}
+
+func (m *Model) SetPolishedMetal(r, g, b float32) {
+	m.SetMetallicMaterial(r, g, b, 0.1) // Polished metal
+}
+
+func (m *Model) SetMatte(r, g, b float32) {
+	m.SetPlasticMaterial(r, g, b, 0.9) // Matte surface
+}
+
+func (m *Model) SetGlossy(r, g, b float32) {
+	m.SetPlasticMaterial(r, g, b, 0.2) // Glossy surface
+}
+
+// Set transparency/alpha
+func (m *Model) SetAlpha(alpha float32) {
+	m.ensureMaterial()
+	m.Material.Alpha = alpha
+	m.IsDirty = true
+}
+
+// Glass material preset
+func (m *Model) SetGlass(r, g, b, alpha float32) {
+	m.SetDiffuseColor(r, g, b)
+	m.SetMaterialPBR(0.0, 0.05) // Non-metallic, very smooth
+	m.SetAlpha(alpha)
+	m.SetExposure(1.2) // Slightly higher exposure for glass
+}
+
+// Transparent plastic
+func (m *Model) SetTransparentPlastic(r, g, b, alpha, roughness float32) {
+	m.SetPlasticMaterial(r, g, b, roughness)
+	m.SetAlpha(alpha)
 }
 
 func (m *Model) SetTexture(texturePath string) {
@@ -243,8 +372,11 @@ func (m *Model) SetInstancePosition(index int, position mgl32.Vec3) {
 		rotationMatrix := m.Rotation.Mat4()
 		translationMatrix := mgl32.Translate3D(position.X(), position.Y(), position.Z())
 
-		// Apply scale -> rotate -> translate transformations
-		m.InstanceModelMatrices[index] = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
+		// Apply scale * rotation * translation transformations (OpenGL convention)
+		m.InstanceModelMatrices[index] = scaleMatrix.Mul4(rotationMatrix).Mul4(translationMatrix)
+
+		// Mark instance matrices as needing GPU update
+		m.InstanceMatricesUpdated = true
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/go-gl/mathgl/mgl32"
 	mgl "github.com/go-gl/mathgl/mgl32"
 )
 
@@ -58,10 +59,14 @@ func (ss *SandSimulation) Start() {
 	ss.engine.Camera.InvertMouse = false
 	ss.engine.Camera.Position = mgl.Vec3{0, 100, 300}
 	ss.engine.Camera.Speed = 200
-	ss.engine.Light = renderer.CreateLight()
+
+	// Enhanced warm desert sunlight for beautiful sand environment
+	ss.engine.Light = renderer.CreateWarmLight(
+		mgl32.Vec3{-400, 1000, -300}, // High sun position for dramatic lighting
+		2.5,                          // Bright but not overwhelming sunlight
+	)
+	ss.engine.Light.AmbientStrength = 0.3 // Balanced ambient for realistic shadows
 	ss.engine.Light.Type = renderer.STATIC_LIGHT
-	ss.engine.Light.Intensity = 0.03
-	ss.engine.Light.Position = mgl.Vec3{0, 2000, -1200}
 
 	instances := 1200000
 	sandModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_Low.obj", true, instances)
@@ -69,7 +74,10 @@ func (ss *SandSimulation) Start() {
 		panic(err)
 	}
 	sandModel.Scale = mgl.Vec3{0.3, 0.3, 0.3}
-	sandModel.SetDiffuseColor(139, 69, 19)
+
+	// Enhanced desert sand material properties
+	sandModel.SetMatte(0.9, 0.7, 0.5) // Warmer sandy color with subtle highlights
+	sandModel.SetExposure(1.0)        // Balanced exposure for natural desert lighting
 	ss.sandModel = sandModel
 	ss.engine.AddModel(sandModel)
 

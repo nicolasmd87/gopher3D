@@ -29,6 +29,14 @@ type Light struct {
 	Type       LightType // "static", "dynamic"
 	Mode       string    // "directional", "point", "spot"
 	Calculated bool
+	// New lighting features
+	AmbientStrength float32    // Configurable ambient lighting (0.0-1.0)
+	Temperature     float32    // Color temperature in Kelvin (2000-10000, ~5500 is daylight)
+	Direction       mgl32.Vec3 // Direction for directional lights (normalized)
+	// Attenuation factors for point lights
+	ConstantAtten  float32 // Constant attenuation factor (usually 1.0)
+	LinearAtten    float32 // Linear attenuation factor
+	QuadraticAtten float32 // Quadratic attenuation factor
 }
 
 type Render interface {
@@ -38,5 +46,7 @@ type Render interface {
 	RemoveModel(model *Model)
 	LoadTexture(path string) (uint32, error)
 	CreateTextureFromImage(img image.Image) (uint32, error)
+	SetSkybox(skybox *Skybox)
 	Cleanup()
+	UpdateViewport(width, height int32)
 }

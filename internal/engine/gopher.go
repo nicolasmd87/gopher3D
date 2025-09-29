@@ -39,6 +39,8 @@ type Gopher struct {
 	Light          *renderer.Light
 	rendererAPI    renderer.Render
 	window         *glfw.Window
+	skybox         *renderer.Skybox
+	skyboxPath     string // Store path until OpenGL is ready
 	Camera         *renderer.Camera
 	frameTrackId   int
 }
@@ -116,6 +118,8 @@ func (gopher *Gopher) Render(x, y int) {
 	// Fixed camera in each scene for now
 	gopher.Camera = renderer.NewDefaultCamera(gopher.Width, gopher.Height)
 
+	// Skybox creation moved to render loop to handle dynamic setting
+
 	//window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled) // Hide and capture the cursor
 	gopher.window.SetInputMode(glfw.CursorMode, glfw.CursorNormal) // Set cursor to normal mode initially
 
@@ -126,10 +130,25 @@ func (gopher *Gopher) Render(x, y int) {
 
 func (gopher *Gopher) RenderLoop() {
 	var lastTime = glfw.GetTime()
+	var lastWidth, lastHeight int32 = gopher.Width, gopher.Height
+
 	for !gopher.window.ShouldClose() {
 		currentTime := glfw.GetTime()
 		deltaTime := currentTime - lastTime
 		lastTime = currentTime
+
+		// Check actual window size and update if it changed
+		actualWidth, actualHeight := gopher.window.GetSize()
+		if int32(actualWidth) != gopher.Width || int32(actualHeight) != gopher.Height {
+			gopher.Width = int32(actualWidth)
+			gopher.Height = int32(actualHeight)
+		}
+
+		// Update viewport and camera aspect ratio if window size changed (after OpenGL is initialized)
+		if gopher.Width != lastWidth || gopher.Height != lastHeight {
+			gopher.rendererAPI.UpdateViewport(gopher.Width, gopher.Height)
+			lastWidth, lastHeight = gopher.Width, gopher.Height
+		}
 
 		gopher.Camera.ProcessKeyboard(gopher.window, float32(deltaTime))
 
@@ -139,6 +158,19 @@ func (gopher *Gopher) RenderLoop() {
 			gopher.frameTrackId = 0
 		}
 		behaviour.GlobalBehaviourManager.UpdateAll()
+
+		// Check if a skybox needs to be created (can happen dynamically from behaviors)
+		if gopher.skyboxPath != "" && gopher.skybox == nil {
+			skybox, err := renderer.CreateSkybox(gopher.skyboxPath)
+			if err != nil {
+				logger.Log.Error("Failed to create skybox", zap.String("path", gopher.skyboxPath), zap.Error(err))
+			} else {
+				gopher.skybox = skybox
+				gopher.rendererAPI.SetSkybox(skybox)
+				logger.Log.Info("Skybox created and set", zap.String("path", gopher.skyboxPath))
+			}
+		}
+
 		gopher.rendererAPI.Render(*gopher.Camera, gopher.Light)
 
 		switch gopher.rendererAPI.(type) {
@@ -164,6 +196,20 @@ func (gopher *Gopher) SetFaceCulling(enabled bool) {
 	renderer.FaceCullingEnabled = enabled
 }
 
+// SetSkybox sets a skybox for the engine
+func (g *Gopher) SetSkybox(texturePath string) error {
+	// Store the path - skybox will be created after OpenGL initialization
+	g.skyboxPath = texturePath
+	return nil
+}
+
+// UpdateSkyboxColor updates the color of the existing skybox (for solid color skyboxes only)
+func (gopher *Gopher) UpdateSkyboxColor(r, g, b float32) {
+	if gopher.skybox != nil {
+		gopher.skybox.UpdateColor(r, g, b)
+	}
+}
+
 func (gopher *Gopher) AddModel(model *renderer.Model) {
 	gopher.rendererAPI.AddModel(model)
 }
@@ -183,10 +229,17 @@ func (g *Gopher) IsMouseButtonPressed(button glfw.MouseButton) bool {
 
 func (gopher *Gopher) AddModelBatch(models []*renderer.Model) {
 	for _, model := range models {
-		if model != nil {
-			gopher.rendererAPI.AddModel(model)
-		}
+		gopher.rendererAPI.AddModel(model)
 	}
+}
+
+// GetDefaultShader returns the default shader for models that need it
+func (gopher *Gopher) GetDefaultShader() renderer.Shader {
+	if openglRenderer, ok := gopher.rendererAPI.(*renderer.OpenGLRenderer); ok {
+		return openglRenderer.GetDefaultShader()
+	}
+	// Return empty shader for other renderers (they'll handle it internally)
+	return renderer.Shader{}
 }
 
 // Mouse callback function

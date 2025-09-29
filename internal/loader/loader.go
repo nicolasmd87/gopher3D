@@ -84,8 +84,8 @@ func LoadWaterSurface(size float32, centerX, centerZ float32, resolution int) (*
 	if resolution < 16 {
 		resolution = 16 // Minimum resolution for basic functionality
 	}
-	if resolution > 512 {
-		resolution = 512 // Maximum resolution to prevent memory issues
+	if resolution > 8192 {
+		resolution = 8192 // Much higher maximum resolution for detailed water
 	}
 
 	baseResolution := resolution
@@ -211,11 +211,8 @@ func LoadModel(filename string, recalculateNormals bool) (*renderer.Model, error
 		// MATERIALS PLACEHOLDER
 		case "mtllib":
 			mtlPath := filepath.Join(filepath.Dir(filename), parts[1])
-			modelMaterials := LoadMaterials(mtlPath)
-			if err != nil {
-				logger.Log.Error("Error loading material library: ", zap.Error(err))
-				return nil, err
-			}
+			modelMaterials = LoadMaterials(mtlPath)
+			// LoadMaterials always returns at least a default material, no error check needed
 
 			// TODO: SUPPORT MULTIPLE MATERIALS
 			for _, mat := range modelMaterials {
