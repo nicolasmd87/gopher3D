@@ -23,6 +23,7 @@ var DefaultMaterial = &Material{
 	Metallic:  0.0, // Non-metallic by default
 	Roughness: 0.5, // Medium roughness
 	Exposure:  1.0, // Standard exposure
+	Alpha:     1.0, // Fully opaque by default
 }
 
 //go:embed resources/default.png
@@ -72,6 +73,7 @@ type Material struct {
 	Metallic  float32 // 0.0 = dielectric, 1.0 = metallic
 	Roughness float32 // 0.0 = mirror, 1.0 = completely rough
 	Exposure  float32 // HDR exposure control
+	Alpha     float32 // Transparency (0.0 = transparent, 1.0 = opaque)
 }
 
 func (m *Model) X() float32 {
@@ -274,6 +276,30 @@ func (m *Model) SetMatte(r, g, b float32) {
 
 func (m *Model) SetGlossy(r, g, b float32) {
 	m.SetPlasticMaterial(r, g, b, 0.2) // Glossy surface
+}
+
+// Set transparency/alpha
+func (m *Model) SetAlpha(alpha float32) {
+	if m.Material == nil {
+		logger.Log.Info("Setting default material")
+		m.Material = DefaultMaterial
+	}
+	m.Material.Alpha = alpha
+	m.IsDirty = true
+}
+
+// Glass material preset
+func (m *Model) SetGlass(r, g, b, alpha float32) {
+	m.SetDiffuseColor(r, g, b)
+	m.SetMaterialPBR(0.0, 0.05) // Non-metallic, very smooth
+	m.SetAlpha(alpha)
+	m.SetExposure(1.2) // Slightly higher exposure for glass
+}
+
+// Transparent plastic
+func (m *Model) SetTransparentPlastic(r, g, b, alpha, roughness float32) {
+	m.SetPlasticMaterial(r, g, b, roughness)
+	m.SetAlpha(alpha)
 }
 
 func (m *Model) SetTexture(texturePath string) {

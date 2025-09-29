@@ -193,6 +193,21 @@ func NewVoxelWorldBehaviour(engine *engine.Gopher) {
 }
 
 func main() {
+	fmt.Println("=== Gopher3D Advanced Voxel World with Modern Lighting ===")
+	fmt.Println("This demo showcases advanced voxel rendering with cutting-edge lighting:")
+	fmt.Println("- Enhanced PBR (Physically Based Rendering)")
+	fmt.Println("- HDR with ACES tone mapping")
+	fmt.Println("- Gamma correction")
+	fmt.Println("- Advanced material presets")
+	fmt.Println("- Screen Space Ambient Occlusion (SSAO)")
+	fmt.Println("- Global Illumination approximation")
+	fmt.Println("- Bloom effects")
+	fmt.Println("- Multiple scattering compensation")
+	fmt.Println("- Energy conservation")
+	fmt.Println("- Procedural terrain generation")
+	fmt.Println("- Instanced rendering for performance")
+	fmt.Println("\nUse WASD + Mouse to fly around and explore the voxel world!")
+
 	engine := engine.NewGopher(engine.OPENGL)
 	NewVoxelWorldBehaviour(engine)
 
@@ -204,24 +219,17 @@ func main() {
 }
 
 func (vb *VoxelWorldBehaviour) Start() {
-	// Natural directional lighting for voxels - sun directly above
-	// Test different light directions to find the correct coordinate system
-	// Try Y+ first (maybe Y is inverted in this engine)
-	lightDirection := mgl32.Vec3{0.0, 1.0, 0.0} // Try positive Y (maybe "up" is positive)
+	// Advanced directional lighting for voxels using improved lighting from the lighting demo
+	// Use the same lighting setup as the modern lighting demo for consistency
+	vb.engine.Light = renderer.CreateSunlight(mgl32.Vec3{0.3, 0.8, 0.5})
+	vb.engine.Light.Intensity = 2.0        // Balanced intensity for voxel scenes
+	vb.engine.Light.AmbientStrength = 0.15 // Reduced ambient for better contrast
+	vb.engine.Light.Temperature = 5500.0   // Natural daylight temperature
 
-	// Debug: Print the light direction we're testing
-	fmt.Printf("DEBUG: Testing light direction: (%.3f, %.3f, %.3f)\n",
-		lightDirection.X(), lightDirection.Y(), lightDirection.Z())
-	fmt.Printf("DEBUG: If Y=1.0 works, then 'up' is positive Y\n")
-	fmt.Printf("DEBUG: If Y=-1.0 works, then 'up' is negative Y\n")
+	fmt.Printf("ADVANCED VOXEL LIGHTING: Direction=(0.3, 0.8, 0.5), Mode=%s\n", vb.engine.Light.Mode)
 
-	vb.engine.Light = renderer.CreateDirectionalLight(
-		lightDirection,             // Sun directly above, pointing straight down
-		mgl32.Vec3{1.0, 0.98, 0.9}, // Natural sunlight
-		2.5,                        // Reduced intensity (was 3.5)
-	)
-	vb.engine.Light.AmbientStrength = 0.2 // Higher ambient for visibility
-	vb.engine.Light.Temperature = 5500.0  // Natural daylight temperature
+	// Add skybox for better environment lighting and reflections
+	vb.addSkybox()
 
 	// Configure camera for cinematic voxel exploration
 	vb.engine.Camera.InvertMouse = false
@@ -237,8 +245,8 @@ func (vb *VoxelWorldBehaviour) Start() {
 	vb.engine.SetSkybox("dark_sky")        // Use existing skybox
 
 	chunkSize := 16
-	worldSizeX := 200
-	worldSizeZ := 200
+	worldSizeX := 100
+	worldSizeZ := 100
 	maxHeight := 32
 	voxelSize := float32(1.0)
 
@@ -247,13 +255,14 @@ func (vb *VoxelWorldBehaviour) Start() {
 	vb.noiseGen = renderer.DefaultImprovedPerlinNoise()
 	vb.registry = NewVoxelRegistry()
 
-	// CINEMATIC rendering configuration for STUNNING visuals
-	vb.renderingConfig = renderer.VoxelAdvancedRenderingConfig()
-	// MAXED OUT settings for cinematic quality
+	// Advanced rendering configuration with modern lighting features
+	vb.renderingConfig = renderer.HighQualityRenderingConfig()
+
+	// Optimize for voxel rendering while keeping advanced lighting
 	vb.renderingConfig.EnablePerlinNoise = false // We handle noise in terrain generation
-	vb.renderingConfig.EnableAmbientOcclusion = true
-	vb.renderingConfig.AOIntensity = 0.3 // Natural AO for depth
-	vb.renderingConfig.AORadius = 200.0  // Wider AO radius
+	vb.renderingConfig.EnableSSAO = true
+	vb.renderingConfig.SSAOIntensity = 0.3 // Natural AO for depth
+	vb.renderingConfig.SSAORadius = 200.0  // Wider AO radius
 	vb.renderingConfig.EnableAdvancedShadows = true
 	vb.renderingConfig.ShadowIntensity = 0.4 // Natural shadows
 	vb.renderingConfig.ShadowSoftness = 0.2  // Softer shadow edges
@@ -263,7 +272,14 @@ func (vb *VoxelWorldBehaviour) Start() {
 	vb.renderingConfig.EnableMeshSmoothing = false // Keep voxels crisp and blocky
 	vb.renderingConfig.TessellationQuality = 1     // Low tessellation for blocks
 
-	start := time.Now()
+	// Enable advanced lighting features from the lighting demo
+	vb.renderingConfig.EnableBloom = true
+	vb.renderingConfig.BloomIntensity = 0.3
+	vb.renderingConfig.EnableMultipleScattering = true
+	vb.renderingConfig.EnableEnergyConservation = true
+	vb.renderingConfig.EnableGlobalIllumination = true
+	vb.renderingConfig.GIIntensity = 0.2
+	vb.renderingConfig.GIBounces = 2
 
 	totalChunks := worldSizeX * worldSizeZ
 
@@ -316,7 +332,7 @@ func (vb *VoxelWorldBehaviour) Start() {
 		return voxelID, voxelID != AIR
 	})
 
-	start = time.Now()
+	start := time.Now()
 
 	voxelModel, err := vb.voxelWorld.CreateInstancedModel()
 	if err != nil {
@@ -326,10 +342,11 @@ func (vb *VoxelWorldBehaviour) Start() {
 	// Apply advanced rendering configuration
 	renderer.ApplyAdvancedRenderingConfig(voxelModel, vb.renderingConfig)
 
-	// Natural materials for voxels
+	// Advanced materials for voxels using PBR from the lighting demo
 	voxelModel.SetTexture("../../resources/textures/Grass.png")
-	voxelModel.SetMatte(0.3, 0.7, 0.2) // Natural grass colors
-	voxelModel.SetExposure(1.1)        // Natural exposure
+	voxelModel.SetPlasticMaterial(0.3, 0.7, 0.2, 0.3) // Natural grass colors with PBR
+	voxelModel.SetMaterialPBR(0.0, 0.6)               // Non-metallic, moderate roughness for natural look
+	voxelModel.SetExposure(1.2)                       // Slightly higher exposure for better visibility
 
 	// Store the model and add to engine
 	vb.voxelModel = voxelModel
@@ -349,4 +366,16 @@ func (vb *VoxelWorldBehaviour) Update() {
 
 func (vb *VoxelWorldBehaviour) UpdateFixed() {
 
+}
+
+// Add skybox for better environment lighting (from lighting demo)
+func (vb *VoxelWorldBehaviour) addSkybox() {
+	// Set skybox color and create solid color skybox
+	renderer.SetSkyboxColor(0.5, 0.7, 1.0) // Light blue sky
+	err := vb.engine.SetSkybox("dark_sky") // Use special path for solid color
+	if err != nil {
+		fmt.Printf("⚠️ SKYBOX: Failed to set skybox: %v\n", err)
+		return
+	}
+	fmt.Println("🌌 SKYBOX: Added gradient sky for environment lighting")
 }

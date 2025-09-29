@@ -3,13 +3,26 @@ package renderer
 import "github.com/go-gl/mathgl/mgl32"
 
 // AdvancedRenderingConfig represents configurable advanced rendering features
-// Based on techniques from NVIDIA GPU Gems, Real-Time Rendering, and other sources
+// Based on techniques from NVIDIA GPU Gems, Real-Time Rendering, and modern research
 type AdvancedRenderingConfig struct {
-	// Water Caustics (GPU Gems Chapter 2)
-	EnableCaustics    bool       `json:"enableCaustics"`
-	CausticsIntensity float32    `json:"causticsIntensity"`
-	CausticsScale     float32    `json:"causticsScale"`
-	CausticsSpeed     mgl32.Vec2 `json:"causticsSpeed"`
+	// Core Lighting Features
+	EnableAdvancedLighting bool `json:"enableAdvancedLighting"`
+
+	// Modern PBR Extensions
+	EnableClearcoat    bool       `json:"enableClearcoat"`
+	ClearcoatRoughness float32    `json:"clearcoatRoughness"`
+	ClearcoatIntensity float32    `json:"clearcoatIntensity"`
+	EnableSheen        bool       `json:"enableSheen"`
+	SheenColor         mgl32.Vec3 `json:"sheenColor"`
+	SheenRoughness     float32    `json:"sheenRoughness"`
+	EnableTransmission bool       `json:"enableTransmission"`
+	TransmissionFactor float32    `json:"transmissionFactor"`
+
+	// Advanced Lighting Models
+	EnableMultipleScattering bool    `json:"enableMultipleScattering"`
+	EnableEnergyConservation bool    `json:"enableEnergyConservation"`
+	EnableImageBasedLighting bool    `json:"enableImageBasedLighting"`
+	IBLIntensity             float32 `json:"iblIntensity"`
 
 	// Procedural Noise (GPU Gems Chapter 5)
 	EnablePerlinNoise bool    `json:"enablePerlinNoise"`
@@ -17,36 +30,54 @@ type AdvancedRenderingConfig struct {
 	NoiseOctaves      int     `json:"noiseOctaves"`
 	NoiseIntensity    float32 `json:"noiseIntensity"`
 
-	// Advanced Shadows (GPU Gems Chapters 9 & 11)
-	EnableAdvancedShadows bool    `json:"enableAdvancedShadows"`
-	ShadowIntensity       float32 `json:"shadowIntensity"`
-	ShadowSoftness        float32 `json:"shadowSoftness"`
+	// Advanced Shadows with Modern Techniques
+	EnableAdvancedShadows    bool    `json:"enableAdvancedShadows"`
+	ShadowIntensity          float32 `json:"shadowIntensity"`
+	ShadowSoftness           float32 `json:"shadowSoftness"`
+	EnableCascadedShadowMaps bool    `json:"enableCascadedShadowMaps"`
+	EnablePCFShadows         bool    `json:"enablePCFShadows"`
+	PCFKernelSize            int     `json:"pcfKernelSize"`
 
-	// Perspective Shadow Maps (GPU Gems Chapter 14)
-	EnablePerspectiveShadows bool `json:"enablePerspectiveShadows"`
-	ShadowMapQuality         int  `json:"shadowMapQuality"`
+	// Volumetric Lighting
+	EnableVolumetricLighting bool    `json:"enableVolumetricLighting"`
+	VolumetricIntensity      float32 `json:"volumetricIntensity"`
+	VolumetricSteps          int     `json:"volumetricSteps"`
+	VolumetricScattering     float32 `json:"volumetricScattering"`
 
-	// Level of Detail and Performance (GPU Gems Chapter 15)
+	// Level of Detail and Performance
 	EnableLOD             bool    `json:"enableLOD"`
 	LODTransitionDistance float32 `json:"lodTransitionDistance"`
 	PerformanceScaling    float32 `json:"performanceScaling"`
 
-	// Subsurface Scattering (GPU Gems Chapter 16)
-	EnableSubsurfaceScattering bool    `json:"enableSubsurfaceScattering"`
-	ScatteringIntensity        float32 `json:"scatteringIntensity"`
-	ScatteringDepth            float32 `json:"scatteringDepth"`
+	// Subsurface Scattering (Enhanced)
+	EnableSubsurfaceScattering bool       `json:"enableSubsurfaceScattering"`
+	ScatteringIntensity        float32    `json:"scatteringIntensity"`
+	ScatteringDepth            float32    `json:"scatteringDepth"`
+	ScatteringColor            mgl32.Vec3 `json:"scatteringColor"`
 
-	// Ambient Occlusion (GPU Gems Chapter 17)
-	EnableAmbientOcclusion bool    `json:"enableAmbientOcclusion"`
-	AOIntensity            float32 `json:"aoIntensity"`
-	AORadius               float32 `json:"aoRadius"`
+	// Screen Space Ambient Occlusion (SSAO)
+	EnableSSAO      bool    `json:"enableSSAO"`
+	SSAOIntensity   float32 `json:"ssaoIntensity"`
+	SSAORadius      float32 `json:"ssaoRadius"`
+	SSAOBias        float32 `json:"ssaoBias"`
+	SSAOSampleCount int     `json:"ssaoSampleCount"`
 
-	// Real-Time Glow Effects (GPU Gems Chapter 21)
-	EnableGlow    bool    `json:"enableGlow"`
-	GlowIntensity float32 `json:"glowIntensity"`
-	GlowRadius    float32 `json:"glowRadius"`
+	// Real-Time Global Illumination
+	EnableGlobalIllumination bool    `json:"enableGlobalIllumination"`
+	GIIntensity              float32 `json:"giIntensity"`
+	GIBounces                int     `json:"giBounces"`
 
-	// High-Quality Filtering and Anti-Aliasing (GPU Gems Chapter 24)
+	// Bloom and HDR Effects
+	EnableBloom    bool    `json:"enableBloom"`
+	BloomThreshold float32 `json:"bloomThreshold"`
+	BloomIntensity float32 `json:"bloomIntensity"`
+	BloomRadius    float32 `json:"bloomRadius"`
+
+	// Temporal Anti-Aliasing
+	EnableTAA      bool    `json:"enableTAA"`
+	TAABlendFactor float32 `json:"taaBlendFactor"`
+
+	// High-Quality Filtering
 	EnableHighQualityFiltering bool `json:"enableHighQualityFiltering"`
 	FilteringQuality           int  `json:"filteringQuality"`
 	AntiAliasing               bool `json:"antiAliasing"`
@@ -56,26 +87,29 @@ type AdvancedRenderingConfig struct {
 	MeshSmoothingIntensity float32 `json:"meshSmoothingIntensity"`
 	TessellationQuality    int     `json:"tessellationQuality"`
 	NormalSmoothingRadius  float32 `json:"normalSmoothingRadius"`
-
-	// Water Reflection and Refraction (based on Medium article techniques)
-	EnableWaterReflection    bool    `json:"enableWaterReflection"`
-	EnableWaterRefraction    bool    `json:"enableWaterRefraction"`
-	WaterReflectionIntensity float32 `json:"waterReflectionIntensity"`
-	WaterRefractionIntensity float32 `json:"waterRefractionIntensity"`
-	EnableWaterDistortion    bool    `json:"enableWaterDistortion"`
-	WaterDistortionIntensity float32 `json:"waterDistortionIntensity"`
-	EnableWaterNormalMapping bool    `json:"enableWaterNormalMapping"`
-	WaterNormalIntensity     float32 `json:"waterNormalIntensity"`
 }
 
 // DefaultAdvancedRenderingConfig returns sensible defaults for all advanced rendering features
 func DefaultAdvancedRenderingConfig() AdvancedRenderingConfig {
 	return AdvancedRenderingConfig{
-		// Caustics - disabled by default for performance
-		EnableCaustics:    false,
-		CausticsIntensity: 0.3,
-		CausticsScale:     0.003,
-		CausticsSpeed:     mgl32.Vec2{0.02, 0.015},
+		// Core Lighting
+		EnableAdvancedLighting: true,
+
+		// Modern PBR Extensions - disabled by default for performance
+		EnableClearcoat:    false,
+		ClearcoatRoughness: 0.1,
+		ClearcoatIntensity: 0.5,
+		EnableSheen:        false,
+		SheenColor:         mgl32.Vec3{1.0, 1.0, 1.0},
+		SheenRoughness:     0.5,
+		EnableTransmission: false,
+		TransmissionFactor: 0.0,
+
+		// Advanced Lighting Models
+		EnableMultipleScattering: true,
+		EnableEnergyConservation: true,
+		EnableImageBasedLighting: false, // Requires IBL setup
+		IBLIntensity:             1.0,
 
 		// Perlin Noise - enabled for surface detail
 		EnablePerlinNoise: true,
@@ -84,33 +118,51 @@ func DefaultAdvancedRenderingConfig() AdvancedRenderingConfig {
 		NoiseIntensity:    0.05,
 
 		// Advanced Shadows - enabled for realism
-		EnableAdvancedShadows: true,
-		ShadowIntensity:       0.3,
-		ShadowSoftness:        0.2,
+		EnableAdvancedShadows:    true,
+		ShadowIntensity:          0.3,
+		ShadowSoftness:           0.2,
+		EnableCascadedShadowMaps: false, // Requires shadow map setup
+		EnablePCFShadows:         true,
+		PCFKernelSize:            3,
 
-		// Perspective Shadows - disabled by default for performance
-		EnablePerspectiveShadows: false,
-		ShadowMapQuality:         1024,
+		// Volumetric Lighting - disabled by default for performance
+		EnableVolumetricLighting: false,
+		VolumetricIntensity:      0.5,
+		VolumetricSteps:          16,
+		VolumetricScattering:     0.1,
 
 		// LOD/Visibility - enabled for performance
 		EnableLOD:             true,
 		LODTransitionDistance: 50000.0,
 		PerformanceScaling:    0.3,
 
-		// Subsurface Scattering - enabled for water realism
+		// Enhanced Subsurface Scattering
 		EnableSubsurfaceScattering: true,
 		ScatteringIntensity:        0.15,
 		ScatteringDepth:            0.005,
+		ScatteringColor:            mgl32.Vec3{1.0, 0.2, 0.1}, // Warm subsurface color
 
-		// Ambient Occlusion - enabled for depth perception
-		EnableAmbientOcclusion: true,
-		AOIntensity:            0.25,
-		AORadius:               150.0,
+		// SSAO - enabled for depth perception
+		EnableSSAO:      true,
+		SSAOIntensity:   0.25,
+		SSAORadius:      150.0,
+		SSAOBias:        0.025,
+		SSAOSampleCount: 16,
 
-		// Glow effects - disabled by default
-		EnableGlow:    false,
-		GlowIntensity: 0.3,
-		GlowRadius:    0.4,
+		// Global Illumination - disabled by default for performance
+		EnableGlobalIllumination: false,
+		GIIntensity:              0.5,
+		GIBounces:                2,
+
+		// Bloom and HDR - enabled for realism
+		EnableBloom:    true,
+		BloomThreshold: 1.0,
+		BloomIntensity: 0.3,
+		BloomRadius:    0.4,
+
+		// TAA - disabled by default (requires temporal data)
+		EnableTAA:      false,
+		TAABlendFactor: 0.1,
 
 		// High-Quality Filtering - enabled for smooth results
 		EnableHighQualityFiltering: true,
@@ -125,59 +177,59 @@ func DefaultAdvancedRenderingConfig() AdvancedRenderingConfig {
 	}
 }
 
-// WaterAdvancedRenderingConfig returns optimized settings for water rendering
-func WaterAdvancedRenderingConfig() AdvancedRenderingConfig {
+// HighQualityRenderingConfig returns settings optimized for maximum visual quality
+func HighQualityRenderingConfig() AdvancedRenderingConfig {
 	config := DefaultAdvancedRenderingConfig()
 
-	// Enable water-specific features
-	config.EnableCaustics = false // Can be enabled via API
-	config.EnableSubsurfaceScattering = true
-	config.EnableAmbientOcclusion = true
-	config.EnablePerlinNoise = true
-	config.EnableLOD = true
-	config.EnableHighQualityFiltering = true
-	config.EnableMeshSmoothing = true // Important for water surfaces
+	// Enable all advanced features for maximum quality
+	config.EnableClearcoat = true
+	config.EnableSheen = true
+	config.EnableTransmission = true
+	config.EnableImageBasedLighting = true
+	config.EnableVolumetricLighting = true
+	config.EnableGlobalIllumination = true
+	config.EnableBloom = true
+	config.EnableTAA = true
 
-	// Balanced settings for beautiful water
-	config.CausticsIntensity = 0.3      // Available if enabled
-	config.ScatteringIntensity = 0.1    // Subtle
-	config.AOIntensity = 0.15           // Gentle depth
-	config.NoiseIntensity = 0.02        // Very subtle surface detail
-	config.ShadowIntensity = 0.2        // Soft shadows
-	config.ShadowSoftness = 0.3         // Smooth shadow edges
-	config.MeshSmoothingIntensity = 0.8 // High smoothing for water
-	config.TessellationQuality = 3      // High quality for water
-
-	// Water reflection and refraction settings (inspired by Medium article)
-	config.EnableWaterReflection = true
-	config.EnableWaterRefraction = true
-	config.WaterReflectionIntensity = 0.8
-	config.WaterRefractionIntensity = 0.6
-	config.EnableWaterDistortion = true
-	config.WaterDistortionIntensity = 0.3
-	config.EnableWaterNormalMapping = true
-	config.WaterNormalIntensity = 1.0
+	// Higher quality settings
+	config.ClearcoatIntensity = 0.8
+	config.SheenRoughness = 0.3
+	config.TransmissionFactor = 0.5
+	config.VolumetricIntensity = 0.8
+	config.VolumetricSteps = 32
+	config.GIIntensity = 0.7
+	config.GIBounces = 3
+	config.BloomIntensity = 0.5
+	config.FilteringQuality = 3         // Maximum quality
+	config.MeshSmoothingIntensity = 0.9 // Maximum smoothing
+	config.TessellationQuality = 4      // Maximum quality
+	config.SSAOSampleCount = 32         // Higher quality SSAO
 
 	return config
 }
 
-// WaterPhotorealisticConfig returns settings optimized for maximum realism
-func WaterPhotorealisticConfig() AdvancedRenderingConfig {
-	config := WaterAdvancedRenderingConfig()
+// PerformanceRenderingConfig returns settings optimized for performance
+func PerformanceRenderingConfig() AdvancedRenderingConfig {
+	config := DefaultAdvancedRenderingConfig()
 
-	// Enable all advanced features for maximum quality
-	config.EnableCaustics = true
-	config.EnablePerspectiveShadows = true
-	config.EnableGlow = true
+	// Disable expensive features
+	config.EnableClearcoat = false
+	config.EnableSheen = false
+	config.EnableTransmission = false
+	config.EnableImageBasedLighting = false
+	config.EnableVolumetricLighting = false
+	config.EnableGlobalIllumination = false
+	config.EnableBloom = false
+	config.EnableTAA = false
+	config.EnableSubsurfaceScattering = false
+	config.EnableSSAO = false
 
-	// Higher quality settings
-	config.CausticsIntensity = 0.4
-	config.ScatteringIntensity = 0.2
-	config.AOIntensity = 0.2
-	config.GlowIntensity = 0.2
-	config.FilteringQuality = 3         // Maximum quality
-	config.MeshSmoothingIntensity = 0.9 // Maximum smoothing
-	config.TessellationQuality = 4      // Maximum quality
+	// Lower quality settings for performance
+	config.FilteringQuality = 1
+	config.MeshSmoothingIntensity = 0.3
+	config.TessellationQuality = 1
+	config.PerformanceScaling = 0.5
+	config.PCFKernelSize = 1
 
 	return config
 }
@@ -189,14 +241,14 @@ func VoxelAdvancedRenderingConfig() AdvancedRenderingConfig {
 	// Enable voxel-specific features
 	config.EnablePerlinNoise = true
 	config.EnableAdvancedShadows = true
-	config.EnableAmbientOcclusion = true
+	config.EnableSSAO = true
 	config.EnableLOD = true
 	config.EnableMeshSmoothing = false // Voxels should stay crisp
 
 	// Optimize for voxel scenes
 	config.NoiseIntensity = 0.1
 	config.ShadowIntensity = 0.4
-	config.AOIntensity = 0.3
+	config.SSAOIntensity = 0.3
 	config.PerformanceScaling = 0.5
 	config.TessellationQuality = 1 // Low for voxels
 
@@ -209,11 +261,24 @@ func ApplyAdvancedRenderingConfig(model *Model, config AdvancedRenderingConfig) 
 		model.CustomUniforms = make(map[string]interface{})
 	}
 
-	// Apply caustics settings
-	model.CustomUniforms["enableCaustics"] = config.EnableCaustics
-	model.CustomUniforms["causticsIntensity"] = config.CausticsIntensity
-	model.CustomUniforms["causticsScale"] = config.CausticsScale
-	model.CustomUniforms["causticsSpeed"] = config.CausticsSpeed
+	// Core lighting features
+	model.CustomUniforms["enableAdvancedLighting"] = config.EnableAdvancedLighting
+
+	// Modern PBR Extensions
+	model.CustomUniforms["enableClearcoat"] = config.EnableClearcoat
+	model.CustomUniforms["clearcoatRoughness"] = config.ClearcoatRoughness
+	model.CustomUniforms["clearcoatIntensity"] = config.ClearcoatIntensity
+	model.CustomUniforms["enableSheen"] = config.EnableSheen
+	model.CustomUniforms["sheenColor"] = config.SheenColor
+	model.CustomUniforms["sheenRoughness"] = config.SheenRoughness
+	model.CustomUniforms["enableTransmission"] = config.EnableTransmission
+	model.CustomUniforms["transmissionFactor"] = config.TransmissionFactor
+
+	// Advanced Lighting Models
+	model.CustomUniforms["enableMultipleScattering"] = config.EnableMultipleScattering
+	model.CustomUniforms["enableEnergyConservation"] = config.EnableEnergyConservation
+	model.CustomUniforms["enableImageBasedLighting"] = config.EnableImageBasedLighting
+	model.CustomUniforms["iblIntensity"] = config.IBLIntensity
 
 	// Apply noise settings
 	model.CustomUniforms["enablePerlinNoise"] = config.EnablePerlinNoise
@@ -225,26 +290,47 @@ func ApplyAdvancedRenderingConfig(model *Model, config AdvancedRenderingConfig) 
 	model.CustomUniforms["enableShadows"] = config.EnableAdvancedShadows
 	model.CustomUniforms["shadowIntensity"] = config.ShadowIntensity
 	model.CustomUniforms["shadowSoftness"] = config.ShadowSoftness
+	model.CustomUniforms["enablePCFShadows"] = config.EnablePCFShadows
+	model.CustomUniforms["pcfKernelSize"] = int32(config.PCFKernelSize)
+
+	// Volumetric Lighting
+	model.CustomUniforms["enableVolumetricLighting"] = config.EnableVolumetricLighting
+	model.CustomUniforms["volumetricIntensity"] = config.VolumetricIntensity
+	model.CustomUniforms["volumetricSteps"] = int32(config.VolumetricSteps)
+	model.CustomUniforms["volumetricScattering"] = config.VolumetricScattering
 
 	// Apply LOD settings
 	model.CustomUniforms["enableLOD"] = config.EnableLOD
 	model.CustomUniforms["lodTransitionDistance"] = config.LODTransitionDistance
 	model.CustomUniforms["performanceScaling"] = config.PerformanceScaling
 
-	// Apply subsurface scattering
+	// Enhanced subsurface scattering
 	model.CustomUniforms["enableSubsurfaceScattering"] = config.EnableSubsurfaceScattering
 	model.CustomUniforms["scatteringIntensity"] = config.ScatteringIntensity
 	model.CustomUniforms["scatteringDepth"] = config.ScatteringDepth
+	model.CustomUniforms["scatteringColor"] = config.ScatteringColor
 
-	// Apply ambient occlusion
-	model.CustomUniforms["enableAmbientOcclusion"] = config.EnableAmbientOcclusion
-	model.CustomUniforms["aoIntensity"] = config.AOIntensity
-	model.CustomUniforms["aoRadius"] = config.AORadius
+	// SSAO settings
+	model.CustomUniforms["enableSSAO"] = config.EnableSSAO
+	model.CustomUniforms["ssaoIntensity"] = config.SSAOIntensity
+	model.CustomUniforms["ssaoRadius"] = config.SSAORadius
+	model.CustomUniforms["ssaoBias"] = config.SSAOBias
+	model.CustomUniforms["ssaoSampleCount"] = int32(config.SSAOSampleCount)
 
-	// Apply glow settings
-	model.CustomUniforms["enableGlow"] = config.EnableGlow
-	model.CustomUniforms["glowIntensity"] = config.GlowIntensity
-	model.CustomUniforms["glowRadius"] = config.GlowRadius
+	// Global Illumination
+	model.CustomUniforms["enableGlobalIllumination"] = config.EnableGlobalIllumination
+	model.CustomUniforms["giIntensity"] = config.GIIntensity
+	model.CustomUniforms["giBounces"] = int32(config.GIBounces)
+
+	// Bloom and HDR
+	model.CustomUniforms["enableBloom"] = config.EnableBloom
+	model.CustomUniforms["bloomThreshold"] = config.BloomThreshold
+	model.CustomUniforms["bloomIntensity"] = config.BloomIntensity
+	model.CustomUniforms["bloomRadius"] = config.BloomRadius
+
+	// TAA
+	model.CustomUniforms["enableTAA"] = config.EnableTAA
+	model.CustomUniforms["taaBlendFactor"] = config.TAABlendFactor
 
 	// Apply filtering settings
 	model.CustomUniforms["enableHighQualityFiltering"] = config.EnableHighQualityFiltering

@@ -137,6 +137,13 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	} else {
 		gl.Disable(gl.DEPTH_TEST)
 	}
+
+	// Enable alpha blending for transparency
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	
+	// For transparent objects, disable depth writing but keep depth testing
+	// This will be handled per-model based on alpha value
 	viewProjection := camera.GetViewProjection()
 
 	// Culling : https://learnopengl.com/Advanced-OpenGL/Face-culling
@@ -195,6 +202,17 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 		// Set material uniforms if applicable
 		if model.Material != nil {
 			rend.setMaterialUniforms(shader, model)
+			
+			// Handle transparency depth writing
+			if model.Material.Alpha < 0.99 {
+				gl.DepthMask(false) // Disable depth writing for transparent objects
+				gl.Enable(gl.BLEND)
+				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+			} else {
+				gl.DepthMask(true) // Enable depth writing for opaque objects
+				gl.Enable(gl.BLEND)
+				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA) // Standard blending for all
+			}
 		}
 
 		// Set shader-specific uniforms (like water shader uniforms)
@@ -373,6 +391,11 @@ func (rend *OpenGLRenderer) setMaterialUniforms(shader *Shader, model *Model) {
 	exposureLoc := gl.GetUniformLocation(shader.program, gl.Str("exposure\x00"))
 	if exposureLoc != -1 {
 		gl.Uniform1f(exposureLoc, model.Material.Exposure)
+	}
+
+	alphaLoc := gl.GetUniformLocation(shader.program, gl.Str("materialAlpha\x00"))
+	if alphaLoc != -1 {
+		gl.Uniform1f(alphaLoc, model.Material.Alpha)
 	}
 }
 

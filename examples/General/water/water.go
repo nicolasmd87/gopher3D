@@ -278,7 +278,7 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 	ws.model.CustomUniforms["waveSpeeds"] = speeds
 	ws.model.CustomUniforms["wavePhases"] = phases
 	ws.model.CustomUniforms["waveSteepness"] = steepness
-	// Apply photorealistic Advanced Rendering configuration for professional water
+	// Apply photorealistic water rendering configuration for professional water
 	waterRenderConfig := renderer.WaterPhotorealisticConfig()
 	// Professional settings for smooth, natural appearance
 	waterRenderConfig.MeshSmoothingIntensity = 0.85 // High smoothing without artifacts
@@ -287,7 +287,7 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 	waterRenderConfig.NormalSmoothingRadius = 1.2 // Natural smoothing radius
 	waterRenderConfig.EnableCaustics = false      // Disable for clean appearance
 	waterRenderConfig.NoiseIntensity = 0.0        // No surface noise for uniform color
-	renderer.ApplyAdvancedRenderingConfig(ws.model, waterRenderConfig)
+	renderer.ApplyWaterRenderingConfig(ws.model, waterRenderConfig)
 
 	// Water-specific uniforms
 	ws.model.CustomUniforms["waterPlaneHeight"] = float32(5.0) // Water surface height

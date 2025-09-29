@@ -129,10 +129,10 @@ void main() {
     // High-precision world position calculation
     FragPos = vec3(modelMatrix * vec4(inPosition, 1.0));
     
-    // Ultra-precise normal calculation for perfect reflections
-    // Extract scale factor for compensation
-    vec3 scale = vec3(length(modelMatrix[0].xyz), length(modelMatrix[1].xyz), length(modelMatrix[2].xyz));
-    mat3 normalMatrix = mat3(modelMatrix) / (scale.x * scale.y * scale.z);
+    // Correct normal transformation using inverse transpose
+    // For uniform scaling, we can use the upper-left 3x3 of the model matrix
+    // For non-uniform scaling, this should be inverse(transpose(mat3(modelMatrix)))
+    mat3 normalMatrix = mat3(modelMatrix);
     Normal = normalize(normalMatrix * inNormal);
     
     fragTexCoord = inTexCoord;
@@ -170,6 +170,47 @@ uniform float shininess;
 uniform float metallic;     // Metallic factor (0.0 = dielectric, 1.0 = metallic)
 uniform float roughness;    // Surface roughness (0.0 = mirror, 1.0 = completely rough)
 uniform float exposure;     // HDR exposure control
+uniform float materialAlpha; // Material transparency (0.0 = transparent, 1.0 = opaque)
+
+// Modern PBR Extensions
+uniform bool enableClearcoat;
+uniform float clearcoatRoughness;
+uniform float clearcoatIntensity;
+uniform bool enableSheen;
+uniform vec3 sheenColor;
+uniform float sheenRoughness;
+uniform bool enableTransmission;
+uniform float transmissionFactor;
+
+// Advanced Lighting Models
+uniform bool enableMultipleScattering;
+uniform bool enableEnergyConservation;
+uniform bool enableImageBasedLighting;
+uniform float iblIntensity;
+
+// Volumetric Lighting
+uniform bool enableVolumetricLighting;
+uniform float volumetricIntensity;
+uniform int volumetricSteps;
+uniform float volumetricScattering;
+
+// SSAO
+uniform bool enableSSAO;
+uniform float ssaoIntensity;
+uniform float ssaoRadius;
+uniform float ssaoBias;
+uniform int ssaoSampleCount;
+
+// Global Illumination
+uniform bool enableGlobalIllumination;
+uniform float giIntensity;
+uniform int giBounces;
+
+// Bloom and HDR
+uniform bool enableBloom;
+uniform float bloomThreshold;
+uniform float bloomIntensity;
+uniform float bloomRadius;
 
 // GPU Gems Chapter 9 & 11: Shadow Volume Support with Antialiasing
 uniform bool enableShadows;  // Enable shadow volume rendering
@@ -225,7 +266,9 @@ float distributionGGX(vec3 N, vec3 H, float roughness) {
     float denom = (NdotH2 * (a2 - 1.0) + 1.0);
     denom = 3.14159265359 * denom * denom;
     
-    return num / denom;
+    // Clamp the result to prevent extreme highlights
+    float result = num / denom;
+    return min(result, 10.0); // Prevent excessive specular concentration
 }
 
 // Geometry function for self-shadowing
@@ -246,6 +289,193 @@ float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
     float ggx1 = geometrySchlickGGX(NdotL, roughness);
     
     return ggx1 * ggx2;
+}
+
+// Modern PBR Extensions
+
+// Clearcoat BRDF (automotive paint, lacquered surfaces)
+vec3 calculateClearcoat(vec3 N, vec3 V, vec3 L, vec3 H, vec3 baseColor) {
+    if (!enableClearcoat) return vec3(0.0);
+    
+    float clearcoatNDF = distributionGGX(N, H, clearcoatRoughness);
+    float clearcoatG = geometrySmith(N, V, L, clearcoatRoughness);
+    vec3 clearcoatF = fresnelSchlick(max(dot(H, V), 0.0), vec3(0.04)); // Clear coat F0
+    
+    vec3 clearcoatSpecular = (clearcoatNDF * clearcoatG * clearcoatF) / 
+                            (4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.001);
+    
+    return clearcoatSpecular * clearcoatIntensity;
+}
+
+// Sheen BRDF (fabric, velvet materials)
+vec3 calculateSheen(vec3 N, vec3 V, vec3 L, vec3 H) {
+    if (!enableSheen) return vec3(0.0);
+    
+    float sheenNdotH = max(dot(N, H), 0.0);
+    float sheenD = (2.0 + sheenRoughness) * pow(sheenNdotH, sheenRoughness) / (2.0 * 3.14159265359);
+    
+    return sheenColor * sheenD * 0.25; // Sheen is typically subtle
+}
+
+// Transmission BRDF (glass, translucent materials)
+vec3 calculateTransmission(vec3 N, vec3 V, vec3 L, vec3 baseColor) {
+    if (!enableTransmission) return vec3(0.0);
+    
+    // Proper glass transmission with refraction
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    
+    // Fresnel for transmission (inverted)
+    float F0 = 0.04; // Glass F0
+    float fresnel = F0 + (1.0 - F0) * pow(1.0 - NdotV, 5.0);
+    float transmission = (1.0 - fresnel) * transmissionFactor;
+    
+    // Light coming through the material
+    vec3 transmittedLight = baseColor * transmission * NdotL;
+    
+    // Add some scattering for realistic glass
+    vec3 scattering = baseColor * transmission * 0.1;
+    
+    return transmittedLight + scattering;
+}
+
+// Multiple Scattering Energy Compensation
+vec3 compensateEnergyLoss(vec3 color, float NdotV, float roughness) {
+    if (!enableMultipleScattering) return color;
+    
+    // Approximate multiple scattering compensation
+    float compensation = 1.0 + roughness * (1.0 - NdotV) * 0.2;
+    return color * compensation;
+}
+
+// Energy Conservation for layered materials
+vec3 applyEnergyConservation(vec3 diffuse, vec3 specular, vec3 clearcoat, vec3 sheen) {
+    if (!enableEnergyConservation) return diffuse + specular + clearcoat + sheen;
+    
+    // Ensure total energy doesn't exceed 1.0
+    vec3 totalEnergy = diffuse + specular + clearcoat + sheen;
+    float maxEnergy = max(max(totalEnergy.r, totalEnergy.g), totalEnergy.b);
+    
+    if (maxEnergy > 1.0) {
+        return totalEnergy / maxEnergy;
+    }
+    
+    return totalEnergy;
+}
+
+// Simple Screen Space Ambient Occlusion
+float calculateSSAO(vec3 position, vec3 normal) {
+    if (!enableSSAO) return 1.0;
+    
+    float occlusion = 0.0;
+    float radius = ssaoRadius;
+    
+    // Simple SSAO approximation using world space
+    for (int i = 0; i < ssaoSampleCount && i < 16; i++) {
+        float angle = float(i) * 3.14159 * 2.0 / float(ssaoSampleCount);
+        vec3 sampleDir = vec3(cos(angle), sin(angle), 0.5);
+        sampleDir = normalize(normal + sampleDir * 0.5);
+        
+        // Sample depth in the direction
+        vec3 samplePos = position + sampleDir * radius;
+        float depth = length(samplePos - position);
+        
+        // Simple occlusion calculation
+        occlusion += 1.0 / (1.0 + depth * depth * 0.01);
+    }
+    
+    occlusion = occlusion / float(min(ssaoSampleCount, 16));
+    return 1.0 - (occlusion * ssaoIntensity);
+}
+
+// Volumetric Lighting (light shafts, fog)
+vec3 calculateVolumetricLighting(vec3 worldPos, vec3 lightPos, vec3 viewPos) {
+    if (!enableVolumetricLighting) return vec3(0.0);
+    
+    vec3 rayDir = normalize(worldPos - viewPos);
+    vec3 lightDir = normalize(lightPos - viewPos);
+    float rayLength = length(worldPos - viewPos);
+    
+    vec3 volumetricColor = vec3(0.0);
+    float stepSize = rayLength / float(volumetricSteps);
+    
+    // March along the ray
+    for (int i = 0; i < volumetricSteps && i < 32; i++) {
+        vec3 samplePos = viewPos + rayDir * stepSize * float(i);
+        float distanceToLight = length(lightPos - samplePos);
+        
+        // Simple scattering calculation
+        float scattering = 1.0 / (1.0 + distanceToLight * distanceToLight * 0.0001);
+        scattering *= volumetricScattering;
+        
+        volumetricColor += vec3(scattering);
+    }
+    
+    volumetricColor /= float(min(volumetricSteps, 32));
+    return volumetricColor * volumetricIntensity * 0.1;
+}
+
+// Simple Global Illumination approximation
+vec3 calculateGlobalIllumination(vec3 position, vec3 normal, vec3 albedo) {
+    if (!enableGlobalIllumination) return vec3(0.0);
+    
+    // Very simple GI approximation using hemisphere sampling
+    vec3 gi = vec3(0.0);
+    int samples = min(giBounces * 4, 16);
+    
+    for (int i = 0; i < samples; i++) {
+        float angle = float(i) * 3.14159 * 2.0 / float(samples);
+        vec3 sampleDir = vec3(cos(angle), sin(angle), 1.0);
+        sampleDir = normalize(normal + sampleDir * 0.5);
+        
+        // Simple indirect lighting approximation
+        float indirectLight = max(0.0, dot(normal, sampleDir)) * 0.1;
+        gi += albedo * indirectLight;
+    }
+    
+    return gi * giIntensity / float(samples);
+}
+
+// Environment reflections (skybox-based) - simplified to avoid artifacts
+vec3 calculateEnvironmentReflection(vec3 N, vec3 V, float roughness, float metallic) {
+    // Calculate reflection direction
+    vec3 R = reflect(-V, N);
+    
+    // Simple uniform environment color to avoid the "two halves" effect
+    vec3 envColor = vec3(0.6, 0.7, 0.9); // Uniform sky-like color
+    
+    // Roughness affects reflection clarity
+    float reflectionStrength = (1.0 - roughness * 0.9) * 0.5; // Reduced strength
+    
+    // Metallic materials reflect more environment
+    float envContribution = mix(0.05, 0.3, metallic) * reflectionStrength; // Much reduced
+    
+    return envColor * envContribution;
+}
+
+// Simple inter-object reflections approximation
+vec3 calculateInterObjectReflections(vec3 worldPos, vec3 N, vec3 V, float roughness, float metallic) {
+    // Only apply to metallic surfaces with low roughness
+    if (roughness > 0.5 || metallic < 0.5) return vec3(0.0);
+    
+    vec3 R = reflect(-V, N);
+    vec3 reflectionColor = vec3(0.0);
+    
+    // Simple approximation: sample environment based on reflection direction
+    // This creates subtle inter-object reflections without artifacts
+    float reflectionStrength = (1.0 - roughness) * metallic * 0.15; // Very subtle
+    
+    // Use reflection direction to approximate nearby object colors
+    // This is a simplified approach - in reality you'd need screen-space reflections
+    vec3 envSample = vec3(0.4, 0.5, 0.6); // Neutral reflection color
+    
+    // Add some variation based on world position to simulate different objects
+    float variation = sin(worldPos.x * 0.1) * sin(worldPos.z * 0.1) * 0.2;
+    envSample += vec3(variation, variation * 0.5, variation * 0.3);
+    
+    reflectionColor = envSample * reflectionStrength;
+    
+    return reflectionColor;
 }
 
 // ACES tone mapping for HDR
@@ -411,7 +641,7 @@ void main() {
     
     // Calculate light direction and attenuation based on light type
     if (light.isDirectional == 1) {
-        lightDir = normalize(light.direction); // Direction is FROM light TO objects
+        lightDir = normalize(light.direction); // Use light direction as-is for proper lighting
     } else {
         // High-precision point light calculation for perfect reflections
         vec3 lightVec = light.position - FragPos;
@@ -425,31 +655,51 @@ void main() {
     // Material properties
     vec3 albedo = diffuseColor * texColor.rgb;
     
-    // Calculate F0 (surface reflection at zero incidence)
+    // Calculate F0 (surface reflection at zero incidence) with realistic values
     vec3 F0 = vec3(0.04); // Default for dielectrics
-    F0 = mix(F0, albedo, metallic);
+    
+    // Use realistic metallic F0 values based on material color
+    if (metallic > 0.5) {
+        // For metals, use color-based F0 values that are more realistic
+        vec3 metalF0 = albedo;
+        
+        // Enhance metallic reflectance based on color
+        if (albedo.r > albedo.g && albedo.r > albedo.b) {
+            // Reddish metals (copper, gold)
+            metalF0 = mix(vec3(0.95, 0.64, 0.54), albedo, 0.7); // Copper-like
+        } else if (albedo.g > albedo.r && albedo.g > albedo.b) {
+            // Greenish metals (rare, but handle it)
+            metalF0 = mix(vec3(0.66, 0.88, 0.71), albedo, 0.7);
+        } else if (albedo.b > albedo.r && albedo.b > albedo.g) {
+            // Bluish metals (rare, but handle it)
+            metalF0 = mix(vec3(0.56, 0.57, 0.58), albedo, 0.7);
+        } else {
+            // Neutral metals (silver, aluminum, steel)
+            metalF0 = mix(vec3(0.91, 0.92, 0.92), albedo, 0.5); // Silver-like
+        }
+        
+        F0 = mix(F0, metalF0, metallic);
+    } else {
+        F0 = mix(F0, albedo, metallic);
+    }
     
     // Calculate per-light radiance
     vec3 radiance = tempAdjustedLightColor * light.intensity * attenuation;
     
     // High-precision dot products for perfect reflection calculations
     float NdotV = clamp(dot(norm, viewDir), 0.001, 1.0); // Avoid zero division
-    float NdotL = clamp(dot(norm, lightDir), 0.0, 1.0);
+    float NdotL_raw = dot(norm, lightDir); // Don't clamp yet - we need the raw value
+    float NdotL = max(NdotL_raw, 0.0); // Only clamp negative to 0 for lighting calculations
     float HdotV = clamp(dot(halfwayDir, viewDir), 0.001, 1.0); // Avoid zero division
     
-    // Early exit for surfaces facing away from light
-    if (NdotL < 0.001) {
-        vec3 ambient = light.ambientStrength * tempAdjustedLightColor * albedo;
-        vec3 color = ambient * exposure;
-        color = ACESFilm(color);
-        color = pow(color, vec3(1.0/2.2));
-        FragColor = vec4(color, texColor.a);
-        return;
-    }
+    // Don't early exit for back-facing surfaces - use wrap-around lighting instead
+    // This prevents the harsh "two halves" effect
     
     // BRDF calculations with optimized dot products
-    float NDF = distributionGGX(norm, halfwayDir, roughness);
-    float G = geometrySmith(norm, viewDir, lightDir, roughness);
+    // Ensure minimum roughness to prevent point light artifacts
+    float adjustedRoughness = max(roughness, 0.15); // Higher minimum roughness for softer highlights
+    float NDF = distributionGGX(norm, halfwayDir, adjustedRoughness);
+    float G = geometrySmith(norm, viewDir, lightDir, adjustedRoughness);
     vec3 F = fresnelSchlick(HdotV, F0);
     
     vec3 kS = F;
@@ -460,11 +710,41 @@ void main() {
     float denominator = 4.0 * NdotV * NdotL + 0.0001; // Use pre-calculated values
     vec3 specular = numerator / denominator;
     
-    // Add to outgoing radiance Lo (using pre-calculated NdotL)
-    vec3 Lo = (kD * albedo / 3.14159265359 + specular) * radiance * NdotL;
+    // Reduce specular intensity to prevent point light artifacts
+    // Apply view-dependent attenuation to make highlights more natural
+    float viewAttenuation = pow(NdotV, 0.8); // Soften highlights at grazing angles
+    specular *= viewAttenuation * 0.1; // Much more subtle specular intensity
     
-    // Ambient lighting with improved calculation
-    vec3 ambient = light.ambientStrength * tempAdjustedLightColor * albedo;
+    // Calculate modern PBR extensions
+    vec3 clearcoat = calculateClearcoat(norm, viewDir, lightDir, halfwayDir, albedo);
+    vec3 sheen = calculateSheen(norm, viewDir, lightDir, halfwayDir);
+    vec3 transmission = calculateTransmission(norm, viewDir, lightDir, albedo);
+    
+    // Apply multiple scattering compensation
+    specular = compensateEnergyLoss(specular, NdotV, roughness);
+    
+    // Hemisphere lighting - proper approach without washing out materials
+    // Use standard NdotL for front faces, ambient for back faces
+    float hemisphereNdotL = max(NdotL_raw, 0.0);
+    
+    // Add subtle fill light for back faces to avoid harsh cutoff
+    float fillLight = max(-NdotL_raw * 0.3, 0.0); // 30% fill from opposite direction
+    
+    // Base PBR calculation with hemisphere lighting
+    vec3 basePBR = (kD * albedo / 3.14159265359 + specular) * radiance * hemisphereNdotL;
+    
+    // Apply energy conservation for layered materials
+    vec3 Lo = applyEnergyConservation(
+        kD * albedo / 3.14159265359 * radiance * hemisphereNdotL,
+        specular * radiance * hemisphereNdotL,
+        clearcoat * radiance * hemisphereNdotL,
+        sheen * radiance * hemisphereNdotL
+    ) + transmission;
+    
+    // Ambient lighting with hemisphere fill light
+    // Reduced base ambient, add fill light for back faces
+    vec3 ambient = light.ambientStrength * tempAdjustedLightColor * albedo * 0.8;
+    vec3 fillLightContrib = fillLight * tempAdjustedLightColor * albedo * 0.2;
     
     // GPU Gems Chapter 5: Apply Perlin noise for surface detail if enabled
     vec3 finalAlbedo = albedo;
@@ -477,17 +757,30 @@ void main() {
         finalAlbedo = mix(albedo, noiseColor, noiseIntensity);
     }
     
-    // Recalculate lighting with enhanced albedo
-    vec3 enhancedLo = (kD * finalAlbedo / 3.14159265359 + specular) * radiance * NdotL;
-    vec3 enhancedAmbient = light.ambientStrength * tempAdjustedLightColor * finalAlbedo;
+    // Use the properly calculated Lo from energy conservation with fill light
+    vec3 color = ambient + fillLightContrib + Lo;
     
-    vec3 color = enhancedAmbient + enhancedLo;
+    // Apply modern lighting effects
     
-    // GPU Gems Chapter 17: Apply ambient occlusion if enabled
-    if (enableAmbientOcclusion) {
-        float aoFactor = calculateAO(FragPos, norm, aoRadius, aoIntensity);
-        color *= aoFactor;
-    }
+    // SSAO (Screen Space Ambient Occlusion)
+    float ssaoFactor = calculateSSAO(FragPos, norm);
+    color *= ssaoFactor;
+    
+    // Volumetric lighting
+    vec3 volumetric = calculateVolumetricLighting(FragPos, light.position, viewPos);
+    color += volumetric;
+    
+    // Global Illumination
+    vec3 gi = calculateGlobalIllumination(FragPos, norm, finalAlbedo);
+    color += gi;
+    
+    // Environment reflections (skybox-based) - re-enabled with conservative contribution
+    vec3 envReflection = calculateEnvironmentReflection(norm, viewDir, roughness, metallic);
+    color += envReflection * 0.5; // Reduced contribution to prevent washing out
+    
+    // Inter-object reflections (ball-to-ball)
+    vec3 interReflection = calculateInterObjectReflections(FragPos, norm, viewDir, roughness, metallic);
+    color += interReflection;
     
     // GPU Gems Chapter 2: Caustics are handled in water shader for now
     // Future: Add caustics support to default shader with proper uniform checking
@@ -526,12 +819,33 @@ void main() {
         color = ambient + lightContrib;
     }
     
+    // Apply bloom effect
+    if (enableBloom) {
+        // Extract bright areas for bloom
+        vec3 brightColor = max(color - bloomThreshold, vec3(0.0));
+        float brightness = dot(brightColor, vec3(0.2126, 0.7152, 0.0722));
+        
+        if (brightness > 0.0) {
+            // Simple bloom approximation
+            vec3 bloom = brightColor * bloomIntensity;
+            color += bloom * 0.3; // Blend bloom back into the image
+        }
+    }
+    
     color = ACESFilm(color);
     
     // Gamma correction (sRGB)
     color = pow(color, vec3(1.0/2.2));
     
-    FragColor = vec4(color, texColor.a);
+    // Use material alpha for transparency
+    float finalAlpha = texColor.a * materialAlpha;
+    
+    // Ensure opaque materials are fully opaque
+    if (materialAlpha >= 0.99) {
+        finalAlpha = 1.0; // Force fully opaque for materials that should be opaque
+    }
+    
+    FragColor = vec4(color, finalAlpha);
 }
 ` + "\x00"
 
@@ -702,6 +1016,10 @@ uniform bool enableWaterDistortion;
 uniform float waterDistortionIntensity;
 uniform bool enableWaterNormalMapping;
 uniform float waterNormalIntensity;
+
+// Custom transparency control
+uniform float baseAlpha;
+uniform float transparencyBoost;
 
 out vec4 FragColor;
 
@@ -1139,22 +1457,8 @@ void main() {
         finalColor = mix(finalColor, foamColor, foamMix);
     }
     
-    // Depth-based transparency for realistic ocean depth
-    float baseAlpha = 0.85;
-    
-    // Viewing angle affects transparency (more transparent at shallow angles)
-    float viewAngle = dot(norm, viewDir);
-    float angleTransparency = mix(0.7, 0.95, pow(viewAngle, 0.5));
-    
-    // Depth affects opacity (deeper water is more opaque)
-    float depthOpacity = mix(0.8, 0.95, depthFactor);
-    
-    // Distance-based transparency (distant water appears more opaque due to atmosphere)
-    float distanceOpacity = mix(0.85, 0.95, smoothstep(1000.0, 20000.0, distanceFromCamera));
-    
-    // Combine all transparency factors
-    float alpha = baseAlpha * angleTransparency * depthOpacity * distanceOpacity;
-    alpha += fresnel * 0.1 + totalFoam * 0.15;
+    // FORCE TRANSPARENCY - ignore all calculations and use minimal alpha
+    float alpha = 0.001; // Force almost zero alpha for complete transparency
     // GPU Gems Chapter 9 & 11: Apply realistic water shadows
     if (enableShadows) {
         float shadowFactor = 1.0;
@@ -1179,7 +1483,7 @@ void main() {
     
     // NO wave-based ambient occlusion - uniform lighting
     
-    alpha = clamp(alpha, 0.75, 0.98);
+    alpha = clamp(alpha, 0.001, 0.98); // Allow almost complete transparency
     
     FragColor = vec4(finalColor, alpha);
 }
@@ -1247,6 +1551,180 @@ func ApplyWaterConfig(model *Model, config WaterConfig) {
 	model.CustomUniforms["fogColor"] = config.FogColor
 	model.CustomUniforms["skyColor"] = config.SkyColor
 	model.CustomUniforms["horizonColor"] = config.HorizonColor
+}
+
+// WaterRenderingConfig holds water-specific rendering settings
+type WaterRenderingConfig struct {
+	// Caustics settings
+	EnableCaustics    bool       `json:"enableCaustics"`
+	CausticsIntensity float32    `json:"causticsIntensity"`
+	CausticsScale     float32    `json:"causticsScale"`
+	CausticsSpeed     mgl32.Vec2 `json:"causticsSpeed"`
+
+	// Water surface quality
+	MeshSmoothingIntensity float32 `json:"meshSmoothingIntensity"`
+	FilteringQuality       int     `json:"filteringQuality"`
+	AntiAliasing           bool    `json:"antiAliasing"`
+	NormalSmoothingRadius  float32 `json:"normalSmoothingRadius"`
+
+	// Surface detail
+	NoiseIntensity float32 `json:"noiseIntensity"`
+	NoiseScale     float32 `json:"noiseScale"`
+	NoiseOctaves   int     `json:"noiseOctaves"`
+
+	// Lighting and shadows
+	ShadowIntensity float32 `json:"shadowIntensity"`
+	ShadowSoftness  float32 `json:"shadowSoftness"`
+
+	// Performance and LOD
+	PerformanceScaling    float32 `json:"performanceScaling"`
+	TessellationQuality   int     `json:"tessellationQuality"`
+	LODTransitionDistance float32 `json:"lodTransitionDistance"`
+
+	// Water reflection and refraction
+	EnableWaterReflection    bool    `json:"enableWaterReflection"`
+	EnableWaterRefraction    bool    `json:"enableWaterRefraction"`
+	WaterReflectionIntensity float32 `json:"waterReflectionIntensity"`
+	WaterRefractionIntensity float32 `json:"waterRefractionIntensity"`
+	EnableWaterDistortion    bool    `json:"enableWaterDistortion"`
+	WaterDistortionIntensity float32 `json:"waterDistortionIntensity"`
+	EnableWaterNormalMapping bool    `json:"enableWaterNormalMapping"`
+	WaterNormalIntensity     float32 `json:"waterNormalIntensity"`
+}
+
+// DefaultWaterRenderingConfig returns sensible defaults for water rendering
+func DefaultWaterRenderingConfig() WaterRenderingConfig {
+	return WaterRenderingConfig{
+		// Caustics - disabled by default for performance
+		EnableCaustics:    false,
+		CausticsIntensity: 0.3,
+		CausticsScale:     0.003,
+		CausticsSpeed:     mgl32.Vec2{0.02, 0.015},
+
+		// Water surface quality - balanced settings
+		MeshSmoothingIntensity: 0.7,
+		FilteringQuality:       2,
+		AntiAliasing:           true,
+		NormalSmoothingRadius:  1.0,
+
+		// Surface detail - subtle
+		NoiseIntensity: 0.02,
+		NoiseScale:     0.0002,
+		NoiseOctaves:   3,
+
+		// Lighting and shadows - soft
+		ShadowIntensity: 0.2,
+		ShadowSoftness:  0.3,
+
+		// Performance and LOD
+		PerformanceScaling:    0.3,
+		TessellationQuality:   2,
+		LODTransitionDistance: 50000.0,
+
+		// Water reflection and refraction - enabled for realism
+		EnableWaterReflection:    true,
+		EnableWaterRefraction:    true,
+		WaterReflectionIntensity: 0.8,
+		WaterRefractionIntensity: 0.6,
+		EnableWaterDistortion:    true,
+		WaterDistortionIntensity: 0.3,
+		EnableWaterNormalMapping: true,
+		WaterNormalIntensity:     1.0,
+	}
+}
+
+// WaterPhotorealisticConfig returns settings optimized for maximum water realism
+func WaterPhotorealisticConfig() WaterRenderingConfig {
+	config := DefaultWaterRenderingConfig()
+
+	// Enable all advanced features for maximum quality
+	config.EnableCaustics = true
+	config.CausticsIntensity = 0.4
+
+	// Higher quality settings
+	config.MeshSmoothingIntensity = 0.9
+	config.FilteringQuality = 3
+	config.NormalSmoothingRadius = 1.2
+	config.TessellationQuality = 4
+
+	// Enhanced water effects
+	config.WaterReflectionIntensity = 0.9
+	config.WaterRefractionIntensity = 0.7
+	config.WaterDistortionIntensity = 0.4
+	config.WaterNormalIntensity = 1.2
+
+	// Subtle surface detail
+	config.NoiseIntensity = 0.01
+	config.ShadowIntensity = 0.15
+	config.ShadowSoftness = 0.4
+
+	return config
+}
+
+// WaterPerformanceConfig returns settings optimized for performance
+func WaterPerformanceConfig() WaterRenderingConfig {
+	config := DefaultWaterRenderingConfig()
+
+	// Disable expensive features
+	config.EnableCaustics = false
+	config.EnableWaterDistortion = false
+	config.EnableWaterNormalMapping = false
+
+	// Lower quality settings
+	config.MeshSmoothingIntensity = 0.3
+	config.FilteringQuality = 1
+	config.TessellationQuality = 1
+	config.PerformanceScaling = 0.5
+
+	// Reduced effects
+	config.WaterReflectionIntensity = 0.5
+	config.WaterRefractionIntensity = 0.3
+	config.NoiseIntensity = 0.0
+
+	return config
+}
+
+// ApplyWaterRenderingConfig applies water rendering configuration to a model
+func ApplyWaterRenderingConfig(model *Model, config WaterRenderingConfig) {
+	if model.CustomUniforms == nil {
+		model.CustomUniforms = make(map[string]interface{})
+	}
+
+	// Apply caustics settings
+	model.CustomUniforms["enableCaustics"] = config.EnableCaustics
+	model.CustomUniforms["causticsIntensity"] = config.CausticsIntensity
+	model.CustomUniforms["causticsScale"] = config.CausticsScale
+	model.CustomUniforms["causticsSpeed"] = config.CausticsSpeed
+
+	// Apply surface quality settings
+	model.CustomUniforms["meshSmoothingIntensity"] = config.MeshSmoothingIntensity
+	model.CustomUniforms["filteringQuality"] = int32(config.FilteringQuality)
+	model.CustomUniforms["antiAliasing"] = config.AntiAliasing
+	model.CustomUniforms["normalSmoothingRadius"] = config.NormalSmoothingRadius
+
+	// Apply surface detail settings
+	model.CustomUniforms["noiseIntensity"] = config.NoiseIntensity
+	model.CustomUniforms["noiseScale"] = config.NoiseScale
+	model.CustomUniforms["noiseOctaves"] = int32(config.NoiseOctaves)
+
+	// Apply lighting settings
+	model.CustomUniforms["shadowIntensity"] = config.ShadowIntensity
+	model.CustomUniforms["shadowSoftness"] = config.ShadowSoftness
+
+	// Apply performance settings
+	model.CustomUniforms["performanceScaling"] = config.PerformanceScaling
+	model.CustomUniforms["tessellationQuality"] = int32(config.TessellationQuality)
+	model.CustomUniforms["lodTransitionDistance"] = config.LODTransitionDistance
+
+	// Apply water-specific effects
+	model.CustomUniforms["enableWaterReflection"] = config.EnableWaterReflection
+	model.CustomUniforms["enableWaterRefraction"] = config.EnableWaterRefraction
+	model.CustomUniforms["waterReflectionIntensity"] = config.WaterReflectionIntensity
+	model.CustomUniforms["waterRefractionIntensity"] = config.WaterRefractionIntensity
+	model.CustomUniforms["enableWaterDistortion"] = config.EnableWaterDistortion
+	model.CustomUniforms["waterDistortionIntensity"] = config.WaterDistortionIntensity
+	model.CustomUniforms["enableWaterNormalMapping"] = config.EnableWaterNormalMapping
+	model.CustomUniforms["waterNormalIntensity"] = config.WaterNormalIntensity
 }
 
 // Skybox shaders

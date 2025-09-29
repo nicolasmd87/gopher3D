@@ -12,10 +12,13 @@ The engine is still in early stages but includes advanced rendering features.
 - **Advanced Shader System**: Per-model shader assignment with automatic shader switching, supporting custom vertex and fragment shaders
 - **Water Simulation**: GPU-based Gerstner wave simulation with realistic lighting, caustics, and Fresnel effects
 - **OpenGL Rendering with Instancing**: Efficient rendering of multiple objects through instancing, significantly improving performance for scenes with many repeated elements
+- **Voxel Engine**: High-performance voxel rendering system with GPU instancing, supporting millions of voxels with optimized frustum culling
+- **Advanced Lighting System**: Directional, point, and ambient lighting with configurable temperature, intensity, and attenuation
+- **PBR Materials**: Physically-based rendering materials with metallic/roughness workflow and advanced specular calculations
 - **Custom Uniforms**: Dynamic uniform passing for shader customization (floats, integers, vectors, arrays)
 - **Camera Controls**: Integrated camera controls with support for mouse and keyboard input
-- **Advanced Lighting**: Directional lighting, specular reflections, ambient lighting, and rim lighting effects
-- **Procedural Geometry**: Runtime generation of water surfaces and other procedural meshes
+- **Procedural Geometry**: Runtime generation of water surfaces, voxel worlds, and other procedural meshes
+- **Performance Optimizations**: Frustum culling, face culling, and parallel world generation using worker pools
 - **Examples**: Various physics and rendering examples organized in separate directories
 
 ## Not Implemented
@@ -59,8 +62,16 @@ Examples are now organized in separate directories. Each example defines a parti
 To run an example:
 ```bash
 # Water simulation
-cd examples/Phyisics/water
+cd examples/General/water
 go run water.go
+
+# Voxel rendering (blocky terrain)
+cd examples/Voxel/Cube
+go run voxel_world.go
+
+# Voxel rendering (smooth terrain)
+cd examples/Voxel/SurfaceNets
+go run smooth_terrain.go
 
 # Black hole simulation
 cd examples/Phyisics/black_hole
@@ -81,7 +92,7 @@ go run basic_example.go
 
 This example demonstrates advanced water rendering with GPU-based wave simulation, realistic lighting, and custom shader implementation.
 
-- **Directory**: `examples/Phyisics/water/`
+- **Directory**: `examples/General/water/`
 - **File**: `water.go`
 - **Features**:
   - GPU-based Gerstner wave simulation
@@ -90,6 +101,7 @@ This example demonstrates advanced water rendering with GPU-based wave simulatio
   - Procedural water surface generation
   - Dynamic lighting and specular reflections
   - Per-model custom shader assignment
+  - Configurable wave parameters and ocean size
 
 ### Black Hole Simulation (Instanced)
 
@@ -137,16 +149,21 @@ This is a simple example showcasing basic 3D rendering, camera controls, and lig
   - Default shader usage
   - Camera and lighting basics
 
-### Voxel Rendering Example (Gocraft)
+### Voxel Rendering Examples
 
-This example renders voxel-based objects similar to Minecraft, demonstrating block-like object rendering.
+Advanced voxel rendering system demonstrating high-performance instanced rendering and procedural world generation.
 
 - **Directory**: `examples/Voxel/`
-- **File**: `gocraft.go`
+- **Files**: 
+  - `Cube/voxel_world.go` - Blocky terrain with GPU instancing
+  - `SurfaceNets/smooth_terrain.go` - Smooth terrain using Surface Nets algorithm
 - **Features**:
-  - Voxel-based scene rendering
-  - Block-style object creation
-  - Minecraft-like environment
+  - GPU-instanced voxel rendering (23M+ voxels, single draw call)
+  - Procedural terrain generation using improved Perlin noise
+  - Optimized frustum culling for large worlds
+  - Parallel world generation using worker pools
+  - Support for both blocky and smooth voxel rendering modes
+  - Configurable chunk sizes and world dimensions
 
 ## Architecture
 
@@ -166,7 +183,18 @@ internal/renderer/
 ├── shaders.go           # Shader management and GLSL source code
 ├── camera.go            # Camera implementation with controls
 ├── model.go             # 3D model representation and management
+├── advanced_rendering_config.go # Advanced rendering configuration system
+├── improved_perlin.go   # GPU Gems Chapter 5 improved Perlin noise
 └── vulkan_*.go          # Vulkan implementation (in progress)
+```
+
+### Voxel Engine Structure
+
+```
+internal/loader/
+├── voxel_core.go        # Core voxel engine with instancing and Surface Nets
+├── voxel_generator.go   # Procedural voxel world generation
+└── loader.go            # Model and texture loading utilities
 ```
 
 ## Planned Features and Work in Progress
@@ -175,6 +203,16 @@ internal/renderer/
 - Shader hot-reloading for development
 - Shader parameter UI for real-time tweaking
 - Additional built-in shaders (PBR, toon, etc.)
+
+### Advanced Rendering Features
+- **Improved Perlin Noise**: GPU Gems Chapter 5 implementation with quintic interpolation and multi-octave turbulence
+- **Advanced Rendering Configuration**: Configurable shadows, ambient occlusion, filtering quality, and mesh smoothing
+- **PBR Materials**: Metallic/roughness workflow with GGX specular distribution and Schlick Fresnel
+
+### Voxel Engine Features
+- **Surface Nets Algorithm**: Smooth terrain generation from Signed Distance Fields
+- **Parallel World Generation**: Worker pool-based parallelization for large worlds
+- **Optimized Culling**: Frustum culling for instanced models with proper bounding sphere calculations
 
 ### Physics and Particle Systems
 A fully integrated physics engine and comprehensive particle system are in development. Current particle simulations serve as examples for future engine-level implementations.
@@ -222,8 +260,11 @@ To contribute:
 
 ### Performance Notes
 - Water simulation is GPU-optimized using vertex shaders
-- Instanced rendering significantly improves particle performance
-- Configurable water resolution for performance tuning
+- Instanced rendering significantly improves particle and voxel performance
+- Voxel rendering supports 23M+ instances with single draw call
+- Parallel world generation using worker pools for large scenes
+- Configurable water resolution and voxel chunk sizes for performance tuning
+- Optimized frustum culling for large instanced scenes
 
 ## Images
 
