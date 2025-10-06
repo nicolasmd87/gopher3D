@@ -17,13 +17,21 @@ import (
 
 var currentTextureID uint32 = ^uint32(0) // Initialize with an invalid value
 var frustum Frustum
+var frustumDirty bool = true // Track if frustum needs recalculation
+
+// SetFrustumDirty marks frustum as needing recalculation
+func SetFrustumDirty() {
+	frustumDirty = true
+}
 
 type OpenGLRenderer struct {
 	defaultShader        Shader
+	defaultUniformCache  *UniformCache // Cache for default shader uniforms
 	Models               []*Model
 	instanceVBO          uint32  // Buffer for instance model matrices
 	currentShaderProgram uint32  // Track currently bound shader to avoid unnecessary switches
 	skybox               *Skybox // Optional skybox
+	shaderCaches         map[uint32]*UniformCache // Cache per shader program
 }
 
 func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
@@ -43,12 +51,18 @@ func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
 	SetDefaultTexture(rend)
 	gl.Viewport(0, 0, width, height)
 	rend.InitShader()
+	
+	// Initialize shader cache map
+	rend.shaderCaches = make(map[uint32]*UniformCache)
+	
 	logger.Log.Info("OpenGL render initialized")
 }
 
 func (rend *OpenGLRenderer) InitShader() {
 	rend.defaultShader = InitShader()
 	rend.defaultShader.Compile()
+	// Initialize uniform cache for default shader
+	rend.defaultUniformCache = NewUniformCache(rend.defaultShader.program)
 }
 
 func (rend *OpenGLRenderer) AddModel(model *Model) {
@@ -161,10 +175,10 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 		gl.FrontFace(gl.CCW) // Changed from CW to CCW
 	}
 
-	// Calculate frustum
-	// TODO: Add check to see if camera is dirty(moved)
-	if FrustumCullingEnabled {
+	// Calculate frustum only if camera moved
+	if FrustumCullingEnabled && frustumDirty {
 		frustum = camera.CalculateFrustum()
+		frustumDirty = false
 	}
 
 	modLen := len(rend.Models)
@@ -184,16 +198,24 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 
 		// Determine which shader to use
 		var shader *Shader
+		var uniformCache *UniformCache
+		
 		if model.Shader.IsValid() {
 			shader = &model.Shader
 			// Ensure custom shader is compiled before using
 			if !shader.isCompiled {
 				shader.Compile()
 			}
-			// Using custom shader
+			// Get or create cache for this shader
+			if cache, exists := rend.shaderCaches[shader.program]; exists {
+				uniformCache = cache
+			} else {
+				uniformCache = NewUniformCache(shader.program)
+				rend.shaderCaches[shader.program] = uniformCache
+			}
 		} else {
 			shader = &rend.defaultShader
-			// Using default shader
+			uniformCache = rend.defaultUniformCache
 		}
 
 		// Switch shader if needed
@@ -202,8 +224,8 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 			rend.currentShaderProgram = shader.program
 		}
 
-		// Set common uniforms for all shaders
-		rend.setCommonUniforms(shader, viewProjection, model, light, camera)
+		// Set common uniforms for all shaders using cache
+		rend.setCommonUniformsCached(uniformCache, viewProjection, model, light, camera)
 
 		// Set material uniforms if applicable
 		if model.Material != nil {
@@ -256,106 +278,48 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	gl.Disable(gl.CULL_FACE)
 }
 
-// setCommonUniforms sets uniforms that are common to most shaders
-func (rend *OpenGLRenderer) setCommonUniforms(shader *Shader, viewProjection mgl32.Mat4, model *Model, light *Light, camera Camera) {
+// setCommonUniformsCached sets uniforms using cached locations for better performance
+func (rend *OpenGLRenderer) setCommonUniformsCached(cache *UniformCache, viewProjection mgl32.Mat4, model *Model, light *Light, camera Camera) {
 	// Set view projection matrix
-	viewProjLoc := gl.GetUniformLocation(shader.program, gl.Str("viewProjection\x00"))
+	viewProjLoc := cache.GetLocation("viewProjection")
 	if viewProjLoc != -1 {
 		gl.UniformMatrix4fv(viewProjLoc, 1, false, &viewProjection[0])
 	}
 
 	// Set model matrix
-	modelLoc := gl.GetUniformLocation(shader.program, gl.Str("model\x00"))
+	modelLoc := cache.GetLocation("model")
 	if modelLoc != -1 {
 		gl.UniformMatrix4fv(modelLoc, 1, false, &model.ModelMatrix[0])
 	}
 
 	// Set light uniforms
 	if light != nil {
-		// Standard light uniforms (for default shader)
-		lightPosLoc := gl.GetUniformLocation(shader.program, gl.Str("light.position\x00"))
-		if lightPosLoc != -1 {
-			gl.Uniform3f(lightPosLoc, light.Position[0], light.Position[1], light.Position[2])
+		cache.SetVec3("light.position", light.Position[0], light.Position[1], light.Position[2])
+		cache.SetVec3("light.color", light.Color[0], light.Color[1], light.Color[2])
+		cache.SetFloat("light.intensity", light.Intensity)
+		cache.SetFloat("light.ambientStrength", light.AmbientStrength)
+		cache.SetFloat("light.temperature", light.Temperature)
+		
+		isDirectional := int32(0)
+		if light.Mode == "directional" {
+			isDirectional = 1
 		}
-
-		lightColorLoc := gl.GetUniformLocation(shader.program, gl.Str("light.color\x00"))
-		if lightColorLoc != -1 {
-			gl.Uniform3f(lightColorLoc, light.Color[0], light.Color[1], light.Color[2])
-		}
-
-		lightIntensityLoc := gl.GetUniformLocation(shader.program, gl.Str("light.intensity\x00"))
-		if lightIntensityLoc != -1 {
-			gl.Uniform1f(lightIntensityLoc, light.Intensity)
-		}
-
-		// New lighting features
-		ambientStrengthLoc := gl.GetUniformLocation(shader.program, gl.Str("light.ambientStrength\x00"))
-		if ambientStrengthLoc != -1 {
-			gl.Uniform1f(ambientStrengthLoc, light.AmbientStrength)
-		}
-
-		temperatureLoc := gl.GetUniformLocation(shader.program, gl.Str("light.temperature\x00"))
-		if temperatureLoc != -1 {
-			gl.Uniform1f(temperatureLoc, light.Temperature)
-		}
-
-		isDirectionalLoc := gl.GetUniformLocation(shader.program, gl.Str("light.isDirectional\x00"))
-		if isDirectionalLoc != -1 {
-			isDirectional := 0
-			if light.Mode == "directional" {
-				isDirectional = 1
-			}
-			gl.Uniform1i(isDirectionalLoc, int32(isDirectional))
-		}
-
-		directionLoc := gl.GetUniformLocation(shader.program, gl.Str("light.direction\x00"))
-		if directionLoc != -1 {
-			gl.Uniform3f(directionLoc, light.Direction[0], light.Direction[1], light.Direction[2])
-		}
-
-		// Attenuation factors
-		constantAttenLoc := gl.GetUniformLocation(shader.program, gl.Str("light.constantAtten\x00"))
-		if constantAttenLoc != -1 {
-			gl.Uniform1f(constantAttenLoc, light.ConstantAtten)
-		}
-
-		linearAttenLoc := gl.GetUniformLocation(shader.program, gl.Str("light.linearAtten\x00"))
-		if linearAttenLoc != -1 {
-			gl.Uniform1f(linearAttenLoc, light.LinearAtten)
-		}
-
-		quadraticAttenLoc := gl.GetUniformLocation(shader.program, gl.Str("light.quadraticAtten\x00"))
-		if quadraticAttenLoc != -1 {
-			gl.Uniform1f(quadraticAttenLoc, light.QuadraticAtten)
-		}
-
-		// Water shader specific light uniforms (keeping for backward compatibility)
-		lightPosLocWater := gl.GetUniformLocation(shader.program, gl.Str("lightPos\x00"))
-		if lightPosLocWater != -1 {
-			gl.Uniform3f(lightPosLocWater, light.Position[0], light.Position[1], light.Position[2])
-		}
-
-		lightColorLocWater := gl.GetUniformLocation(shader.program, gl.Str("lightColor\x00"))
-		if lightColorLocWater != -1 {
-			gl.Uniform3f(lightColorLocWater, light.Color[0], light.Color[1], light.Color[2])
-		}
-
-		lightIntensityLocWater := gl.GetUniformLocation(shader.program, gl.Str("lightIntensity\x00"))
-		if lightIntensityLocWater != -1 {
-			gl.Uniform1f(lightIntensityLocWater, light.Intensity)
-		}
-
-		lightDirectionLocWater := gl.GetUniformLocation(shader.program, gl.Str("lightDirection\x00"))
-		if lightDirectionLocWater != -1 {
-			gl.Uniform3f(lightDirectionLocWater, light.Direction[0], light.Direction[1], light.Direction[2])
-		}
+		cache.SetInt("light.isDirectional", isDirectional)
+		
+		cache.SetVec3("light.direction", light.Direction[0], light.Direction[1], light.Direction[2])
+		cache.SetFloat("light.constantAtten", light.ConstantAtten)
+		cache.SetFloat("light.linearAtten", light.LinearAtten)
+		cache.SetFloat("light.quadraticAtten", light.QuadraticAtten)
+		
+		// Water shader specific light uniforms (backward compatibility)
+		cache.SetVec3("lightPos", light.Position[0], light.Position[1], light.Position[2])
+		cache.SetVec3("lightColor", light.Color[0], light.Color[1], light.Color[2])
+		cache.SetFloat("lightIntensity", light.Intensity)
+		cache.SetVec3("lightDirection", light.Direction[0], light.Direction[1], light.Direction[2])
 	}
 
-	// Set view position (for specular lighting)
-	viewPosLoc := gl.GetUniformLocation(shader.program, gl.Str("viewPos\x00"))
-	if viewPosLoc != -1 {
-		gl.Uniform3f(viewPosLoc, camera.Position[0], camera.Position[1], camera.Position[2])
-	}
+	// Set view position
+	cache.SetVec3("viewPos", camera.Position[0], camera.Position[1], camera.Position[2])
 }
 
 // setMaterialUniforms sets material-specific uniforms

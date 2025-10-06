@@ -118,8 +118,7 @@ func (gopher *Gopher) Render(x, y int) {
 	// Fixed camera in each scene for now
 	gopher.Camera = renderer.NewDefaultCamera(gopher.Width, gopher.Height)
 
-	// Skybox creation moved to render loop to handle dynamic setting
-
+	// TODO: This should be set in the window class
 	//window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled) // Hide and capture the cursor
 	gopher.window.SetInputMode(glfw.CursorMode, glfw.CursorNormal) // Set cursor to normal mode initially
 

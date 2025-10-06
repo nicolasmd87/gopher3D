@@ -17,6 +17,7 @@ type Shader struct {
 	Name           string `default:"default"`
 	isCompiled     bool
 	skyColor       mgl32.Vec3 // For solid color skybox
+	uniformCache   *UniformCache // Cache for uniform locations
 }
 
 func (shader *Shader) Use() {
@@ -36,31 +37,52 @@ func (shader *Shader) Compile() error {
 	fragmentShader := GenShader(shader.fragmentSource, gl.FRAGMENT_SHADER)
 	shader.program = GenShaderProgram(vertexShader, fragmentShader)
 	shader.isCompiled = true
+	
+	// Initialize uniform cache for this shader
+	shader.uniformCache = NewUniformCache(shader.program)
+	
 	return nil
 }
 
 func (shader *Shader) SetVec3(name string, value mgl32.Vec3) {
-	location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
-	gl.Uniform3f(location, value.X(), value.Y(), value.Z())
+	if shader.uniformCache != nil {
+		shader.uniformCache.SetVec3(name, value.X(), value.Y(), value.Z())
+	} else {
+		// Fallback for shaders without cache (shouldn't happen normally)
+		location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
+		gl.Uniform3f(location, value.X(), value.Y(), value.Z())
+	}
 }
 
 func (shader *Shader) SetFloat(name string, value float32) {
-	location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
-	gl.Uniform1f(location, value)
+	if shader.uniformCache != nil {
+		shader.uniformCache.SetFloat(name, value)
+	} else {
+		location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
+		gl.Uniform1f(location, value)
+	}
 }
 
 func (shader *Shader) SetInt(name string, value int32) {
-	location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
-	gl.Uniform1i(location, value)
+	if shader.uniformCache != nil {
+		shader.uniformCache.SetInt(name, value)
+	} else {
+		location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
+		gl.Uniform1i(location, value)
+	}
 }
 
 func (shader *Shader) SetBool(name string, value bool) {
-	location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
 	var intValue int32 = 0
 	if value {
 		intValue = 1
 	}
-	gl.Uniform1i(location, intValue)
+	if shader.uniformCache != nil {
+		shader.uniformCache.SetInt(name, intValue)
+	} else {
+		location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
+		gl.Uniform1i(location, intValue)
+	}
 }
 
 // IsValid returns true if this shader has source code (not default empty shader)

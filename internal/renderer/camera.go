@@ -128,17 +128,26 @@ func (c *Camera) ProcessKeyboard(window *glfw.Window, deltaTime float32) {
 		baseVelocity *= 2.5
 	}
 
+	cameraMoved := false
 	if window.GetKey(glfw.KeyW) == glfw.Press {
 		c.Position = c.Position.Add(c.Front.Mul(baseVelocity))
+		cameraMoved = true
 	}
 	if window.GetKey(glfw.KeyS) == glfw.Press {
 		c.Position = c.Position.Sub(c.Front.Mul(baseVelocity))
+		cameraMoved = true
 	}
 	if window.GetKey(glfw.KeyA) == glfw.Press {
 		c.Position = c.Position.Sub(c.Right.Mul(baseVelocity))
+		cameraMoved = true
 	}
 	if window.GetKey(glfw.KeyD) == glfw.Press {
 		c.Position = c.Position.Add(c.Right.Mul(baseVelocity))
+		cameraMoved = true
+	}
+	
+	if cameraMoved {
+		MarkFrustumDirty()
 	}
 }
 
@@ -157,6 +166,7 @@ func (c *Camera) ProcessMouseMovement(xoffset, yoffset float32, constrainPitch b
 		c.Pitch = mgl32.Clamp(c.Pitch, -89.0, 89.0) // Prevent extreme pitch values
 	}
 	c.updateCameraVectors()
+	MarkFrustumDirty()
 }
 
 func (c *Camera) LookAt(target mgl32.Vec3) {
@@ -243,6 +253,12 @@ func (f *Frustum) IntersectsSphere(center mgl32.Vec3, radius float32) bool {
 		}
 	}
 	return true
+}
+
+// MarkFrustumDirty marks the frustum as needing recalculation
+func MarkFrustumDirty() {
+	// Set the package-level flag in opengl_renderer.go
+	SetFrustumDirty()
 }
 
 func (c *Camera) ScreenToWorld(screenPos mgl32.Vec2, windowWidth, windowHeight int) mgl32.Vec3 {
