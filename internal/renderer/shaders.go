@@ -1209,25 +1209,8 @@ void main() {
     // Completely uniform ocean color - NO noise or variation
     vec3 baseOceanColor = vec3(0.05, 0.15, 0.35);        // Natural deep ocean blue
     
-    // Absolutely NO color variation to eliminate all patches
-    vec3 waterColor = baseOceanColor;
-     
-     // Option 1: Completely uniform water color (uncomment this for single color)
-     // waterColor = vec3(0.05, 0.15, 0.35); // Single uniform ocean blue
-     
-     // Option 2: Ultra-smooth distance gradient (current - very subtle)
-     float normalizedDistance = clamp(distanceFromCamera / 400000.0, 0.0, 1.0);
-     
-     // Ultra-smooth quintic interpolation for imperceptible transitions
-     float quinticStep = normalizedDistance * normalizedDistance * normalizedDistance * 
-                        (normalizedDistance * (normalizedDistance * 6.0 - 15.0) + 10.0);
-     
-     // Very subtle color progression - barely noticeable
-     vec3 nearWaterColor = vec3(0.05, 0.15, 0.35);    // Deep blue close up
-     vec3 horizonColor = vec3(0.08, 0.18, 0.38);      // Very slightly lighter at horizon
-     
-     // Ultra-subtle blending - almost imperceptible
-     waterColor = mix(nearWaterColor, horizonColor, quinticStep * 0.5);
+    // Uniform water color - no distance-based gradients
+    vec3 waterColor = baseOceanColor; // Use consistent color across entire ocean
     
     // Minimal, realistic foam system
     float totalFoam = 0.0;
@@ -1266,24 +1249,15 @@ void main() {
     // Cook-Torrance BRDF
     vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.001);
     
-    // Subtle caustics for natural water appearance
-    float caustics = 0.0;
-    if (lightIntensity > 2.0) {
-        // Very subtle caustics only in bright conditions
-        vec2 causticsCoord = fragPosition.xz * 0.005 * detailScale + temporalPhase * 0.03;
-        caustics = pow(noise(causticsCoord), 6.0) * 0.08; // Much subtler
-        caustics *= smoothstep(2.0, 3.0, lightIntensity);
-    }
+    // Subtle caustics for natural water appearance - smooth transitions
+    float causticsIntensityFactor = smoothstep(1.8, 2.5, lightIntensity);
+    vec2 causticsCoord = fragPosition.xz * 0.005 * detailScale + temporalPhase * 0.03;
+    float caustics = pow(noise(causticsCoord), 6.0) * 0.08 * causticsIntensityFactor;
     
-    // Very subtle subsurface scattering
-    vec3 subsurface = vec3(0.0);
-    if (lightIntensity > 2.0) {
-        // Minimal subsurface effect
-        vec3 subsurfaceColor = vec3(0.05, 0.15, 0.25); // Subtle blue tint
-        float subsurfaceStrength = max(0.0, dot(-norm, lightDir)) * 0.1;
-        subsurface = subsurfaceColor * subsurfaceStrength;
-        subsurface *= smoothstep(2.0, 3.0, lightIntensity);
-    }
+    // Very subtle subsurface scattering - smooth transitions
+    vec3 subsurfaceColor = vec3(0.05, 0.15, 0.25);
+    float subsurfaceStrength = max(0.0, dot(-norm, lightDir)) * 0.1;
+    vec3 subsurface = subsurfaceColor * subsurfaceStrength * causticsIntensityFactor;
     
     // No surface pattern color injection - clean water surface
     
@@ -1294,26 +1268,18 @@ void main() {
     if (enableFog) {
         fogDistance = smoothstep(fogStart, fogEnd, distanceFromCamera);
         
-        // Adaptive fog color based on light intensity
-        vec3 fogColor;
-        if (lightIntensity < 0.3) {
-            // Night - very neutral
-            fogColor = vec3(0.3, 0.4, 0.5);
-        } else if (lightIntensity < 0.8) {
-            // Dawn/Dusk - stronger sky influence to reduce dark patches
-            fogColor = mix(vec3(0.4, 0.5, 0.6), skyColor, 0.4);
-        } else {
-            // Day - neutral
-            fogColor = vec3(0.4, 0.5, 0.6);
-        }
+        // Smooth fog color transitions - NO hard conditionals
+        vec3 nightFog = vec3(0.3, 0.4, 0.5);
+        vec3 duskFog = mix(vec3(0.4, 0.5, 0.6), skyColor, 0.4);
+        vec3 dayFog = vec3(0.4, 0.5, 0.6);
         
-        // Adaptive fog intensity
-        float adaptiveFogIntensity = fogIntensity;
-        if (lightIntensity < 0.3) {
-            adaptiveFogIntensity *= 0.5; // Less fog at night
-        } else if (lightIntensity < 0.8) {
-            adaptiveFogIntensity *= 0.8; // Moderate fog at dawn/dusk
-        }
+        vec3 fogColor = mix(dayFog, duskFog, duskFactor);
+        fogColor = mix(fogColor, nightFog, nightFactor);
+        
+        // Smooth fog intensity scaling
+        float nightFogScale = mix(1.0, 0.5, nightFactor);
+        float duskFogScale = mix(1.0, 0.8, duskFactor);
+        float adaptiveFogIntensity = fogIntensity * nightFogScale * duskFogScale;
         
         waterColor = mix(waterColor, fogColor, fogDistance * adaptiveFogIntensity * 0.3);
     }
@@ -1322,20 +1288,22 @@ void main() {
     vec3 sunlightColor = vec3(1.0, 0.98, 0.95);  // Natural sunlight
     float diffuse = max(dot(norm, lightDir), 0.0);
     
-    // Adaptive ambient lighting based on light intensity and sky color
-    vec3 ambientLight;
-    if (lightIntensity < 0.3) {
-        // Night - very minimal ambient with sky influence
-        ambientLight = vec3(0.01, 0.015, 0.03) * lightIntensity * (1.0 + caustics * 0.05);
-        ambientLight = mix(ambientLight, skyColor * 0.1, 0.3); // Sky influence at night
-    } else if (lightIntensity < 0.8) {
-        // Dawn/Dusk - moderate ambient with stronger sky influence
-        ambientLight = vec3(0.04, 0.05, 0.1) * lightIntensity * (1.0 + caustics * 0.1);
-        ambientLight = mix(ambientLight, skyColor * 0.15, 0.4); // Stronger sky influence
-    } else {
-        // Day - normal ambient
-        ambientLight = vec3(0.05, 0.06, 0.12) * lightIntensity * (1.0 + caustics * 0.15);
-    }
+    // Smooth ambient lighting based on light intensity - NO hard transitions
+    float nightFactor = smoothstep(0.35, 0.25, lightIntensity); // 0=day, 1=night
+    float duskFactor = 1.0 - abs(lightIntensity - 0.55) / 0.55; // Peak at 0.55 intensity
+    duskFactor = clamp(duskFactor, 0.0, 1.0);
+    
+    vec3 nightAmbient = vec3(0.01, 0.015, 0.03) * lightIntensity * (1.0 + caustics * 0.05);
+    nightAmbient = mix(nightAmbient, skyColor * 0.1, 0.3);
+    
+    vec3 duskAmbient = vec3(0.04, 0.05, 0.1) * lightIntensity * (1.0 + caustics * 0.1);
+    duskAmbient = mix(duskAmbient, skyColor * 0.15, 0.4);
+    
+    vec3 dayAmbient = vec3(0.05, 0.06, 0.12) * lightIntensity * (1.0 + caustics * 0.15);
+    
+    // Smooth blend between lighting conditions
+    vec3 ambientLight = mix(dayAmbient, duskAmbient, duskFactor);
+    ambientLight = mix(ambientLight, nightAmbient, nightFactor);
     
     // PBR diffuse and specular lighting with sky influence
     vec3 diffuseLight = diffuse * lightColor * lightIntensity * 1.8; // Much more diffuse for natural water appearance
@@ -1475,8 +1443,8 @@ void main() {
         finalColor = mix(finalColor, foamColor, foamMix);
     }
     
-    // Calculate proper water transparency based on depth and viewing angle
-    float alpha = mix(0.4, 0.7, fresnel); // Balanced transparency
+    // Make water fully opaque to avoid transparency sorting issues with massive scenes
+    float alpha = 0.85; // Nearly opaque water
     
     // Make water darker to distinguish from skybox
     finalColor *= 0.6; // Darken the water color

@@ -32,6 +32,10 @@ type OpenGLRenderer struct {
 	currentShaderProgram uint32  // Track currently bound shader to avoid unnecessary switches
 	skybox               *Skybox // Optional skybox
 	shaderCaches         map[uint32]*UniformCache // Cache per shader program
+	
+	// GL state tracking to avoid redundant state changes
+	faceCullingState     bool   // Current face culling state
+	depthTestState       bool   // Current depth test state
 }
 
 func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
@@ -52,10 +56,43 @@ func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
 	gl.Viewport(0, 0, width, height)
 	rend.InitShader()
 	
+	// Initialize GL state tracking - set initial states
+	gl.ClearDepth(1.0) // Ensure depth buffer clears to maximum depth
+	rend.setFaceCulling(false)
+	rend.setDepthTest(true)
+	
 	// Initialize shader cache map
 	rend.shaderCaches = make(map[uint32]*UniformCache)
 	
 	logger.Log.Info("OpenGL render initialized")
+}
+
+// setFaceCulling only changes OpenGL face culling state if needed
+func (rend *OpenGLRenderer) setFaceCulling(enabled bool) {
+	if rend.faceCullingState != enabled {
+		if enabled {
+			gl.Enable(gl.CULL_FACE)
+			gl.CullFace(gl.BACK)
+			gl.FrontFace(gl.CCW)
+		} else {
+			gl.Disable(gl.CULL_FACE)
+		}
+		rend.faceCullingState = enabled
+	}
+}
+
+// setDepthTest only changes OpenGL depth test state if needed
+func (rend *OpenGLRenderer) setDepthTest(enabled bool) {
+	if rend.depthTestState != enabled {
+		if enabled {
+			gl.Enable(gl.DEPTH_TEST)
+			gl.DepthFunc(gl.LESS) // Standard depth test
+			gl.DepthMask(true)
+		} else {
+			gl.Disable(gl.DEPTH_TEST)
+		}
+		rend.depthTestState = enabled
+	}
 }
 
 func (rend *OpenGLRenderer) InitShader() {
@@ -95,10 +132,17 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 		var instanceVBO uint32
 		gl.GenBuffers(1, &instanceVBO)
 		gl.BindBuffer(gl.ARRAY_BUFFER, instanceVBO)
-		gl.BufferData(gl.ARRAY_BUFFER, len(model.InstanceModelMatrices)*int(unsafe.Sizeof(mgl32.Mat4{})), gl.Ptr(model.InstanceModelMatrices), gl.DYNAMIC_DRAW)
+		
+		// Calculate buffer size - allocate exact size first, growth handled by UpdateInstanceMatrices
+		matrixSize := int(unsafe.Sizeof(mgl32.Mat4{}))
+		initialSize := len(model.InstanceModelMatrices) * matrixSize
+		
+		// Upload actual data with exact size
+		gl.BufferData(gl.ARRAY_BUFFER, initialSize, gl.Ptr(model.InstanceModelMatrices), gl.DYNAMIC_DRAW)
 
-		// Store the instance VBO in the model for later updates
+		// Store the instance VBO and current capacity for buffer reuse optimization
 		model.InstanceVBO = instanceVBO
+		model.InstanceVBOCapacity = initialSize
 
 		for i := 0; i < 4; i++ {
 			gl.EnableVertexAttribArray(3 + uint32(i))
@@ -150,13 +194,8 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 
 	// Skybox is now handled by clear color - no rendering needed
 
-	// Ensure depth testing is enabled for models (skybox may have disabled it)
-	if DepthTestEnabled {
-		gl.Enable(gl.DEPTH_TEST)
-		gl.DepthMask(true) // Ensure depth writing is enabled for models
-	} else {
-		gl.Disable(gl.DEPTH_TEST)
-	}
+	// Set depth test state (only changes if different from current state)
+	rend.setDepthTest(DepthTestEnabled)
 
 	// Enable alpha blending for transparency
 	gl.Enable(gl.BLEND)
@@ -166,14 +205,8 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	// This will be handled per-model based on alpha value
 	viewProjection := camera.GetViewProjection()
 
-	// Culling : https://learnopengl.com/Advanced-OpenGL/Face-culling
-	if FaceCullingEnabled {
-		gl.Enable(gl.CULL_FACE)
-		// IF FACES OF THE MODEL ARE RENDERED IN THE WRONG ORDER, TRY SWITCHING THE FOLLOWING LINE TO gl.CCW or we need to make sure the winding of each model is consistent
-		// CCW = Counter ClockWise
-		gl.CullFace(gl.BACK) // Changed from FRONT to BACK
-		gl.FrontFace(gl.CCW) // Changed from CW to CCW
-	}
+	// Set face culling state (only changes if different from current state)
+	rend.setFaceCulling(FaceCullingEnabled)
 
 	// Calculate frustum only if camera moved
 	if FrustumCullingEnabled && frustumDirty {
@@ -274,8 +307,8 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 		}
 		gl.BindVertexArray(0)
 	}
-	gl.Disable(gl.DEPTH_TEST)
-	gl.Disable(gl.CULL_FACE)
+	// GL state is now managed through setFaceCulling() and setDepthTest()
+	// No need to disable at end of frame
 }
 
 // setCommonUniformsCached sets uniforms using cached locations for better performance
@@ -600,10 +633,29 @@ func CreateSunlight(direction mgl32.Vec3) *Light {
 	return light
 }
 
+// UpdateInstanceMatrices updates instance matrices with buffer reuse optimization
+// Only reallocates GPU buffer if capacity needs to grow, otherwise uses faster BufferSubData
 func (rend *OpenGLRenderer) UpdateInstanceMatrices(model *Model) {
-	if len(model.InstanceModelMatrices) > 0 && model.InstanceVBO != 0 {
-		gl.BindBuffer(gl.ARRAY_BUFFER, model.InstanceVBO)
-		gl.BufferData(gl.ARRAY_BUFFER, len(model.InstanceModelMatrices)*int(unsafe.Sizeof(mgl32.Mat4{})), gl.Ptr(model.InstanceModelMatrices), gl.DYNAMIC_DRAW)
+	if len(model.InstanceModelMatrices) == 0 || model.InstanceVBO == 0 {
+		return
+	}
+	
+	gl.BindBuffer(gl.ARRAY_BUFFER, model.InstanceVBO)
+	
+	matrixSize := int(unsafe.Sizeof(mgl32.Mat4{}))
+	currentSize := len(model.InstanceModelMatrices) * matrixSize
+	
+	// Check if buffer needs to grow (reallocation required)
+	if currentSize > model.InstanceVBOCapacity {
+		// Buffer too small - need to reallocate with gl.BufferData
+		// Allocate 50% more than needed to reduce future reallocations
+		newCapacity := int(float32(currentSize) * 1.5)
+		gl.BufferData(gl.ARRAY_BUFFER, newCapacity, gl.Ptr(model.InstanceModelMatrices), gl.DYNAMIC_DRAW)
+		model.InstanceVBOCapacity = newCapacity
+	} else {
+		// Buffer is large enough - use faster BufferSubData (no reallocation)
+		// This is 2-5x faster than BufferData for updates
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, currentSize, gl.Ptr(model.InstanceModelMatrices))
 	}
 }
 

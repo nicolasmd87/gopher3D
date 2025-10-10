@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	OceanSize       = 900000 // Massive photorealistic ocean - 900km
+	OceanSize       = 900000 // Massive photorealistic ocean - 900km (RESTORED ORIGINAL)
 	WaterResolution = 4096   // Higher resolution for massive scale
 	WaveSpeed       = 0.6    // Slower, more realistic wave speed for large scale
-	MaxWaves        = 4      // Match shader expectation (4 waves)@
+	MaxWaves        = 4      // Match shader expectation (4 waves)
 	WindSpeed       = 7.0    // Natural wind speed
 	WaveAge         = 1.3    // Natural wave development
 )
@@ -116,28 +116,22 @@ func main() {
 func (ws *WaterSimulation) Start() {
 	// Disable frustum culling to ensure sun is always rendered
 	ws.engine.SetFrustumCulling(false)
+	ws.engine.SetFaceCulling(false) // CRITICAL: Disable face culling for double-sided water
 
 	ws.engine.Camera.InvertMouse = false
 
-	oceanCenter := float32(OceanSize / 2)                                           // This matches the center used in LoadWaterSurface
-	ws.engine.Camera.Position = mgl32.Vec3{oceanCenter, 15000, oceanCenter + 40000} // Lower position for natural horizon view
+	oceanCenter := float32(OceanSize / 2)
+	// Camera ABOVE wave peaks - waves go up to ~600, so camera at 800 is safely above
+	ws.engine.Camera.Position = mgl32.Vec3{oceanCenter, 800, oceanCenter + 3000}
 
-	// Configure camera projection for massive ocean scale - engine handles projection updates automatically
-	ws.engine.Camera.SetNear(10.0)     // Larger near plane for massive scale
-	ws.engine.Camera.SetFar(2000000.0) // Much farther for 900km ocean
-	ws.engine.Camera.Speed = 15000     // Much faster speed for exploring the massive ocean
+	ws.engine.Camera.SetNear(10.0)     // Increased for better depth precision
+	ws.engine.Camera.SetFar(2000000.0)
+	ws.engine.Camera.Speed = 8000
 
 	oceanCenter = float32(OceanSize / 2)
-	// Use the same coordinate system that works for voxels (Y=1.0 is "up")
-	// Sun high in the sky, pointing down at a natural angle
-	sunDirection := mgl32.Vec3{0.2, 0.9, 0.3}.Normalize() // Sun high above, slight angle
+	sunDirection := mgl32.Vec3{0.2, 0.9, 0.3}.Normalize()
 
-	// Debug: Print the sun direction we're using
-	fmt.Printf("DEBUG: Using fixed sun direction: (%.3f, %.3f, %.3f)\n",
-		sunDirection.X(), sunDirection.Y(), sunDirection.Z())
-	fmt.Printf("DEBUG: Y=%.3f means sun is above (same as working voxel example)\n", sunDirection.Y())
-
-	ws.engine.Light = renderer.CreateDirectionalLight(sunDirection, mgl32.Vec3{1.0, 0.98, 0.9}, 4.5) // Use direction as-is
+	ws.engine.Light = renderer.CreateDirectionalLight(sunDirection, mgl32.Vec3{1.0, 0.98, 0.9}, 4.5)
 	ws.engine.Light.AmbientStrength = 0.25                                                           // Higher ambient for natural ocean lighting
 	ws.engine.Light.Type = renderer.STATIC_LIGHT
 
@@ -156,14 +150,12 @@ func (ws *WaterSimulation) Start() {
 		panic("Failed to load water surface: " + err.Error())
 	}
 
-	// DEBUG: Check if water model was loaded properly
-	fmt.Printf("DEBUG WATER LOADED: Vertices=%d, Faces=%d, InterleavedData=%d\n",
-		len(model.Vertices), len(model.Faces), len(model.InterleavedData))
 
 	// Enhanced water material for realistic appearance - natural ocean water
 	model.SetDiffuseColor(0.06, 0.22, 0.45) // Natural ocean blue matching shader
 	model.SetMaterialPBR(0.0, 0.4)          // Non-metallic (0.0) with higher roughness for matte appearance
 	model.SetExposure(1.0)                  // Standard exposure, brightness controlled by lighting
+	model.SetAlpha(1.0)                     // Fully opaque - critical for depth writing with massive scenes
 
 	model.Shader = ws.shader // Apply custom water shader to water surface
 
@@ -179,27 +171,19 @@ func (ws *WaterSimulation) Start() {
 		return
 	}
 
-	// DEBUG: Check if sun model was loaded properly
-	fmt.Printf("DEBUG SUN LOADED: Vertices=%d, Faces=%d, InterleavedData=%d\n",
-		len(sunModel.Vertices), len(sunModel.Faces), len(sunModel.InterleavedData))
-
-	// Configure sun model properties - Very large and bright sun
-	sunModel.Scale = mgl32.Vec3{50000, 50000, 50000} // Large 50km diameter sun
-	sunModel.SetDiffuseColor(1.0, 0.95, 0.8)         // Warm sun color
-	sunModel.SetMaterialPBR(0.0, 0.0)                // Non-metallic, mirror smooth for maximum brightness
-	sunModel.SetExposure(150.0)                      // Very high exposure to trigger emissive mode
+	// Configure sun model properties
+	sunModel.Scale = mgl32.Vec3{50000, 50000, 50000}
+	sunModel.SetDiffuseColor(1.0, 0.95, 0.8)
+	sunModel.SetMaterialPBR(0.0, 0.0)
+	sunModel.SetExposure(150.0)
 
 	oceanCenter = float32(OceanSize / 2)
-	// Position sun high in the sky where it should be visible
-	sunModel.SetPosition(oceanCenter+150000, 200000.0, oceanCenter+50000) // High in sky, visible above horizon
+	// Sun positioned for sea-level viewing angle
+	sunModel.SetPosition(oceanCenter+100000, 80000.0, oceanCenter+80000)
 
 	// Ensure sun uses default shader for emissive properties
 	ws.sunModel = sunModel
 	ws.engine.AddModel(sunModel)
-
-	// DEBUG: Check if VAO was created after AddModel
-	fmt.Printf("DEBUG SUN AFTER AddModel: VAO=%d, VBO=%d, EBO=%d\n",
-		sunModel.VAO, sunModel.VBO, sunModel.EBO)
 
 	ws.startTime = time.Now()
 	ws.currentTime = 0.0
@@ -231,13 +215,8 @@ func (ws *WaterSimulation) SetFixedDaylight() {
 
 	// Ensure sun sphere stays bright
 	if ws.sunModel != nil {
-		ws.sunModel.SetDiffuseColor(1.0, 0.9, 0.6) // Bright yellow sun
-		fmt.Printf("SUN: Fixed daylight - Pos=(%.0f, %.0f, %.0f), Light Intensity=%.2f\n",
-			ws.sunModel.Position.X(), ws.sunModel.Position.Y(), ws.sunModel.Position.Z(),
-			ws.engine.Light.Intensity)
+		ws.sunModel.SetDiffuseColor(1.0, 0.9, 0.6)
 	}
-
-	fmt.Println("DEBUG: Fixed daylight scene configured - bright sun for water reflections")
 }
 
 // setupWaterUniforms sets up static water uniforms once (handled automatically by engine)
@@ -292,13 +271,13 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 	// Water-specific uniforms
 	ws.model.CustomUniforms["waterPlaneHeight"] = float32(5.0) // Water surface height
 
-	// Configure water with clean API - minimal fog
+	// Configure water with distant fog for massive ocean
 	waterConfig := renderer.WaterConfig{
-		EnableFog:    true,                      // Enable fog with minimal intensity
-		FogStart:     20.0,                      // Start fog much closer for gradual transition
-		FogEnd:       800.0,                     // End fog further for smoother transition
-		FogIntensity: 0.05,                      // Minimal fog intensity to prevent any sky influence
-		FogColor:     mgl32.Vec3{0.4, 0.5, 0.6}, // Very neutral fog color
+		EnableFog:    true,
+		FogStart:     80000.0,  // Start fog very far away for 900km ocean
+		FogEnd:       600000.0, // End fog at extreme distance
+		FogIntensity: 0.3,
+		FogColor:     mgl32.Vec3{0.5, 0.7, 0.9}, // Sky-like fog color
 		SkyColor:     ws.lastSkyColor,
 		HorizonColor: mgl32.Vec3{
 			ws.lastSkyColor.X() * 0.85,

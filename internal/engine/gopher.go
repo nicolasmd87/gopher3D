@@ -79,6 +79,7 @@ func (gopher *Gopher) Render(x, y int) {
 	// Set GLFW window hints here
 	glfw.WindowHint(glfw.Decorated, glfw.True)
 	glfw.WindowHint(glfw.Resizable, glfw.True)
+	glfw.WindowHint(glfw.DepthBits, 32) // Request 32-bit depth buffer for better precision
 
 	var err error
 

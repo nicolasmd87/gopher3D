@@ -94,9 +94,9 @@ func (bhb *BlackHoleBehaviour) Start() {
 	instances := 100000
 
 	// Load the red particle model with instancing enabled
-	redModel, err := loader.LoadObjectInstance("../resources/obj/Sphere_Low.obj", true, instances)
+	redModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_Low.obj", true, instances)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Failed to load red sphere: %v", err))
 	}
 	redModel.Scale = mgl.Vec3{0.3, 0.3, 0.3} // Much smaller particles
 
@@ -107,9 +107,9 @@ func (bhb *BlackHoleBehaviour) Start() {
 	bhb.engine.AddModel(redModel)
 
 	// Load the blue particle model with instancing enabled
-	blueModel, err := loader.LoadObjectInstance("../resources/obj/Sphere_Low.obj", true, instances)
+	blueModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_Low.obj", true, instances)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Failed to load blue sphere: %v", err))
 	}
 	blueModel.Scale = mgl.Vec3{0.3, 0.3, 0.3} // Much smaller particles
 

@@ -50,6 +50,7 @@ type Model struct {
 	VBO                     uint32 // Vertex Buffer Object
 	EBO                     uint32 // Element Buffer Object
 	InstanceVBO             uint32 // Instance Vertex Buffer Object (for instanced rendering)
+	InstanceVBOCapacity     int    // GPU buffer capacity in bytes for buffer reuse optimization
 	ModelMatrix             mgl32.Mat4
 	BoundingSphereCenter    mgl32.Vec3
 	BoundingSphereRadius    float32
