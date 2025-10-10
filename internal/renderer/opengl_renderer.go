@@ -158,7 +158,75 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 	// Calculate the initial model matrix based on position, rotation, and scale
 	model.updateModelMatrix()
 
+	// Load textures for materials (now that OpenGL is initialized)
+	rend.loadModelTextures(model)
+
 	rend.Models = append(rend.Models, model)
+}
+
+// loadModelTextures loads textures for all materials in the model
+func (rend *OpenGLRenderer) loadModelTextures(model *Model) {
+	// Load textures for material groups
+	if len(model.MaterialGroups) > 0 {
+		for i := range model.MaterialGroups {
+			material := model.MaterialGroups[i].Material
+			if material != nil {
+				if material.TexturePath != "" && material.TextureID == 0 {
+					// Texture path is set but not loaded yet
+					textureID, err := rend.LoadTexture(material.TexturePath)
+					if err != nil {
+						logger.Log.Warn("Failed to load texture for material, using default",
+							zap.String("material", material.Name),
+							zap.String("path", material.TexturePath),
+							zap.Error(err))
+						// Ensure we have a valid default texture ID
+						if DefaultMaterial.TextureID == 0 {
+							logger.Log.Error("DefaultMaterial.TextureID is 0! This will cause rendering issues.")
+						}
+						material.TextureID = DefaultMaterial.TextureID
+					} else {
+						material.TextureID = textureID
+						logger.Log.Debug("Loaded texture for material",
+							zap.String("material", material.Name),
+							zap.String("path", material.TexturePath))
+					}
+				} else if material.TextureID == 0 {
+					// No texture path - don't assign any texture, let shader use diffuse color
+					// This allows materials to show their proper diffuse colors from MTL
+					logger.Log.Debug("Material without texture will use diffuse color",
+						zap.String("material", material.Name),
+						zap.Float32s("diffuseColor", material.DiffuseColor[:]))
+				}
+			}
+		}
+	} else if model.Material != nil {
+		if model.Material.TexturePath != "" && model.Material.TextureID == 0 {
+			// Single material model with texture path
+			textureID, err := rend.LoadTexture(model.Material.TexturePath)
+			if err != nil {
+				logger.Log.Warn("Failed to load texture for material, using default",
+					zap.String("material", model.Material.Name),
+					zap.String("path", model.Material.TexturePath),
+					zap.Error(err))
+				// Ensure we have a valid default texture ID
+				if DefaultMaterial.TextureID == 0 {
+					logger.Log.Error("DefaultMaterial.TextureID is 0! This will cause rendering issues.")
+				}
+				model.Material.TextureID = DefaultMaterial.TextureID
+			} else {
+				model.Material.TextureID = textureID
+				logger.Log.Debug("Loaded texture for material",
+					zap.String("material", model.Material.Name),
+					zap.String("path", model.Material.TexturePath))
+			}
+		} else if model.Material.TextureID == 0 {
+			// Single material model without texture path - don't assign texture
+			// This allows the material to show its proper diffuse color from MTL
+			logger.Log.Debug("Single material without texture will use diffuse color",
+				zap.String("material", model.Material.Name),
+				zap.Float32s("diffuseColor", model.Material.DiffuseColor[:]))
+		}
+	}
 }
 
 func (rend *OpenGLRenderer) RemoveModel(model *Model) {
@@ -260,50 +328,112 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 		// Set common uniforms for all shaders using cache
 		rend.setCommonUniformsCached(uniformCache, viewProjection, model, light, camera)
 
-		// Set material uniforms if applicable
-		if model.Material != nil {
-			rend.setMaterialUniforms(shader, model)
-
-			// Handle transparency depth writing
-			if model.Material.Alpha < 0.99 {
-				gl.DepthMask(false) // Disable depth writing for transparent objects
-				gl.Enable(gl.BLEND)
-				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-			} else {
-				gl.DepthMask(true) // Enable depth writing for opaque objects
-				gl.Enable(gl.BLEND)
-				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA) // Standard blending for all
-			}
-		}
-
 		// Set shader-specific uniforms (like water shader uniforms)
 		rend.setShaderSpecificUniforms(shader, model)
 
-		// Bind texture
-		if model.Material != nil && model.Material.TextureID != currentTextureID {
-			gl.BindTexture(gl.TEXTURE_2D, model.Material.TextureID)
-			currentTextureID = model.Material.TextureID
-		}
-
-		// Set texture uniform (cache this location for better performance)
-		textureUniform := gl.GetUniformLocation(shader.program, gl.Str("textureSampler\x00"))
-		if textureUniform != -1 {
-			gl.Uniform1i(textureUniform, 0)
-		}
-
-		// Render the model
+		// Bind vertex array
 		gl.BindVertexArray(model.VAO)
-		if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
-			if model.InstanceMatricesUpdated {
-				rend.UpdateInstanceMatrices(model)
-				model.InstanceMatricesUpdated = false
+
+		// Check if model has multiple material groups
+		if len(model.MaterialGroups) > 0 {
+			// Multi-material rendering
+			currentTextureID := uint32(0)
+			for _, group := range model.MaterialGroups {
+				// Set material uniforms for this group
+				rend.setMaterialUniforms(shader, group.Material)
+
+				// Handle transparency depth writing
+				if group.Material != nil && group.Material.Alpha < 0.99 {
+					gl.DepthMask(false) // Disable depth writing for transparent objects
+					gl.Enable(gl.BLEND)
+					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				} else {
+					gl.DepthMask(true) // Enable depth writing for opaque objects
+					gl.Enable(gl.BLEND)
+					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				}
+
+				// Bind texture for this material group (only if it has a valid texture)
+				if group.Material != nil && group.Material.TextureID != 0 && group.Material.TextureID != currentTextureID {
+					gl.BindTexture(gl.TEXTURE_2D, group.Material.TextureID)
+					currentTextureID = group.Material.TextureID
+				} else if group.Material != nil && group.Material.TextureID == 0 {
+					// Material without texture - bind a 1x1 white texture to avoid issues
+					// The shader will multiply by white, effectively using just the diffuse color
+					if DefaultMaterial.TextureID != 0 {
+						gl.BindTexture(gl.TEXTURE_2D, DefaultMaterial.TextureID)
+						currentTextureID = DefaultMaterial.TextureID
+					}
+				}
+
+				// Set texture uniform
+				textureUniform := gl.GetUniformLocation(shader.program, gl.Str("textureSampler\x00"))
+				if textureUniform != -1 {
+					gl.Uniform1i(textureUniform, 0)
+				}
+
+				// Draw this material group
+				if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
+					if model.InstanceMatricesUpdated {
+						rend.UpdateInstanceMatrices(model)
+						model.InstanceMatricesUpdated = false
+					}
+					shader.SetInt("isInstanced", 1)
+					gl.DrawElementsInstanced(gl.TRIANGLES, group.IndexCount, gl.UNSIGNED_INT, 
+						gl.PtrOffset(int(group.IndexStart)*4), int32(model.InstanceCount))
+				} else {
+					shader.SetInt("isInstanced", 0)
+					gl.DrawElements(gl.TRIANGLES, group.IndexCount, gl.UNSIGNED_INT, 
+						gl.PtrOffset(int(group.IndexStart)*4))
+				}
 			}
-			shader.SetInt("isInstanced", 1) // Set BEFORE draw call!
-			gl.DrawElementsInstanced(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil, int32(model.InstanceCount))
 		} else {
-			// Regular draw
-			shader.SetInt("isInstanced", 0) // Set BEFORE draw call!
-			gl.DrawElements(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil)
+			// Single material rendering (backward compatible)
+			if model.Material != nil {
+				rend.setMaterialUniforms(shader, model.Material)
+
+				// Handle transparency depth writing
+				if model.Material.Alpha < 0.99 {
+					gl.DepthMask(false) // Disable depth writing for transparent objects
+					gl.Enable(gl.BLEND)
+					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				} else {
+					gl.DepthMask(true) // Enable depth writing for opaque objects
+					gl.Enable(gl.BLEND)
+					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				}
+			}
+
+			// Bind texture (only if it has a valid texture)
+			if model.Material != nil && model.Material.TextureID != 0 && model.Material.TextureID != currentTextureID {
+				gl.BindTexture(gl.TEXTURE_2D, model.Material.TextureID)
+				currentTextureID = model.Material.TextureID
+			} else if model.Material != nil && model.Material.TextureID == 0 {
+				// Material without texture - bind default white texture
+				if DefaultMaterial.TextureID != 0 {
+					gl.BindTexture(gl.TEXTURE_2D, DefaultMaterial.TextureID)
+					currentTextureID = DefaultMaterial.TextureID
+				}
+			}
+
+			// Set texture uniform
+			textureUniform := gl.GetUniformLocation(shader.program, gl.Str("textureSampler\x00"))
+			if textureUniform != -1 {
+				gl.Uniform1i(textureUniform, 0)
+			}
+
+			// Render the model
+			if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
+				if model.InstanceMatricesUpdated {
+					rend.UpdateInstanceMatrices(model)
+					model.InstanceMatricesUpdated = false
+				}
+				shader.SetInt("isInstanced", 1)
+				gl.DrawElementsInstanced(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil, int32(model.InstanceCount))
+			} else {
+				shader.SetInt("isInstanced", 0)
+				gl.DrawElements(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil)
+			}
 		}
 		gl.BindVertexArray(0)
 	}
@@ -356,49 +486,49 @@ func (rend *OpenGLRenderer) setCommonUniformsCached(cache *UniformCache, viewPro
 }
 
 // setMaterialUniforms sets material-specific uniforms
-func (rend *OpenGLRenderer) setMaterialUniforms(shader *Shader, model *Model) {
-	if model.Material == nil {
+func (rend *OpenGLRenderer) setMaterialUniforms(shader *Shader, material *Material) {
+	if material == nil {
 		// Use default material if none is set
-		model.Material = DefaultMaterial
+		material = DefaultMaterial
 	}
 
 	// Set diffuse color
 	diffuseColorLoc := gl.GetUniformLocation(shader.program, gl.Str("diffuseColor\x00"))
 	if diffuseColorLoc != -1 {
-		gl.Uniform3fv(diffuseColorLoc, 1, &model.Material.DiffuseColor[0])
+		gl.Uniform3fv(diffuseColorLoc, 1, &material.DiffuseColor[0])
 	}
 
 	// Set specular color
 	specularColorLoc := gl.GetUniformLocation(shader.program, gl.Str("specularColor\x00"))
 	if specularColorLoc != -1 {
-		gl.Uniform3fv(specularColorLoc, 1, &model.Material.SpecularColor[0])
+		gl.Uniform3fv(specularColorLoc, 1, &material.SpecularColor[0])
 	}
 
 	// Set shininess
 	shininessLoc := gl.GetUniformLocation(shader.program, gl.Str("shininess\x00"))
 	if shininessLoc != -1 {
-		gl.Uniform1f(shininessLoc, model.Material.Shininess)
+		gl.Uniform1f(shininessLoc, material.Shininess)
 	}
 
 	// Modern PBR properties
 	metallicLoc := gl.GetUniformLocation(shader.program, gl.Str("metallic\x00"))
 	if metallicLoc != -1 {
-		gl.Uniform1f(metallicLoc, model.Material.Metallic)
+		gl.Uniform1f(metallicLoc, material.Metallic)
 	}
 
 	roughnessLoc := gl.GetUniformLocation(shader.program, gl.Str("roughness\x00"))
 	if roughnessLoc != -1 {
-		gl.Uniform1f(roughnessLoc, model.Material.Roughness)
+		gl.Uniform1f(roughnessLoc, material.Roughness)
 	}
 
 	exposureLoc := gl.GetUniformLocation(shader.program, gl.Str("exposure\x00"))
 	if exposureLoc != -1 {
-		gl.Uniform1f(exposureLoc, model.Material.Exposure)
+		gl.Uniform1f(exposureLoc, material.Exposure)
 	}
 
 	alphaLoc := gl.GetUniformLocation(shader.program, gl.Str("materialAlpha\x00"))
 	if alphaLoc != -1 {
-		gl.Uniform1f(alphaLoc, model.Material.Alpha)
+		gl.Uniform1f(alphaLoc, material.Alpha)
 	}
 }
 

@@ -29,6 +29,13 @@ var DefaultMaterial = &Material{
 //go:embed resources/default.png
 var defaultTextureFS embed.FS
 
+// MaterialGroup represents a submesh with a single material
+type MaterialGroup struct {
+	Material   *Material // Material for this group
+	IndexStart int32     // Starting index in the index buffer
+	IndexCount int32     // Number of indices for this group
+}
+
 type Model struct {
 	// HOT DATA - Accessed every frame in render loop (keep in first cache lines)
 	ModelMatrix             mgl32.Mat4     // Transformation matrix - used every frame
@@ -63,6 +70,7 @@ type Model struct {
 	Faces                   []int32        // Face indices (OpenGL)
 	TextureCoords           []float32      // Texture coordinates
 	InterleavedData         []float32      // Combined vertex data
+	MaterialGroups          []MaterialGroup // For multi-material models
 	vertexBuffer            vk.Buffer      // Vulkan vertex buffer
 	vertexMemory            vk.DeviceMemory // Vulkan vertex memory
 	indexBuffer             vk.Buffer      // Vulkan index buffer
@@ -83,6 +91,7 @@ type Material struct {
 	
 	// COLD DATA - Rarely accessed (identification only)
 	Name          string     // Material name for debugging
+	TexturePath   string     // Path to texture file (loaded lazily when OpenGL is ready)
 }
 
 func (m *Model) X() float32 {

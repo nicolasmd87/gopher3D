@@ -76,14 +76,11 @@ func (mld *ModernLightingDemo) Start() {
 	mld.engine.Camera.Speed = 500
 	mld.engine.SetDebugMode(false)
 
-	// Create consistent directional lighting (sun-like) that stays fixed
-	// Light coming from above and slightly to the side (like afternoon sun)
-	// Note: Direction vector points WHERE the light comes FROM
+
 	mld.engine.Light = renderer.CreateSunlight(mgl.Vec3{0.3, 0.8, 0.5})
 	mld.engine.Light.Intensity = 1.5        // Reduced intensity to prevent washing out
 	mld.engine.Light.AmbientStrength = 0.15 // Reduced ambient for better contrast
 
-	fmt.Printf("FIXED DIRECTIONAL LIGHT: Direction=(0.3, 0.8, 0.5), Mode=%s\n", mld.engine.Light.Mode)
 
 	// Add skybox for better lighting and reflections
 	mld.addSkybox()
