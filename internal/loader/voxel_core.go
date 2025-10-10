@@ -13,9 +13,10 @@ import (
 type VoxelID uint16
 
 type VoxelData struct {
-	ID       VoxelID
-	Position mgl32.Vec3
-	Active   bool
+	// HOT DATA - Accessed frequently during voxel operations
+	Active   bool       // Whether voxel is active (checked most often)
+	ID       VoxelID    // Voxel type identifier (uint16)
+	Position mgl32.Vec3 // Position in world space
 }
 
 type VoxelChunk struct {

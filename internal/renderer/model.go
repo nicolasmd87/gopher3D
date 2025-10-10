@@ -30,52 +30,59 @@ var DefaultMaterial = &Material{
 var defaultTextureFS embed.FS
 
 type Model struct {
-	Id                      int
-	Name                    string
-	Position                mgl32.Vec3
-	Scale                   mgl32.Vec3
-	Rotation                mgl32.Quat
-	Vertices                []float32
-	Indices                 []uint32
-	vertexBuffer            vk.Buffer
-	vertexMemory            vk.DeviceMemory
-	indexBuffer             vk.Buffer
-	indexMemory             vk.DeviceMemory
-	Normals                 []float32
-	Faces                   []int32
-	TextureCoords           []float32
-	InterleavedData         []float32
-	Material                *Material
-	VAO                     uint32 // Vertex Array Object
-	VBO                     uint32 // Vertex Buffer Object
-	EBO                     uint32 // Element Buffer Object
-	InstanceVBO             uint32 // Instance Vertex Buffer Object (for instanced rendering)
-	InstanceVBOCapacity     int    // GPU buffer capacity in bytes for buffer reuse optimization
-	ModelMatrix             mgl32.Mat4
-	BoundingSphereCenter    mgl32.Vec3
-	BoundingSphereRadius    float32
-	IsDirty                 bool
-	IsBatched               bool
-	IsInstanced             bool
-	InstanceCount           int
-	InstanceModelMatrices   []mgl32.Mat4 // Instance model matrices
-	InstanceMatricesUpdated bool         // Flag to track if matrices need GPU upload
-	// InstanceBoundingBox     [2]mgl32.Vec3          // Cached bounding box for instances [min, max]
-	Shader         Shader                 // Custom shader for this model
-	CustomUniforms map[string]interface{} // Custom uniforms for this model
+	// HOT DATA - Accessed every frame in render loop (keep in first cache lines)
+	ModelMatrix             mgl32.Mat4     // Transformation matrix - used every frame
+	Position                mgl32.Vec3     // Position in world space
+	Scale                   mgl32.Vec3     // Scale factors
+	Rotation                mgl32.Quat     // Rotation quaternion
+	Material                *Material      // Material properties pointer
+	VAO                     uint32         // Vertex Array Object
+	VBO                     uint32         // Vertex Buffer Object
+	EBO                     uint32         // Element Buffer Object
+	InstanceVBO             uint32         // Instance Vertex Buffer Object (for instanced rendering)
+	InstanceVBOCapacity     int            // GPU buffer capacity in bytes for buffer reuse optimization
+	InstanceCount           int            // Number of instances
+	IsDirty                 bool           // Needs recalculation flag
+	IsInstanced             bool           // Instanced rendering flag
+	InstanceMatricesUpdated bool           // Flag to track if matrices need GPU upload
+	
+	// MEDIUM DATA - Conditional/periodic access
+	BoundingSphereCenter    mgl32.Vec3     // For frustum culling
+	BoundingSphereRadius    float32        // For frustum culling
+	IsBatched               bool           // Batching flag
+	Shader                  Shader         // Custom shader for this model
+	CustomUniforms          map[string]interface{} // Custom uniforms for this model
+	InstanceModelMatrices   []mgl32.Mat4   // Instance model matrices (bulk data)
+	
+	// COLD DATA - Initialization only or rarely accessed
+	Id                      int            // Model identifier
+	Name                    string         // Model name
+	Vertices                []float32      // Vertex position data
+	Indices                 []uint32       // Index data (Vulkan)
+	Normals                 []float32      // Normal vectors
+	Faces                   []int32        // Face indices (OpenGL)
+	TextureCoords           []float32      // Texture coordinates
+	InterleavedData         []float32      // Combined vertex data
+	vertexBuffer            vk.Buffer      // Vulkan vertex buffer
+	vertexMemory            vk.DeviceMemory // Vulkan vertex memory
+	indexBuffer             vk.Buffer      // Vulkan index buffer
+	indexMemory             vk.DeviceMemory // Vulkan index memory
+	// InstanceBoundingBox     [2]mgl32.Vec3 // Cached bounding box for instances [min, max]
 }
 
 type Material struct {
-	Name          string
-	DiffuseColor  [3]float32
-	SpecularColor [3]float32
-	Shininess     float32
-	TextureID     uint32 // OpenGL texture ID
-	// Modern PBR properties
-	Metallic  float32 // 0.0 = dielectric, 1.0 = metallic
-	Roughness float32 // 0.0 = mirror, 1.0 = completely rough
-	Exposure  float32 // HDR exposure control
-	Alpha     float32 // Transparency (0.0 = transparent, 1.0 = opaque)
+	// HOT DATA - Accessed every render call for shading calculations
+	DiffuseColor  [3]float32 // Base color for lighting
+	SpecularColor [3]float32 // Specular highlight color
+	Shininess     float32    // Specular exponent
+	Metallic      float32    // 0.0 = dielectric, 1.0 = metallic
+	Roughness     float32    // 0.0 = mirror, 1.0 = completely rough
+	Exposure      float32    // HDR exposure control
+	Alpha         float32    // Transparency (0.0 = transparent, 1.0 = opaque)
+	TextureID     uint32     // OpenGL texture ID
+	
+	// COLD DATA - Rarely accessed (identification only)
+	Name          string     // Material name for debugging
 }
 
 func (m *Model) X() float32 {
@@ -248,13 +255,13 @@ func (m *Model) ensureMaterial() {
 func (m *Model) SetDiffuseColor(r, g, b float32) {
 	m.ensureMaterial()
 	m.Material.DiffuseColor = [3]float32{r, g, b}
-	m.IsDirty = true // Mark the model as dirty for re-rendering
+	// Material changes don't affect transformation matrix, so don't set IsDirty
 }
 
 func (m *Model) SetSpecularColor(r, g, b float32) {
 	m.ensureMaterial()
 	m.Material.SpecularColor = [3]float32{r, g, b}
-	m.IsDirty = true // Mark the model as dirty for re-rendering
+	// Material changes don't affect transformation matrix, so don't set IsDirty
 }
 
 // Modern PBR material setters
@@ -262,13 +269,13 @@ func (m *Model) SetMaterialPBR(metallic, roughness float32) {
 	m.ensureMaterial()
 	m.Material.Metallic = metallic
 	m.Material.Roughness = roughness
-	m.IsDirty = true
+	// Material changes don't affect transformation matrix, so don't set IsDirty
 }
 
 func (m *Model) SetExposure(exposure float32) {
 	m.ensureMaterial()
 	m.Material.Exposure = exposure
-	m.IsDirty = true
+	// Material changes don't affect transformation matrix, so don't set IsDirty
 }
 
 // Preset materials for easy use
@@ -302,7 +309,7 @@ func (m *Model) SetGlossy(r, g, b float32) {
 func (m *Model) SetAlpha(alpha float32) {
 	m.ensureMaterial()
 	m.Material.Alpha = alpha
-	m.IsDirty = true
+	// Material changes don't affect transformation matrix, so don't set IsDirty
 }
 
 // Glass material preset
@@ -396,10 +403,12 @@ func CreateModel(vertices []mgl32.Vec3, indices []int32) *Model {
 	}
 
 	return &Model{
+		Position:        mgl32.Vec3{0, 0, 0},       // Initialize position
+		Rotation:        mgl32.Quat{},              // Initialize rotation (zero quat = identity matrix)
+		Scale:           mgl32.Vec3{1.0, 1.0, 1.0}, // Initialize scale
 		Vertices:        flattenVertices(vertices),
 		Faces:           indices,
 		InterleavedData: interleavedData,
-		Scale:           mgl32.Vec3{1.0, 1.0, 1.0},
 	}
 }
 

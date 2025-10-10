@@ -1261,6 +1261,12 @@ void main() {
     
     // No surface pattern color injection - clean water surface
     
+    // Calculate lighting factors FIRST - needed for both fog and lighting
+    // Smooth ambient lighting based on light intensity - NO hard transitions
+    float nightFactor = smoothstep(0.35, 0.25, lightIntensity); // 0=day, 1=night
+    float duskFactor = 1.0 - abs(lightIntensity - 0.55) / 0.55; // Peak at 0.55 intensity
+    duskFactor = clamp(duskFactor, 0.0, 1.0);
+    
     // Configurable atmospheric perspective for realistic sky-water transition
     float fogDistance = 0.0;
     vec3 finalFogColor = fogColor;
@@ -1287,11 +1293,6 @@ void main() {
     // Modern PBR lighting for realistic water
     vec3 sunlightColor = vec3(1.0, 0.98, 0.95);  // Natural sunlight
     float diffuse = max(dot(norm, lightDir), 0.0);
-    
-    // Smooth ambient lighting based on light intensity - NO hard transitions
-    float nightFactor = smoothstep(0.35, 0.25, lightIntensity); // 0=day, 1=night
-    float duskFactor = 1.0 - abs(lightIntensity - 0.55) / 0.55; // Peak at 0.55 intensity
-    duskFactor = clamp(duskFactor, 0.0, 1.0);
     
     vec3 nightAmbient = vec3(0.01, 0.015, 0.03) * lightIntensity * (1.0 + caustics * 0.05);
     nightAmbient = mix(nightAmbient, skyColor * 0.1, 0.3);
