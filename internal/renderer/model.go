@@ -64,6 +64,7 @@ type Model struct {
 	// COLD DATA - Initialization only or rarely accessed
 	Id                      int            // Model identifier
 	Name                    string         // Model name
+	SourcePath              string         // Original file path (for scene serialization)
 	Vertices                []float32      // Vertex position data
 	Indices                 []uint32       // Index data (Vulkan)
 	Normals                 []float32      // Normal vectors
@@ -185,18 +186,20 @@ func (m *Model) CalculateBoundingSphere() {
 }
 
 func (m *Model) updateModelMatrix() {
-	// Matrix multiplication order: scale * rotation * translation (OpenGL convention)
+	// Matrix multiplication order: translation * rotation * scale (correct OpenGL convention)
+	// Matrices are multiplied right-to-left: T * R * S transforms vertices as: scale first, then rotate, then translate
 	scaleMatrix := mgl32.Scale3D(m.Scale[0], m.Scale[1], m.Scale[2])
 	rotationMatrix := m.Rotation.Mat4()
 	translationMatrix := mgl32.Translate3D(m.Position[0], m.Position[1], m.Position[2])
-	// Combine the transformations: ModelMatrix = scale * rotation * translation
-	m.ModelMatrix = scaleMatrix.Mul4(rotationMatrix).Mul4(translationMatrix)
+	// Combine the transformations: ModelMatrix = translation * rotation * scale (TRS order)
+	m.ModelMatrix = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
 	// If the model is instanced, update the instance matrices automatically
 	if m.IsInstanced && len(m.InstanceModelMatrices) > 0 {
 		for i := 0; i < m.InstanceCount; i++ {
 			instancePosition := m.InstanceModelMatrices[i].Col(3).Vec3() // Retrieve the instance position
-			instanceMatrix := scaleMatrix.Mul4(rotationMatrix).Mul4(
-				mgl32.Translate3D(instancePosition.X(), instancePosition.Y(), instancePosition.Z()))
+			instanceTranslation := mgl32.Translate3D(instancePosition.X(), instancePosition.Y(), instancePosition.Z())
+			// Correct order: TRS
+			instanceMatrix := instanceTranslation.Mul4(rotationMatrix).Mul4(scaleMatrix)
 			m.InstanceModelMatrices[i] = instanceMatrix
 		}
 	}
@@ -207,13 +210,13 @@ func (m *Model) updateModelMatrix() {
 
 // CalculateModelMatrix calculates the transformation matrix for a model
 func (m *Model) calculateModelMatrix() {
-	// Start with an identity matrix
-	m.ModelMatrix = mgl32.Ident4()
-
-	// Apply scaling, rotation, and translation in sequence without extra matrix allocations
-	m.ModelMatrix = m.ModelMatrix.Mul4(mgl32.Scale3D(m.Scale.X(), m.Scale.Y(), m.Scale.Z()))
-	m.ModelMatrix = m.ModelMatrix.Mul4(m.Rotation.Mat4())
-	m.ModelMatrix = m.ModelMatrix.Mul4(mgl32.Translate3D(m.Position.X(), m.Position.Y(), m.Position.Z()))
+	// Correct transformation order: Translation * Rotation * Scale (TRS)
+	scaleMatrix := mgl32.Scale3D(m.Scale.X(), m.Scale.Y(), m.Scale.Z())
+	rotationMatrix := m.Rotation.Mat4()
+	translationMatrix := mgl32.Translate3D(m.Position.X(), m.Position.Y(), m.Position.Z())
+	
+	// Apply transformations in correct order: TRS
+	m.ModelMatrix = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
 }
 
 // Aux functions, maybe I need to move them to another package
@@ -246,6 +249,22 @@ func (m *Model) ensureMaterial() {
 			Roughness:     0.5,
 			Exposure:      1.0,
 			Alpha:         1.0,
+		}
+	} else if m.Material == DefaultMaterial {
+		// CRITICAL: Create a copy if pointing to shared DefaultMaterial
+		// This prevents multiple models from sharing the same material instance
+		logger.Log.Info("Creating unique material copy (was sharing DefaultMaterial)")
+		m.Material = &Material{
+			Name:          m.Material.Name,
+			DiffuseColor:  m.Material.DiffuseColor,
+			SpecularColor: m.Material.SpecularColor,
+			Shininess:     m.Material.Shininess,
+			TextureID:     m.Material.TextureID,
+			Metallic:      m.Material.Metallic,
+			Roughness:     m.Material.Roughness,
+			Exposure:      m.Material.Exposure,
+			Alpha:         m.Material.Alpha,
+			TexturePath:   m.Material.TexturePath,
 		}
 	} else {
 		// Fix incomplete materials (from MTL files that only set Name)
@@ -395,8 +414,8 @@ func (m *Model) SetInstancePosition(index int, position mgl32.Vec3) {
 		rotationMatrix := m.Rotation.Mat4()
 		translationMatrix := mgl32.Translate3D(position.X(), position.Y(), position.Z())
 
-		// Apply scale * rotation * translation transformations (OpenGL convention)
-		m.InstanceModelMatrices[index] = scaleMatrix.Mul4(rotationMatrix).Mul4(translationMatrix)
+		// Apply TRS transformations in correct order
+		m.InstanceModelMatrices[index] = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
 
 		// Mark instance matrices as needing GPU update
 		m.InstanceMatricesUpdated = true

@@ -1,0 +1,22 @@
+{
+  "show_hierarchy": true,
+  "show_inspector": true,
+  "show_file_explorer": true,
+  "show_console": true,
+  "show_advanced_render": true,
+  "show_scene_settings": true,
+  "clear_color_r": 0.13816802,
+  "clear_color_g": 0.43128943,
+  "clear_color_b": 0.6127451,
+  "wireframe_mode": false,
+  "frustum_culling": true,
+  "face_culling": true,
+  "depth_testing": true,
+  "skybox_color_mode": false,
+  "skybox_solid_r": 0.42156863,
+  "skybox_solid_g": 0.13019031,
+  "skybox_solid_b": 0.26730952,
+  "skybox_path": "C:\\Users\\Usuario\\Downloads\\pngwing.com.png",
+  "instance_on_add": false,
+  "default_instance_count": 1
+}

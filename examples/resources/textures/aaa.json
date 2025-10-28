@@ -1,0 +1,66 @@
+{
+  "models": [
+    {
+      "name": "Cube",
+      "path": "../examples/resources/obj/Cube.obj",
+      "position": [
+        0,
+        10,
+        0
+      ],
+      "scale": [
+        10,
+        10,
+        10
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "diffuse_color": [
+        1,
+        1,
+        1
+      ],
+      "specular_color": [
+        1,
+        1,
+        1
+      ],
+      "shininess": 32,
+      "metallic": 0,
+      "roughness": 0.5,
+      "exposure": 1,
+      "alpha": 1,
+      "texture_path": ""
+    }
+  ],
+  "lights": [
+    {
+      "name": "Sun",
+      "mode": "directional",
+      "position": [
+        0,
+        1500,
+        0
+      ],
+      "direction": [
+        -0.25916055,
+        -0.8638684,
+        -0.4319342
+      ],
+      "color": [
+        1,
+        0.95,
+        0.85
+      ],
+      "intensity": 1.5,
+      "ambient_strength": 0.3,
+      "temperature": 5500,
+      "constant_atten": 1,
+      "linear_atten": 0.0001,
+      "quadratic_atten": 1e-7
+    }
+  ]
+}

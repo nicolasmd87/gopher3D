@@ -32,17 +32,19 @@ const (
 
 // TODO: Separate window into an abstract class with width and height as fields
 type Gopher struct {
-	Width          int32
-	Height         int32
-	ModelChan      chan *renderer.Model
-	ModelBatchChan chan []*renderer.Model
-	Light          *renderer.Light
-	rendererAPI    renderer.Render
-	window         *glfw.Window
-	skybox         *renderer.Skybox
-	skyboxPath     string // Store path until OpenGL is ready
-	Camera         *renderer.Camera
-	frameTrackId   int
+	Width            int32
+	Height           int32
+	ModelChan        chan *renderer.Model
+	ModelBatchChan   chan []*renderer.Model
+	Light            *renderer.Light
+	rendererAPI      renderer.Render
+	window           *glfw.Window
+	skybox           *renderer.Skybox
+	skyboxPath       string // Store path until OpenGL is ready
+	Camera           *renderer.Camera
+	frameTrackId     int
+	onRenderCallback func(deltaTime float64) // Optional callback for custom rendering (e.g., editor UI)
+	EnableCameraInput bool // Control whether camera processes keyboard/mouse input (for editor)
 }
 
 func NewGopher(rendererAPI rendAPI) *Gopher {
@@ -57,12 +59,13 @@ func NewGopher(rendererAPI rendAPI) *Gopher {
 	}
 	return &Gopher{
 		//TODO: We need to be able to set width and height of the window
-		rendererAPI:    rendAPI,
-		Width:          1024,
-		Height:         768,
-		ModelChan:      make(chan *renderer.Model, 1000000),
-		ModelBatchChan: make(chan []*renderer.Model, 1000000),
-		frameTrackId:   0,
+		rendererAPI:       rendAPI,
+		Width:             1024,
+		Height:            768,
+		ModelChan:         make(chan *renderer.Model, 1000000),
+		ModelBatchChan:    make(chan []*renderer.Model, 1000000),
+		frameTrackId:      0,
+		EnableCameraInput: true, // Enabled by default
 	}
 }
 
@@ -150,7 +153,10 @@ func (gopher *Gopher) RenderLoop() {
 			lastWidth, lastHeight = gopher.Width, gopher.Height
 		}
 
-		gopher.Camera.ProcessKeyboard(gopher.window, float32(deltaTime))
+		// Only process camera input if enabled (can be disabled by editor when UI wants keyboard)
+		if gopher.EnableCameraInput {
+			gopher.Camera.ProcessKeyboard(gopher.window, float32(deltaTime))
+		}
 
 		//TODO: Rignt now it's fixed but maybe in the future we can make it confgigurable?
 		if gopher.frameTrackId >= 2 {
@@ -173,6 +179,11 @@ func (gopher *Gopher) RenderLoop() {
 
 		gopher.rendererAPI.Render(*gopher.Camera, gopher.Light)
 
+		// Call custom render callback if set (for editor UI, etc.)
+		if gopher.onRenderCallback != nil {
+			gopher.onRenderCallback(deltaTime)
+		}
+
 		switch gopher.rendererAPI.(type) {
 		case *renderer.OpenGLRenderer:
 			gopher.window.SwapBuffers()
@@ -181,6 +192,11 @@ func (gopher *Gopher) RenderLoop() {
 		glfw.PollEvents()
 	}
 	gopher.rendererAPI.Cleanup()
+}
+
+// SetOnRenderCallback sets a callback that will be called each frame after the 3D scene is rendered
+func (gopher *Gopher) SetOnRenderCallback(callback func(deltaTime float64)) {
+	gopher.onRenderCallback = callback
 }
 
 // TODO: Get rid of this, and use a renderer global variable
@@ -242,10 +258,21 @@ func (gopher *Gopher) GetDefaultShader() renderer.Shader {
 	return renderer.Shader{}
 }
 
+// GetWindow returns the GLFW window (for editor/advanced use)
+func (gopher *Gopher) GetWindow() *glfw.Window {
+	return gopher.window
+}
+
+// GetRenderer returns the renderer API (for editor/advanced use)
+func (gopher *Gopher) GetRenderer() renderer.Render {
+	return gopher.rendererAPI
+}
+
 // Mouse callback function
 func (gopher *Gopher) mouseCallback(w *glfw.Window, xpos, ypos float64) {
 	// Check if the window is focused and the right mouse button is pressed
-	if w.GetAttrib(glfw.Focused) == glfw.True && w.GetMouseButton(glfw.MouseButtonRight) == glfw.Press {
+	// Only process if camera input is enabled (can be disabled by editor when UI wants mouse)
+	if gopher.EnableCameraInput && w.GetAttrib(glfw.Focused) == glfw.True && w.GetMouseButton(glfw.MouseButtonRight) == glfw.Press {
 		if firstMouse {
 			lastX = xpos
 			lastY = ypos

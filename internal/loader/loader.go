@@ -187,6 +187,7 @@ func LoadModel(filename string, recalculateNormals bool) (*renderer.Model, error
 
 	// TODO: I may want to review this later
 	model = &renderer.Model{}
+	model.SourcePath = filename // Store original file path for scene serialization
 	model.Material = renderer.DefaultMaterial
 	uniqueMaterial := *model.Material
 	model.Material = &uniqueMaterial

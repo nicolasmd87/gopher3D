@@ -27,6 +27,7 @@ type OpenGLRenderer struct {
 	defaultShader        Shader
 	defaultUniformCache  *UniformCache // Cache for default shader uniforms
 	Models               []*Model
+	Lights               []*Light // Scene lights
 	instanceVBO          uint32  // Buffer for instance model matrices
 	currentShaderProgram uint32  // Track currently bound shader to avoid unnecessary switches
 	skybox               *Skybox // Optional skybox
@@ -36,6 +37,14 @@ type OpenGLRenderer struct {
 	// GL state tracking to avoid redundant state changes
 	faceCullingState     bool   // Current face culling state
 	depthTestState       bool   // Current depth test state
+	
+	// Performance tracking for editor
+	lastDrawCalls        int    // Number of draw calls in last frame
+	
+	// Editor-controllable settings
+	ClearColorR          float32 // Background clear color - Red
+	ClearColorG          float32 // Background clear color - Green
+	ClearColorB          float32 // Background clear color - Blue
 }
 
 func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
@@ -298,15 +307,34 @@ func (model *Model) RemoveModelInstance(index int) {
 }
 
 func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
-	// Force fill mode
-	gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
+	// Reset draw call counter
+	rend.lastDrawCalls = 0
+	
+	// Use lights from the Lights array if available, otherwise use passed light
+	// This allows the editor to manage lights via the Lights array
+	var activeLight *Light
+	if len(rend.Lights) > 0 {
+		activeLight = rend.Lights[0] // Use first light as primary
+	} else if light != nil {
+		activeLight = light // Fallback to passed light for backward compatibility
+	}
+	
+	// Apply wireframe mode if Debug is enabled
+	if Debug {
+		gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
+	} else {
+		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
+	}
 
-	// Use skybox color for clear color if skybox is present
-	if rend.skybox != nil && rend.skybox.Shader.skyColor != (mgl32.Vec3{}) {
+	// Priority: 1. Editor clear color, 2. Skybox color, 3. Black default
+	if rend.ClearColorR != 0.0 || rend.ClearColorG != 0.0 || rend.ClearColorB != 0.0 {
+		// Use editor-set clear color (HIGHEST PRIORITY)
+		gl.ClearColor(rend.ClearColorR, rend.ClearColorG, rend.ClearColorB, 1.0)
+	} else if rend.skybox != nil && rend.skybox.Shader.skyColor != (mgl32.Vec3{}) {
 		// Use skybox color as background
 		gl.ClearColor(rend.skybox.Shader.skyColor.X(), rend.skybox.Shader.skyColor.Y(), rend.skybox.Shader.skyColor.Z(), 1.0)
 	} else {
-		// Use black background
+		// Use black background (default)
 		gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 	}
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -377,7 +405,7 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 		}
 
 		// Set common uniforms for all shaders using cache
-		rend.setCommonUniformsCached(uniformCache, viewProjection, model, light, camera)
+		rend.setCommonUniformsCached(uniformCache, viewProjection, model, activeLight, camera)
 
 		// Set shader-specific uniforms (like water shader uniforms)
 		rend.setShaderSpecificUniforms(shader, model)
@@ -397,15 +425,19 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 				// Set material uniforms for this group
 				rend.setMaterialUniforms(shader, group.Material)
 
-				// Handle transparency depth writing
-				if group.Material != nil && group.Material.Alpha < 0.99 {
+				// Handle transparency: disable depth writes and face culling
+				isTransparent := group.Material != nil && group.Material.Alpha < 0.99
+				if isTransparent {
 					gl.DepthMask(false) // Disable depth writing for transparent objects
 					gl.Enable(gl.BLEND)
 					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+					gl.Disable(gl.CULL_FACE) // Disable face culling to show both front/back faces
 				} else {
 					gl.DepthMask(true) // Enable depth writing for opaque objects
 					gl.Enable(gl.BLEND)
 					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+					// Restore face culling for opaque objects
+					rend.setFaceCulling(FaceCullingEnabled)
 				}
 
 				// Bind texture only when it changes (optimized for sorted material groups)
@@ -433,10 +465,12 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 					shader.SetInt("isInstanced", 1)
 					gl.DrawElementsInstanced(gl.TRIANGLES, group.IndexCount, gl.UNSIGNED_INT, 
 						gl.PtrOffset(int(group.IndexStart)*4), int32(model.InstanceCount))
+					rend.lastDrawCalls++
 				} else {
 					shader.SetInt("isInstanced", 0)
 					gl.DrawElements(gl.TRIANGLES, group.IndexCount, gl.UNSIGNED_INT, 
 						gl.PtrOffset(int(group.IndexStart)*4))
+					rend.lastDrawCalls++
 				}
 			}
 		} else {
@@ -444,15 +478,19 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 			if model.Material != nil {
 				rend.setMaterialUniforms(shader, model.Material)
 
-				// Handle transparency depth writing
-				if model.Material.Alpha < 0.99 {
+				// Handle transparency: disable depth writes and face culling
+				isTransparent := model.Material.Alpha < 0.99
+				if isTransparent {
 					gl.DepthMask(false) // Disable depth writing for transparent objects
 					gl.Enable(gl.BLEND)
 					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+					gl.Disable(gl.CULL_FACE) // Disable face culling to show both front/back faces
 				} else {
 					gl.DepthMask(true) // Enable depth writing for opaque objects
 					gl.Enable(gl.BLEND)
 					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+					// Restore face culling for opaque objects
+					rend.setFaceCulling(FaceCullingEnabled)
 				}
 			}
 
@@ -480,9 +518,11 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 				}
 				shader.SetInt("isInstanced", 1)
 				gl.DrawElementsInstanced(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil, int32(model.InstanceCount))
+				rend.lastDrawCalls++
 			} else {
 				shader.SetInt("isInstanced", 0)
 				gl.DrawElements(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil)
+				rend.lastDrawCalls++
 			}
 		}
 		gl.BindVertexArray(0)
@@ -802,4 +842,47 @@ func (rend *OpenGLRenderer) GetDefaultShader() Shader {
 // UpdateViewport updates the OpenGL viewport to match the current window size
 func (rend *OpenGLRenderer) UpdateViewport(width, height int32) {
 	gl.Viewport(0, 0, width, height)
+}
+
+// GetModels returns the list of models for the editor
+func (rend *OpenGLRenderer) GetModels() []*Model {
+	return rend.Models
+}
+
+// GetDrawCalls returns the number of draw calls from the last frame
+func (rend *OpenGLRenderer) GetDrawCalls() int {
+	return rend.lastDrawCalls
+}
+
+// GetTotalInstanceCount returns the total number of instances across all models
+func (rend *OpenGLRenderer) GetTotalInstanceCount() int {
+	total := 0
+	for _, model := range rend.Models {
+		if model.IsInstanced {
+			total += model.InstanceCount
+		}
+	}
+	return total
+}
+
+// GetLights returns the list of lights for the editor
+func (rend *OpenGLRenderer) GetLights() []*Light {
+	return rend.Lights
+}
+
+// AddLight adds a light to the scene
+func (rend *OpenGLRenderer) AddLight(light *Light) {
+	rend.Lights = append(rend.Lights, light)
+	logger.Log.Info("Light added to scene", zap.String("mode", light.Mode), zap.String("name", light.Name))
+}
+
+// RemoveLight removes a light from the scene
+func (rend *OpenGLRenderer) RemoveLight(light *Light) {
+	for i, l := range rend.Lights {
+		if l == light {
+			rend.Lights = append(rend.Lights[:i], rend.Lights[i+1:]...)
+			logger.Log.Info("Light removed from scene", zap.String("name", light.Name))
+			return
+		}
+	}
 }

@@ -35,6 +35,7 @@ type Light struct {
 	QuadraticAtten  float32    // Quadratic attenuation factor
 	
 	// COLD DATA - Configuration, rarely changes during runtime
+	Name       string    // Light name for editor identification
 	Type       LightType // "static", "dynamic"
 	Mode       string    // "directional", "point", "spot"
 	Calculated bool      // Pre-calculation flag
