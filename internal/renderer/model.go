@@ -336,19 +336,25 @@ func (m *Model) SetTransparentPlastic(r, g, b, alpha, roughness float32) {
 }
 
 func (m *Model) SetTexture(texturePath string) {
-	// TODO: Use THE CONFIG to know which renderer to use
-	textureID, err := (&OpenGLRenderer{}).LoadTexture(texturePath)
-	if err != nil {
-		logger.Log.Error("Failed to load texture", zap.String("path", texturePath), zap.Error(err))
-		return
-	}
-
+	// Store texture path - it will be loaded when model is added to renderer
+	// This avoids needing a renderer instance here
 	if m.Material == nil {
-		logger.Log.Info("Setting default material")
-		m.Material = DefaultMaterial
-
+		logger.Log.Info("Setting default material for texture")
+		m.Material = &Material{
+			Name:          "default",
+			DiffuseColor:  [3]float32{1.0, 1.0, 1.0},
+			SpecularColor: [3]float32{1.0, 1.0, 1.0},
+			Shininess:     32.0,
+			Metallic:      0.0,
+			Roughness:     0.5,
+			Exposure:      1.0,
+			Alpha:         1.0,
+		}
 	}
-	m.Material.TextureID = textureID
+	m.Material.TexturePath = texturePath
+	logger.Log.Debug("Texture path set for model",
+		zap.String("path", texturePath),
+		zap.String("material", m.Material.Name))
 }
 
 func SetDefaultTexture(RendererAPI Render) {

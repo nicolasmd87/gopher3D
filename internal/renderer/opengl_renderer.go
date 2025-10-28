@@ -4,8 +4,7 @@ import (
 	"Gopher3D/internal/logger"
 	"fmt"
 	"image"
-	"image/draw"
-	"os"
+	"sort"
 	"strings"
 	"unsafe"
 
@@ -32,6 +31,7 @@ type OpenGLRenderer struct {
 	currentShaderProgram uint32  // Track currently bound shader to avoid unnecessary switches
 	skybox               *Skybox // Optional skybox
 	shaderCaches         map[uint32]*UniformCache // Cache per shader program
+	textureManager       *TextureManager // Central texture cache and lifecycle management
 	
 	// GL state tracking to avoid redundant state changes
 	faceCullingState     bool   // Current face culling state
@@ -52,6 +52,11 @@ func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
 	gl.GenBuffers(1, &rend.instanceVBO)
 	FrustumCullingEnabled = false
 	FaceCullingEnabled = false
+	
+	// Initialize texture manager
+	rend.textureManager = NewTextureManager()
+	logger.Log.Info("TextureManager initialized")
+	
 	SetDefaultTexture(rend)
 	gl.Viewport(0, 0, width, height)
 	rend.InitShader()
@@ -160,8 +165,37 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 
 	// Load textures for materials (now that OpenGL is initialized)
 	rend.loadModelTextures(model)
+	
+	// Sort material groups by texture ID to minimize state changes
+	rend.sortMaterialGroupsByTexture(model)
+	
+	// Log texture manager stats after loading
+	rend.textureManager.LogStats()
 
 	rend.Models = append(rend.Models, model)
+}
+
+// sortMaterialGroupsByTexture sorts material groups by texture ID to minimize GPU state changes
+func (rend *OpenGLRenderer) sortMaterialGroupsByTexture(model *Model) {
+	if len(model.MaterialGroups) <= 1 {
+		return // No need to sort if 0 or 1 group
+	}
+	
+	// Use stable sort to preserve order for groups with same texture
+	sort.SliceStable(model.MaterialGroups, func(i, j int) bool {
+		texI := uint32(0)
+		texJ := uint32(0)
+		if model.MaterialGroups[i].Material != nil {
+			texI = model.MaterialGroups[i].Material.TextureID
+		}
+		if model.MaterialGroups[j].Material != nil {
+			texJ = model.MaterialGroups[j].Material.TextureID
+		}
+		return texI < texJ
+	})
+	
+	logger.Log.Debug("Material groups sorted by texture ID",
+		zap.Int("groupCount", len(model.MaterialGroups)))
 }
 
 // loadModelTextures loads textures for all materials in the model
@@ -172,8 +206,8 @@ func (rend *OpenGLRenderer) loadModelTextures(model *Model) {
 			material := model.MaterialGroups[i].Material
 			if material != nil {
 				if material.TexturePath != "" && material.TextureID == 0 {
-					// Texture path is set but not loaded yet
-					textureID, err := rend.LoadTexture(material.TexturePath)
+					// Texture path is set but not loaded yet - use texture manager
+					textureID, err := rend.textureManager.LoadTexture(material.TexturePath)
 					if err != nil {
 						logger.Log.Warn("Failed to load texture for material, using default",
 							zap.String("material", material.Name),
@@ -184,9 +218,10 @@ func (rend *OpenGLRenderer) loadModelTextures(model *Model) {
 							logger.Log.Error("DefaultMaterial.TextureID is 0! This will cause rendering issues.")
 						}
 						material.TextureID = DefaultMaterial.TextureID
+						rend.textureManager.AddReference(DefaultMaterial.TextureID)
 					} else {
 						material.TextureID = textureID
-						logger.Log.Debug("Loaded texture for material",
+						logger.Log.Debug("Loaded texture for material via TextureManager",
 							zap.String("material", material.Name),
 							zap.String("path", material.TexturePath))
 					}
@@ -201,8 +236,8 @@ func (rend *OpenGLRenderer) loadModelTextures(model *Model) {
 		}
 	} else if model.Material != nil {
 		if model.Material.TexturePath != "" && model.Material.TextureID == 0 {
-			// Single material model with texture path
-			textureID, err := rend.LoadTexture(model.Material.TexturePath)
+			// Single material model with texture path - use texture manager
+			textureID, err := rend.textureManager.LoadTexture(model.Material.TexturePath)
 			if err != nil {
 				logger.Log.Warn("Failed to load texture for material, using default",
 					zap.String("material", model.Material.Name),
@@ -213,9 +248,10 @@ func (rend *OpenGLRenderer) loadModelTextures(model *Model) {
 					logger.Log.Error("DefaultMaterial.TextureID is 0! This will cause rendering issues.")
 				}
 				model.Material.TextureID = DefaultMaterial.TextureID
+				rend.textureManager.AddReference(DefaultMaterial.TextureID)
 			} else {
 				model.Material.TextureID = textureID
-				logger.Log.Debug("Loaded texture for material",
+				logger.Log.Debug("Loaded texture for material via TextureManager",
 					zap.String("material", model.Material.Name),
 					zap.String("path", model.Material.TexturePath))
 			}
@@ -230,12 +266,27 @@ func (rend *OpenGLRenderer) loadModelTextures(model *Model) {
 }
 
 func (rend *OpenGLRenderer) RemoveModel(model *Model) {
+	// Release all material group textures
+	for _, group := range model.MaterialGroups {
+		if group.Material != nil && group.Material.TextureID != 0 {
+			rend.textureManager.ReleaseTexture(group.Material.TextureID)
+		}
+	}
+	// Release main material texture
+	if model.Material != nil && model.Material.TextureID != 0 {
+		rend.textureManager.ReleaseTexture(model.Material.TextureID)
+	}
+	
+	// Remove from models list
 	for i, m := range rend.Models {
 		if m == model {
 			rend.Models = append(rend.Models[:i], rend.Models[i+1:]...)
 			break
 		}
 	}
+	
+	logger.Log.Debug("Model removed and textures released",
+		zap.Int("materialGroups", len(model.MaterialGroups)))
 }
 
 func (model *Model) RemoveModelInstance(index int) {
@@ -336,8 +387,12 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 
 		// Check if model has multiple material groups
 		if len(model.MaterialGroups) > 0 {
-			// Multi-material rendering
+			// Multi-material rendering - optimized for texture batching
 			currentTextureID := uint32(0)
+			
+			// Cache texture sampler uniform location (only look up once per shader)
+			textureSamplerLoc := uniformCache.GetLocation("textureSampler")
+			
 			for _, group := range model.MaterialGroups {
 				// Set material uniforms for this group
 				rend.setMaterialUniforms(shader, group.Material)
@@ -353,23 +408,20 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 				}
 
-				// Bind texture for this material group (only if it has a valid texture)
-				if group.Material != nil && group.Material.TextureID != 0 && group.Material.TextureID != currentTextureID {
-					gl.BindTexture(gl.TEXTURE_2D, group.Material.TextureID)
-					currentTextureID = group.Material.TextureID
+				// Bind texture only when it changes (optimized for sorted material groups)
+				if group.Material != nil && group.Material.TextureID != 0 {
+					if group.Material.TextureID != currentTextureID {
+						gl.BindTexture(gl.TEXTURE_2D, group.Material.TextureID)
+						gl.Uniform1i(textureSamplerLoc, 0)
+						currentTextureID = group.Material.TextureID
+					}
 				} else if group.Material != nil && group.Material.TextureID == 0 {
-					// Material without texture - bind a 1x1 white texture to avoid issues
-					// The shader will multiply by white, effectively using just the diffuse color
-					if DefaultMaterial.TextureID != 0 {
+					// Material without texture - bind default white texture
+					if DefaultMaterial.TextureID != 0 && DefaultMaterial.TextureID != currentTextureID {
 						gl.BindTexture(gl.TEXTURE_2D, DefaultMaterial.TextureID)
+						gl.Uniform1i(textureSamplerLoc, 0)
 						currentTextureID = DefaultMaterial.TextureID
 					}
-				}
-
-				// Set texture uniform
-				textureUniform := gl.GetUniformLocation(shader.program, gl.Str("textureSampler\x00"))
-				if textureUniform != -1 {
-					gl.Uniform1i(textureUniform, 0)
 				}
 
 				// Draw this material group
@@ -404,22 +456,20 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 				}
 			}
 
-			// Bind texture (only if it has a valid texture)
+			// Bind texture (only if it has a valid texture) - optimized
+			textureSamplerLoc := uniformCache.GetLocation("textureSampler")
+			
 			if model.Material != nil && model.Material.TextureID != 0 && model.Material.TextureID != currentTextureID {
 				gl.BindTexture(gl.TEXTURE_2D, model.Material.TextureID)
+				gl.Uniform1i(textureSamplerLoc, 0)
 				currentTextureID = model.Material.TextureID
 			} else if model.Material != nil && model.Material.TextureID == 0 {
 				// Material without texture - bind default white texture
-				if DefaultMaterial.TextureID != 0 {
+				if DefaultMaterial.TextureID != 0 && DefaultMaterial.TextureID != currentTextureID {
 					gl.BindTexture(gl.TEXTURE_2D, DefaultMaterial.TextureID)
+					gl.Uniform1i(textureSamplerLoc, 0)
 					currentTextureID = DefaultMaterial.TextureID
 				}
-			}
-
-			// Set texture uniform
-			textureUniform := gl.GetUniformLocation(shader.program, gl.Str("textureSampler\x00"))
-			if textureUniform != -1 {
-				gl.Uniform1i(textureUniform, 0)
 			}
 
 			// Render the model
@@ -582,61 +632,16 @@ func (rend *OpenGLRenderer) Cleanup() {
 	}
 }
 
-func (rend *OpenGLRenderer) LoadTexture(filePath string) (uint32, error) { // TODO: Consider specifying image format or handling different formats properly
-
-	imgFile, err := os.Open(filePath)
-	if err != nil {
-		return 0, err
-	}
-	defer imgFile.Close()
-
-	img, _, err := image.Decode(imgFile)
-	if err != nil {
-		return 0, err
-	}
-
-	rgba := image.NewRGBA(img.Bounds())
-	if rgba.Stride != rgba.Rect.Size().X*4 {
-		return 0, fmt.Errorf("unsupported stride")
-	}
-	draw.Draw(rgba, rgba.Bounds(), img, image.Point{0, 0}, draw.Src)
-
-	var textureID uint32
-	gl.GenTextures(1, &textureID)
-	gl.BindTexture(gl.TEXTURE_2D, textureID)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, int32(rgba.Rect.Size().X), int32(rgba.Rect.Size().Y), 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(rgba.Pix))
-
-	// Set texture parameters (optional)
-	// gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_R, gl.REPEAT)
-
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-
-	// GL_NEAREST results in blocked patterns where we can clearly see the pixels that form the texture while GL_LINEAR produces a smoother pattern where the individual pixels are less visible.
-	// GL_LINEAR produces a more realistic output, but some developers prefer a more 8-bit look and as a result pick the GL_NEAREST option
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-
-	return textureID, nil
+// LoadTexture loads a texture from file (delegates to TextureManager for caching)
+// Kept for backward compatibility
+func (rend *OpenGLRenderer) LoadTexture(filePath string) (uint32, error) {
+	return rend.textureManager.LoadTexture(filePath)
 }
 
+// CreateTextureFromImage creates a texture from an image.Image (delegates to TextureManager)
+// Used for embedded textures like default texture
 func (rend *OpenGLRenderer) CreateTextureFromImage(img image.Image) (uint32, error) {
-	var textureID uint32
-	gl.GenTextures(1, &textureID)
-	gl.BindTexture(gl.TEXTURE_2D, textureID)
-
-	rgba, ok := img.(*image.RGBA)
-	if !ok {
-		// Convert to *image.RGBA if necessary
-		b := img.Bounds()
-		rgba = image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-		draw.Draw(rgba, rgba.Bounds(), img, b.Min, draw.Src)
-	}
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, int32(rgba.Rect.Size().X), int32(rgba.Rect.Size().Y), 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(rgba.Pix))
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-
-	return textureID, nil
+	return rend.textureManager.CreateTextureFromImage(img, "embedded_texture")
 }
 
 func GenShader(source string, shaderType uint32) uint32 {

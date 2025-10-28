@@ -162,35 +162,35 @@ func (mld *ModernLightingDemo) setDemo(index int) {
 		mld.setMetallicShowcase()
 
 	case "lighting_types":
-		fmt.Println("\n💡 LIGHTING COMPARISON: Point vs Directional with PBR")
+		fmt.Println("\nLIGHTING COMPARISON: Point vs Directional with PBR")
 		mld.setLightingShowcase()
 
 	case "exposure_demo":
-		fmt.Println("\n🌈 HDR EXPOSURE DEMO: Dynamic range control")
+		fmt.Println("\nHDR EXPOSURE DEMO: Dynamic range control")
 		mld.setExposureShowcase()
 
 	case "advanced_materials":
-		fmt.Println("\n💎 ADVANCED MATERIALS: Real-world material simulation")
+		fmt.Println("\nADVANCED MATERIALS: Real-world material simulation")
 		mld.setAdvancedMaterialShowcase()
 
 	case "lighting_dance":
-		fmt.Println("\n🎪 LIGHTING DANCE: Dynamic lighting choreography")
+		fmt.Println("\nLIGHTING DANCE: Dynamic lighting choreography")
 		mld.setLightingDance()
 
 	case "modern_pbr":
-		fmt.Println("\n💎 MODERN PBR: Enhanced physically based rendering")
+		fmt.Println("\n MODERN PBR: Enhanced physically based rendering")
 		mld.setModernPBRDemo()
 
 	case "volumetric_lighting":
-		fmt.Println("\n🌫️ VOLUMETRIC LIGHTING: Light shafts and atmospheric effects")
+		fmt.Println("\n VOLUMETRIC LIGHTING: Light shafts and atmospheric effects")
 		mld.setVolumetricDemo()
 
 	case "clearcoat_demo":
-		fmt.Println("\n🚗 CLEARCOAT DEMO: Automotive paint and lacquered surfaces")
+		fmt.Println("\n CLEARCOAT DEMO: Automotive paint and lacquered surfaces")
 		mld.setClearcoatDemo()
 
 	case "transmission_demo":
-		fmt.Println("\n🔍 TRANSMISSION DEMO: Glass and translucent materials")
+		fmt.Println("\n TRANSMISSION DEMO: Glass and translucent materials")
 		mld.setTransmissionDemo()
 	}
 }
@@ -384,10 +384,10 @@ func (mld *ModernLightingDemo) setLightingDance() {
 		mld.models[i].SetMaterialPBR(1.0, animatedRoughness) // Metallic with animated roughness
 		mld.models[i].SetExposure(animatedExposure)
 
-		fmt.Printf("   🎪 Sphere %d: Animated roughness=%.2f, exposure=%.2f\n", i+1, animatedRoughness, animatedExposure)
+		fmt.Printf("Sphere %d: Animated roughness=%.2f, exposure=%.2f\n", i+1, animatedRoughness, animatedExposure)
 	}
 
-	fmt.Printf("   🌞 Fixed Directional Light: Direction=(%.1f, %.1f, %.1f), Intensity=%.1f\n",
+	fmt.Printf("Fixed Directional Light: Direction=(%.1f, %.1f, %.1f), Intensity=%.1f\n",
 		mld.engine.Light.Direction[0], mld.engine.Light.Direction[1], mld.engine.Light.Direction[2], mld.engine.Light.Intensity)
 }
 
@@ -458,7 +458,7 @@ func (mld *ModernLightingDemo) setVolumetricDemo() {
 		mld.models[i].SetGlossy(color[0], color[1], color[2])
 		mld.models[i].SetMaterialPBR(0.0, 0.2) // Non-metallic, glossy
 		mld.models[i].SetExposure(1.2)
-		fmt.Printf("   Sphere %d: Volumetric lighting enabled (Directional)\n", i+1)
+		fmt.Printf("Sphere %d: Volumetric lighting enabled (Directional)\n", i+1)
 	}
 }
 
@@ -491,7 +491,7 @@ func (mld *ModernLightingDemo) setClearcoatDemo() {
 		mld.models[i].SetMaterialPBR(1.0, 0.1) // Metallic base with clearcoat
 		mld.models[i].SetExposure(1.3)         // Higher exposure to show clearcoat
 
-		fmt.Printf("   Sphere %d: Clearcoat automotive paint (M=1.0, R=0.1)\n", i+1)
+		fmt.Printf("Sphere %d: Clearcoat automotive paint (M=1.0, R=0.1)\n", i+1)
 	}
 }
 
@@ -532,7 +532,7 @@ func (mld *ModernLightingDemo) setTransmissionDemo() {
 			mld.models[i].SetGlass(0.95, 0.95, 0.98, alpha)
 		}
 
-		fmt.Printf("   Sphere %d: Glass transmission %.1f, alpha %.1f (M=0.0, R=0.05)\n", i+1, transmissionFactors[i], alpha)
+		fmt.Printf("Sphere %d: Glass transmission %.1f, alpha %.1f (M=0.0, R=0.05)\n", i+1, transmissionFactors[i], alpha)
 	}
 
 	// Keep the same directional light - transmission works with directional lights
@@ -546,8 +546,8 @@ func (mld *ModernLightingDemo) addSkybox() {
 	renderer.SetSkyboxColor(0.5, 0.7, 1.0)  // Light blue sky
 	err := mld.engine.SetSkybox("dark_sky") // Use special path for solid color
 	if err != nil {
-		fmt.Printf("⚠️ SKYBOX: Failed to set skybox: %v\n", err)
+		fmt.Printf("SKYBOX: Failed to set skybox: %v\n", err)
 		return
 	}
-	fmt.Println("🌌 SKYBOX: Added gradient sky for environment lighting")
+	fmt.Println("SKYBOX: Added gradient sky for environment lighting")
 }

@@ -61,11 +61,15 @@ func (ms *MaterialsShowcase) Start() {
 
 	ms.f104 = f104
 	ms.engine.AddModel(f104)
+	
+	// Add orange skybox
+	ms.engine.UpdateSkyboxColor(1.0, 0.5, 0.2)
 
 
 }
 
 func (ms *MaterialsShowcase) Update() {
+	ms.engine.UpdateSkyboxColor(1.0, 0.5, 0.2)
 
 }
 

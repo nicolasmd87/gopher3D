@@ -310,39 +310,40 @@ func LoadModel(filename string, recalculateNormals bool) (*renderer.Model, error
 	// Declare variables in outer scope
 	var unifiedVertices []float32
 	var unifiedIndices []uint32
-	var unifiedMaterialMap map[uint32]string
+	var unifiedMaterialMap map[int]string
 	
 	if hasSeparateIndices && len(unifiedFaces) > 0 {
 		// Index unification: Convert separate indices to unified vertex buffer
 		type VertexKey struct {
 			v, vt, vn int32
+			// Note: Material is NOT part of the key - vertices CAN be shared across materials
+			// The material is applied at draw time via uniforms, not stored per-vertex
 		}
 		
 		vertexMap := make(map[VertexKey]uint32)  // Maps triplet -> unified index
 		unifiedVertices = []float32{}  // Interleaved [x,y,z,u,v,nx,ny,nz]
 		unifiedIndices = []uint32{}    // Final index buffer
-		unifiedMaterialMap = make(map[uint32]string)  // Material per unified vertex index
+		unifiedMaterialMap = make(map[int]string)  // Material per index position in index buffer
 		
 		// Process each face vertex triplet
 		for i, faceVertex := range unifiedFaces {
-			// Create key for this vertex combination
+			matName := faceMaterialMap[i]
+			
+			// Create key for this vertex combination (geometry only, no material)
 			key := VertexKey{
 				v:  faceVertex.VertexIdx,
 				vt: faceVertex.TexCoordIdx,
 				vn: faceVertex.NormalIdx,
 			}
 			
-			matName := faceMaterialMap[i]
-			
 			// Check if we've seen this combination before
 			if existingIdx, exists := vertexMap[key]; exists {
+				// Reuse existing unified vertex
 				unifiedIndices = append(unifiedIndices, existingIdx)
-				// Vertex already exists - keep its original material
 			} else {
 				// Create new unified vertex
 				newIdx := uint32(len(unifiedVertices) / 8)  // 8 floats per vertex
 				vertexMap[key] = newIdx
-				unifiedMaterialMap[newIdx] = matName  // Track material for THIS unified vertex
 				
 				// Fetch and append position (3 floats)
 				if faceVertex.VertexIdx >= 0 && int(faceVertex.VertexIdx*3+2) < len(vertices) {
@@ -351,7 +352,10 @@ func LoadModel(filename string, recalculateNormals bool) (*renderer.Model, error
 						vertices[faceVertex.VertexIdx*3+1],
 						vertices[faceVertex.VertexIdx*3+2])
 				} else {
-					// Fallback to origin if index out of bounds
+					// Vertex index out of bounds!
+					logger.Log.Error("Vertex index out of bounds during unification",
+						zap.Int32("vertexIdx", faceVertex.VertexIdx),
+						zap.Int("verticesLen", len(vertices)/3))
 					unifiedVertices = append(unifiedVertices, 0.0, 0.0, 0.0)
 				}
 				
@@ -372,12 +376,21 @@ func LoadModel(filename string, recalculateNormals bool) (*renderer.Model, error
 						normals[faceVertex.NormalIdx*3+1],
 						normals[faceVertex.NormalIdx*3+2])
 				} else {
-					// Default normal (up)
+					// Normal index out of bounds - use default
+					if faceVertex.NormalIdx >= 0 {
+						logger.Log.Warn("Normal index out of bounds",
+							zap.Int32("normalIdx", faceVertex.NormalIdx),
+							zap.Int("normalsLen", len(normals)/3))
+					}
 					unifiedVertices = append(unifiedVertices, 0.0, 1.0, 0.0)
 				}
 				
 				unifiedIndices = append(unifiedIndices, newIdx)
 			}
+			
+			// Store material for THIS index position in the index buffer
+			// This allows the same vertex to be used with different materials
+			unifiedMaterialMap[len(unifiedIndices)-1] = matName
 		}
 		
 		// Update model with unified data
@@ -392,6 +405,17 @@ func LoadModel(filename string, recalculateNormals bool) (*renderer.Model, error
 			faces[i] = int32(idx)
 		}
 		model.Faces = faces
+		
+		// CRITICAL VALIDATION: Check that all indices are within bounds
+		maxVertexIndex := len(unifiedVertices) / 8
+		for i, idx := range faces {
+			if int(idx) >= maxVertexIndex {
+				logger.Log.Error("INDEX OUT OF BOUNDS!",
+					zap.Int("faceIdx", i),
+					zap.Int32("index", idx),
+					zap.Int("maxVertexIndex", maxVertexIndex))
+			}
+		}
 		
 		logger.Log.Info("Index unification applied",
 			zap.Int("originalVertices", len(vertices)/3),
@@ -413,12 +437,12 @@ func LoadModel(filename string, recalculateNormals bool) (*renderer.Model, error
 			indexCount int32
 		}
 		
-		// Build ranges by tracking material changes in unified indices
+		// Build ranges by tracking material changes in index buffer
 		currentMaterial := ""
 		
 		for i := 0; i < len(unifiedIndices); i++ {
-			// Get material for this unified index
-			matName := unifiedMaterialMap[unifiedIndices[i]]
+			// Get material for this index position in the index buffer
+			matName := unifiedMaterialMap[i]
 			if matName == "" {
 				matName = "default"
 			}
@@ -473,6 +497,29 @@ func LoadModel(filename string, recalculateNormals bool) (*renderer.Model, error
 				zap.Int32("indexStart", range_.indexStart),
 				zap.Int32("indexCount", range_.indexCount),
 				zap.Int32("indexEnd", range_.indexStart + range_.indexCount))
+		}
+		
+		// DEBUG: Log first few material groups to verify correctness
+		for i := 0; i < len(model.MaterialGroups) && i < 5; i++ {
+			group := model.MaterialGroups[i]
+			logger.Log.Info("DEBUG Material Group",
+				zap.Int("groupIdx", i),
+				zap.String("material", group.Material.Name),
+				zap.Int32("indexStart", group.IndexStart),
+				zap.Int32("indexCount", group.IndexCount),
+				zap.Int("firstFewIndices", len(model.Faces)))
+			
+			// Log first 3 indices of this group
+			if int(group.IndexStart) < len(model.Faces) {
+				endIdx := int(group.IndexStart) + 3
+				if endIdx > len(model.Faces) {
+					endIdx = len(model.Faces)
+				}
+				if endIdx > int(group.IndexStart) {
+					logger.Log.Info("  First indices",
+						zap.Int32s("indices", model.Faces[group.IndexStart:endIdx]))
+				}
+			}
 		}
 		
 		logger.Log.Info("Multi-material model loaded with index unification",
@@ -667,8 +714,20 @@ func parseFace(parts []string) ([]FaceVertex, error) {
 	}
 
 	// Convert quads to triangles
+	// Standard quad triangulation: split into two triangles
+	// Triangle 1: v0, v1, v2
+	// Triangle 2: v0, v2, v3
 	if len(face) == 4 {
+		// Use counter-clockwise winding order for both triangles
 		return []FaceVertex{face[0], face[1], face[2], face[0], face[2], face[3]}, nil
+	} else if len(face) > 4 {
+		// Polygons with >4 vertices: triangulate as fan from first vertex
+		logger.Log.Warn("Face with more than 4 vertices detected, using fan triangulation", zap.Int("vertexCount", len(face)))
+		var triangulated []FaceVertex
+		for i := 1; i < len(face)-1; i++ {
+			triangulated = append(triangulated, face[0], face[i], face[i+1])
+		}
+		return triangulated, nil
 	} else {
 		return face, nil
 	}
