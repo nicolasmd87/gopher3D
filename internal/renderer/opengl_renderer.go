@@ -234,7 +234,13 @@ func (rend *OpenGLRenderer) loadModelTextures(model *Model) {
 							zap.String("material", material.Name),
 							zap.String("path", material.TexturePath))
 					}
-				} else if material.TextureID == 0 {
+				} else if material.TextureID != 0 {
+					// Texture is already loaded (e.g., from scene loading)
+					// LoadTexture already incremented the ref count, so we don't need to do it again
+					logger.Log.Debug("Texture already loaded for material",
+						zap.String("material", material.Name),
+						zap.Uint32("textureID", material.TextureID))
+				} else {
 					// No texture path - don't assign any texture, let shader use diffuse color
 					// This allows materials to show their proper diffuse colors from MTL
 					logger.Log.Debug("Material without texture will use diffuse color",
@@ -264,7 +270,13 @@ func (rend *OpenGLRenderer) loadModelTextures(model *Model) {
 					zap.String("material", model.Material.Name),
 					zap.String("path", model.Material.TexturePath))
 			}
-		} else if model.Material.TextureID == 0 {
+		} else if model.Material.TextureID != 0 {
+			// Texture is already loaded (e.g., from scene loading)
+			// LoadTexture already incremented the ref count, so we don't need to do it again
+			logger.Log.Debug("Texture already loaded for material",
+				zap.String("material", model.Material.Name),
+				zap.Uint32("textureID", model.Material.TextureID))
+		} else {
 			// Single material model without texture path - don't assign texture
 			// This allows the material to show its proper diffuse color from MTL
 			logger.Log.Debug("Single material without texture will use diffuse color",
@@ -497,16 +509,14 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 			// Bind texture (only if it has a valid texture) - optimized
 			textureSamplerLoc := uniformCache.GetLocation("textureSampler")
 			
-			if model.Material != nil && model.Material.TextureID != 0 && model.Material.TextureID != currentTextureID {
+			if model.Material != nil && model.Material.TextureID != 0 {
 				gl.BindTexture(gl.TEXTURE_2D, model.Material.TextureID)
 				gl.Uniform1i(textureSamplerLoc, 0)
-				currentTextureID = model.Material.TextureID
 			} else if model.Material != nil && model.Material.TextureID == 0 {
 				// Material without texture - bind default white texture
-				if DefaultMaterial.TextureID != 0 && DefaultMaterial.TextureID != currentTextureID {
+				if DefaultMaterial.TextureID != 0 {
 					gl.BindTexture(gl.TEXTURE_2D, DefaultMaterial.TextureID)
 					gl.Uniform1i(textureSamplerLoc, 0)
-					currentTextureID = DefaultMaterial.TextureID
 				}
 			}
 

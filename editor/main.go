@@ -745,6 +745,8 @@ func renderEditorUI() {
 		// Models section
 		if imgui.CollapsingHeaderV("[M] Models", imgui.TreeNodeFlagsDefaultOpen) {
 			for i, model := range models {
+				// CRITICAL: Push unique ID for each Selectable to ensure clicks work correctly
+				imgui.PushID(fmt.Sprintf("model_%d", i))
 				isSelected := selectedType == "model" && selectedModelIndex == i
 				if imgui.SelectableV("  "+model.Name, isSelected, 0, imgui.Vec2{}) {
 					selectedModelIndex = i
@@ -755,6 +757,7 @@ func renderEditorUI() {
 				if imgui.IsItemHovered() && imgui.IsMouseDoubleClicked(0) {
 					focusCameraOnModel(model)
 				}
+				imgui.PopID()
 			}
 		}
 
@@ -762,6 +765,8 @@ func renderEditorUI() {
 		lights := openglRenderer.GetLights()
 		if imgui.CollapsingHeaderV("[L] Lights", imgui.TreeNodeFlagsDefaultOpen) {
 			for i, light := range lights {
+				// CRITICAL: Push unique ID for each Selectable to ensure clicks work correctly
+				imgui.PushID(fmt.Sprintf("light_%d", i))
 				icon := "[Dir]"
 				if light.Mode == "point" {
 					icon = "[Pnt]"
@@ -776,6 +781,7 @@ func renderEditorUI() {
 					selectedModelIndex = -1
 					selectedType = "light"
 				}
+				imgui.PopID()
 			}
 		}
 		imgui.End()
@@ -841,53 +847,104 @@ func renderEditorUI() {
 			if model.Material != nil {
 				imgui.Separator()
 				if imgui.CollapsingHeaderV("Material Properties", imgui.TreeNodeFlagsDefaultOpen) {
-					// Diffuse Color
-					diffuse := [3]float32{model.Material.DiffuseColor[0], model.Material.DiffuseColor[1], model.Material.DiffuseColor[2]}
-					if imgui.ColorEdit3V("Diffuse Color", &diffuse, 0) {
-						model.SetDiffuseColor(diffuse[0], diffuse[1], diffuse[2])
-						model.IsDirty = true
-					}
+            // Diffuse Color
+            diffuse := [3]float32{model.Material.DiffuseColor[0], model.Material.DiffuseColor[1], model.Material.DiffuseColor[2]}
+            if imgui.ColorEdit3V("Diffuse Color", &diffuse, 0) {
+                // Apply to main material
+                model.SetDiffuseColor(diffuse[0], diffuse[1], diffuse[2])
+                // Propagate to all material groups (multi-material models)
+                if len(model.MaterialGroups) > 0 {
+                    for i := range model.MaterialGroups {
+                        if model.MaterialGroups[i].Material != nil {
+                            model.MaterialGroups[i].Material.DiffuseColor = [3]float32{diffuse[0], diffuse[1], diffuse[2]}
+                        }
+                    }
+                }
+                model.IsDirty = true
+            }
 					
-					// Specular Color
-					specular := model.Material.SpecularColor
-					if imgui.ColorEdit3V("Specular Color", &specular, 0) {
-						model.Material.SpecularColor = specular
-						model.IsDirty = true
-					}
+            // Specular Color
+            specular := model.Material.SpecularColor
+            if imgui.ColorEdit3V("Specular Color", &specular, 0) {
+                model.Material.SpecularColor = specular
+                if len(model.MaterialGroups) > 0 {
+                    for i := range model.MaterialGroups {
+                        if model.MaterialGroups[i].Material != nil {
+                            model.MaterialGroups[i].Material.SpecularColor = specular
+                        }
+                    }
+                }
+                model.IsDirty = true
+            }
 					
-					// Shininess
-					shininess := model.Material.Shininess
-					if imgui.SliderFloatV("Shininess", &shininess, 0.0, 128.0, "%.1f", 0) {
-						model.Material.Shininess = shininess
-						model.IsDirty = true
-					}
+            // Shininess
+            shininess := model.Material.Shininess
+            if imgui.SliderFloatV("Shininess", &shininess, 0.0, 128.0, "%.1f", 0) {
+                model.Material.Shininess = shininess
+                if len(model.MaterialGroups) > 0 {
+                    for i := range model.MaterialGroups {
+                        if model.MaterialGroups[i].Material != nil {
+                            model.MaterialGroups[i].Material.Shininess = shininess
+                        }
+                    }
+                }
+                model.IsDirty = true
+            }
 
 					// PBR Properties
-					metallic := model.Material.Metallic
-					if imgui.SliderFloatV("Metallic", &metallic, 0.0, 1.0, "%.2f", 0) {
-						model.SetMaterialPBR(metallic, model.Material.Roughness)
-						model.IsDirty = true
-					}
+            metallic := model.Material.Metallic
+            if imgui.SliderFloatV("Metallic", &metallic, 0.0, 1.0, "%.2f", 0) {
+                model.SetMaterialPBR(metallic, model.Material.Roughness)
+                if len(model.MaterialGroups) > 0 {
+                    for i := range model.MaterialGroups {
+                        if model.MaterialGroups[i].Material != nil {
+                            model.MaterialGroups[i].Material.Metallic = metallic
+                        }
+                    }
+                }
+                model.IsDirty = true
+            }
 
-					roughness := model.Material.Roughness
-					if imgui.SliderFloatV("Roughness", &roughness, 0.0, 1.0, "%.2f", 0) {
-						model.SetMaterialPBR(model.Material.Metallic, roughness)
-						model.IsDirty = true
-					}
+            roughness := model.Material.Roughness
+            if imgui.SliderFloatV("Roughness", &roughness, 0.0, 1.0, "%.2f", 0) {
+                model.SetMaterialPBR(model.Material.Metallic, roughness)
+                if len(model.MaterialGroups) > 0 {
+                    for i := range model.MaterialGroups {
+                        if model.MaterialGroups[i].Material != nil {
+                            model.MaterialGroups[i].Material.Roughness = roughness
+                        }
+                    }
+                }
+                model.IsDirty = true
+            }
 					
 					// Exposure
-					exposure := model.Material.Exposure
-					if imgui.SliderFloatV("Exposure", &exposure, 0.1, 5.0, "%.2f", 0) {
-						model.Material.Exposure = exposure
-						model.IsDirty = true
-					}
+            exposure := model.Material.Exposure
+            if imgui.SliderFloatV("Exposure", &exposure, 0.1, 5.0, "%.2f", 0) {
+                model.Material.Exposure = exposure
+                if len(model.MaterialGroups) > 0 {
+                    for i := range model.MaterialGroups {
+                        if model.MaterialGroups[i].Material != nil {
+                            model.MaterialGroups[i].Material.Exposure = exposure
+                        }
+                    }
+                }
+                model.IsDirty = true
+            }
 					
 					// Alpha (Transparency)
-					alpha := model.Material.Alpha
-					if imgui.SliderFloatV("Alpha", &alpha, 0.0, 1.0, "%.2f", 0) {
-						model.Material.Alpha = alpha
-						model.IsDirty = true
-					}
+            alpha := model.Material.Alpha
+            if imgui.SliderFloatV("Alpha", &alpha, 0.0, 1.0, "%.2f", 0) {
+                model.Material.Alpha = alpha
+                if len(model.MaterialGroups) > 0 {
+                    for i := range model.MaterialGroups {
+                        if model.MaterialGroups[i].Material != nil {
+                            model.MaterialGroups[i].Material.Alpha = alpha
+                        }
+                    }
+                }
+                model.IsDirty = true
+            }
 					
 					// Transparency note
 					if alpha < 0.99 {
@@ -905,7 +962,7 @@ func renderEditorUI() {
 				// Texture Management
 				imgui.Separator()
 				if imgui.CollapsingHeaderV("Texture", imgui.TreeNodeFlagsDefaultOpen) {
-					if model.Material.TexturePath != "" {
+                    if model.Material.TexturePath != "" {
 						imgui.Text("Current:")
 						imgui.SameLine()
 						imgui.PushStyleColor(imgui.StyleColorText, imgui.Vec4{X: 0.0, Y: 0.678, Z: 0.847, W: 1.0})
@@ -915,8 +972,18 @@ func renderEditorUI() {
 						imgui.Text(fmt.Sprintf("Texture ID: %d", model.Material.TextureID))
 						
 						if imgui.Button("Clear Texture") {
-							model.Material.TextureID = 0
-							model.Material.TexturePath = ""
+                            // Clear on main
+                            model.Material.TextureID = 0
+                            model.Material.TexturePath = ""
+                            // Clear on groups
+                            if len(model.MaterialGroups) > 0 {
+                                for i := range model.MaterialGroups {
+                                    if model.MaterialGroups[i].Material != nil {
+                                        model.MaterialGroups[i].Material.TextureID = 0
+                                        model.MaterialGroups[i].Material.TexturePath = ""
+                                    }
+                                }
+                            }
 							logToConsole(fmt.Sprintf("Texture cleared from '%s'", model.Name), "info")
 						}
 					} else {
@@ -1957,8 +2024,11 @@ func newScene() {
 		defaultLight.Name = "Sun"
 		defaultLight.AmbientStrength = 0.3
 		defaultLight.Type = renderer.STATIC_LIGHT
-		eng.Light = defaultLight
 		openglRenderer.AddLight(defaultLight)
+		eng.Light = defaultLight
+	} else {
+		// Ensure eng.Light points to the first light (should be Sun)
+		eng.Light = lights[0]
 	}
 	
 	currentScenePath = ""
@@ -2084,7 +2154,8 @@ func loadScene() {
 		return
 	}
 	
-	// Clear current scene first
+	// Clear current scene first (this resets selection)
+	// But save the selection reset for AFTER we load, so UI updates correctly
 	newScene()
 	
 	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
@@ -2099,6 +2170,13 @@ func loadScene() {
 	for i := len(lights) - 1; i >= 0; i-- {
 		openglRenderer.RemoveLight(lights[i])
 	}
+	// Clear engine's main light reference to avoid dangling pointer
+	eng.Light = nil
+	
+	// Clear selection before loading models to ensure indices stay valid
+	selectedModelIndex = -1
+	selectedLightIndex = -1
+	selectedType = ""
 	
 	// Load models
 	for _, sceneModel := range sceneData.Models {
@@ -2119,44 +2197,150 @@ func loadScene() {
 		model.SetPosition(sceneModel.Position[0], sceneModel.Position[1], sceneModel.Position[2])
 		model.SetScale(sceneModel.Scale[0], sceneModel.Scale[1], sceneModel.Scale[2])
 		
-		// Restore ALL material properties
+		// CRITICAL: Ensure each model gets unique material instances
+		// This prevents materials from being shared between different models
+		var originalMainMaterial *renderer.Material = nil
+		if model.Material != nil {
+			// Save pointer to original material before replacing
+			originalMainMaterial = model.Material
+			// Create a unique copy of the material to avoid sharing with other models
+			// Ensure defaults are set if values are invalid
+			exposure := originalMainMaterial.Exposure
+			if exposure <= 0 {
+				exposure = 1.0
+			}
+			alpha := originalMainMaterial.Alpha
+			if alpha <= 0 {
+				alpha = 1.0
+			}
+			model.Material = &renderer.Material{
+				Name:          originalMainMaterial.Name,
+				DiffuseColor:  originalMainMaterial.DiffuseColor,
+				SpecularColor: originalMainMaterial.SpecularColor,
+				Shininess:     originalMainMaterial.Shininess,
+				Metallic:      originalMainMaterial.Metallic,
+				Roughness:     originalMainMaterial.Roughness,
+				Exposure:      exposure,
+				Alpha:         alpha,
+				TextureID:     0,
+				TexturePath:   originalMainMaterial.TexturePath,
+			}
+		}
+		
+		// Also ensure material groups have unique instances
+		for i := range model.MaterialGroups {
+			if model.MaterialGroups[i].Material != nil {
+				originalMat := model.MaterialGroups[i].Material
+				// If this material group points to the original model.Material, use the new unique instance
+				if originalMat == originalMainMaterial {
+					model.MaterialGroups[i].Material = model.Material
+					continue
+				}
+				// Create unique copy for this material group
+				// Ensure defaults are set if values are invalid
+				exposure := originalMat.Exposure
+				if exposure <= 0 {
+					exposure = 1.0
+				}
+				alpha := originalMat.Alpha
+				if alpha <= 0 {
+					alpha = 1.0
+				}
+				model.MaterialGroups[i].Material = &renderer.Material{
+					Name:          originalMat.Name,
+					DiffuseColor:  originalMat.DiffuseColor,
+					SpecularColor: originalMat.SpecularColor,
+					Shininess:     originalMat.Shininess,
+					Metallic:      originalMat.Metallic,
+					Roughness:     originalMat.Roughness,
+					Exposure:      exposure,
+					Alpha:         alpha,
+					TextureID:     0,
+					TexturePath:   originalMat.TexturePath,
+				}
+			}
+		}
+		
+		// FIRST: Restore material properties BEFORE AddModel
+		// This ensures materials have correct values from the start, preventing black rendering
+		// Track unique materials to avoid restoring the same material multiple times
+		restoredMaterials := make(map[*renderer.Material]bool)
+		
 		if model.Material != nil {
 			model.Material.DiffuseColor = sceneModel.DiffuseColor
 			model.Material.SpecularColor = sceneModel.SpecularColor
 			model.Material.Shininess = sceneModel.Shininess
 			model.Material.Metallic = sceneModel.Metallic
 			model.Material.Roughness = sceneModel.Roughness
-			model.Material.Exposure = sceneModel.Exposure
-			model.Material.Alpha = sceneModel.Alpha
-			
-			// Ensure minimum values for proper lighting
-			if model.Material.Exposure == 0 {
-				model.Material.Exposure = 1.0 // Default exposure
+			// Ensure Exposure is never 0 (which would make model completely black)
+			if sceneModel.Exposure > 0 {
+				model.Material.Exposure = sceneModel.Exposure
+			} else {
+				model.Material.Exposure = 1.0 // Default if saved as 0
 			}
-			if model.Material.Alpha == 0 {
-				model.Material.Alpha = 1.0 // Default fully opaque
+			// Ensure Alpha is never 0 (which would make model invisible)
+			if sceneModel.Alpha > 0 {
+				model.Material.Alpha = sceneModel.Alpha
+			} else {
+				model.Material.Alpha = 1.0 // Default if saved as 0
 			}
-			
-			// Load texture if path is stored
-			if sceneModel.TexturePath != "" {
-				textureID, err := eng.GetRenderer().LoadTexture(sceneModel.TexturePath)
-				if err == nil {
-					model.Material.TextureID = textureID
-					model.Material.TexturePath = sceneModel.TexturePath
-					logToConsole(fmt.Sprintf("  ✓ Texture loaded: %s", filepath.Base(sceneModel.TexturePath)), "info")
-				} else {
-					logToConsole(fmt.Sprintf("  ✗ Failed to load texture: %v", err), "warning")
-				}
-			}
-			
-			// Mark model as dirty to force re-render with new material
-			model.IsDirty = true
+			restoredMaterials[model.Material] = true
 		}
 		
+		// Restore properties for ALL unique materials in material groups
+		for i := range model.MaterialGroups {
+			if model.MaterialGroups[i].Material != nil {
+				groupMat := model.MaterialGroups[i].Material
+				
+				// Only restore if we haven't already restored this material
+				if !restoredMaterials[groupMat] {
+					groupMat.DiffuseColor = sceneModel.DiffuseColor
+					groupMat.SpecularColor = sceneModel.SpecularColor
+					groupMat.Shininess = sceneModel.Shininess
+					groupMat.Metallic = sceneModel.Metallic
+					groupMat.Roughness = sceneModel.Roughness
+					// Ensure Exposure is never 0 (which would make model completely black)
+					if sceneModel.Exposure > 0 {
+						groupMat.Exposure = sceneModel.Exposure
+					} else {
+						groupMat.Exposure = 1.0 // Default if saved as 0
+					}
+					// Ensure Alpha is never 0 (which would make model invisible)
+					if sceneModel.Alpha > 0 {
+						groupMat.Alpha = sceneModel.Alpha
+					} else {
+						groupMat.Alpha = 1.0 // Default if saved as 0
+					}
+					restoredMaterials[groupMat] = true
+				}
+			}
+		}
+		
+		// SECOND: Set texture paths BEFORE AddModel so textures load correctly
+		if sceneModel.TexturePath != "" {
+			if model.Material != nil {
+				model.Material.TexturePath = sceneModel.TexturePath
+				model.Material.TextureID = 0 // Clear so loadModelTextures will load it
+			}
+			// Also set for material groups so they load correctly
+			for i := range model.MaterialGroups {
+				if model.MaterialGroups[i].Material != nil {
+					model.MaterialGroups[i].Material.TexturePath = sceneModel.TexturePath
+					model.MaterialGroups[i].Material.TextureID = 0
+				}
+			}
+		}
+		
+		// THIRD: Add model to initialize OpenGL resources and load textures
+		// Materials are now properly configured with correct exposure/alpha before this call
 		eng.AddModel(model)
+		
+		// Mark model as dirty to ensure uniforms are updated on next render
+		model.IsDirty = true
 	}
 	
 	// Load lights with complete properties
+	isFirstLight := true
 	for _, sceneLight := range sceneData.Lights {
 		var light *renderer.Light
 		if sceneLight.Mode == "directional" {
@@ -2181,9 +2365,10 @@ func loadScene() {
 			light.LinearAtten = sceneLight.LinearAtten
 			light.QuadraticAtten = sceneLight.QuadraticAtten
 			openglRenderer.AddLight(light)
-			// Set the first light as the engine's main light (for backward compatibility)
-			if eng.Light == nil {
+			// Always set the first light as the engine's main light (for backward compatibility)
+			if isFirstLight {
 				eng.Light = light
+				isFirstLight = false
 			}
 		}
 	}
