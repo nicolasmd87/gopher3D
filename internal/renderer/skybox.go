@@ -48,40 +48,40 @@ func CreateSkybox(texturePath string) (*Skybox, error) {
 		size, size, -size,
 		-size, size, -size,
 
-		-1000.0, -1000.0, 1000.0,
-		-1000.0, -1000.0, -1000.0,
-		-1000.0, 1000.0, -1000.0,
-		-1000.0, 1000.0, -1000.0,
-		-1000.0, 1000.0, 1000.0,
-		-1000.0, -1000.0, 1000.0,
+		-size, -size, size,
+		-size, -size, -size,
+		-size, size, -size,
+		-size, size, -size,
+		-size, size, size,
+		-size, -size, size,
 
-		1000.0, -1000.0, -1000.0,
-		1000.0, -1000.0, 1000.0,
-		1000.0, 1000.0, 1000.0,
-		1000.0, 1000.0, 1000.0,
-		1000.0, 1000.0, -1000.0,
-		1000.0, -1000.0, -1000.0,
+		size, -size, -size,
+		size, -size, size,
+		size, size, size,
+		size, size, size,
+		size, size, -size,
+		size, -size, -size,
 
-		-1000.0, -1000.0, 1000.0,
-		-1000.0, 1000.0, 1000.0,
-		1000.0, 1000.0, 1000.0,
-		1000.0, 1000.0, 1000.0,
-		1000.0, -1000.0, 1000.0,
-		-1000.0, -1000.0, 1000.0,
+		-size, -size, size,
+		-size, size, size,
+		size, size, size,
+		size, size, size,
+		size, -size, size,
+		-size, -size, size,
 
-		-1000.0, 1000.0, -1000.0,
-		1000.0, 1000.0, -1000.0,
-		1000.0, 1000.0, 1000.0,
-		1000.0, 1000.0, 1000.0,
-		-1000.0, 1000.0, 1000.0,
-		-1000.0, 1000.0, -1000.0,
+		-size, size, -size,
+		size, size, -size,
+		size, size, size,
+		size, size, size,
+		-size, size, size,
+		-size, size, -size,
 
-		-1000.0, -1000.0, -1000.0,
-		-1000.0, -1000.0, 1000.0,
-		1000.0, -1000.0, -1000.0,
-		1000.0, -1000.0, -1000.0,
-		-1000.0, -1000.0, 1000.0,
-		1000.0, -1000.0, 1000.0,
+		-size, -size, -size,
+		-size, -size, size,
+		size, -size, -size,
+		size, -size, -size,
+		-size, -size, size,
+		size, -size, size,
 	}
 
 	// Create VAO and VBO
@@ -114,8 +114,42 @@ func CreateSkybox(texturePath string) (*Skybox, error) {
 
 // Render renders the skybox
 func (s *Skybox) Render(camera Camera) {
-	// Skybox rendering is now handled by the renderer using clear color
-	// This method is kept for compatibility but does nothing
+	// Only render if it's a textured skybox (TextureID != 0)
+	// Solid color skyboxes are handled by gl.ClearColor in the renderer
+	if s.TextureID == 0 {
+		return
+	}
+
+	// Use shader
+	s.Shader.Use()
+
+	// Remove translation from view matrix (skybox should appear infinite)
+	view := camera.GetViewMatrix()
+	// Zero out the translation components
+	view[12] = 0
+	view[13] = 0
+	view[14] = 0
+	
+	projection := camera.GetProjectionMatrix()
+
+	// Set uniforms
+	s.Shader.SetMat4("view", view)
+	s.Shader.SetMat4("projection", projection)
+
+	// Change depth function so skybox passes when depth is 1.0 (far plane)
+	gl.DepthFunc(gl.LEQUAL)
+	
+	// Bind texture
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, s.TextureID)
+	
+	// Draw skybox
+	gl.BindVertexArray(s.VAO)
+	gl.DrawArrays(gl.TRIANGLES, 0, 36)
+	gl.BindVertexArray(0)
+	
+	// Restore depth function
+	gl.DepthFunc(gl.LESS)
 }
 
 // loadSkyboxTexture loads a texture specifically for skybox use
@@ -167,40 +201,40 @@ func CreateSolidColorSkybox(r, g, b float32) (*Skybox, error) {
 		size, size, -size,
 		-size, size, -size,
 
-		-1000.0, -1000.0, 1000.0,
-		-1000.0, -1000.0, -1000.0,
-		-1000.0, 1000.0, -1000.0,
-		-1000.0, 1000.0, -1000.0,
-		-1000.0, 1000.0, 1000.0,
-		-1000.0, -1000.0, 1000.0,
+		-size, -size, size,
+		-size, -size, -size,
+		-size, size, -size,
+		-size, size, -size,
+		-size, size, size,
+		-size, -size, size,
 
-		1000.0, -1000.0, -1000.0,
-		1000.0, -1000.0, 1000.0,
-		1000.0, 1000.0, 1000.0,
-		1000.0, 1000.0, 1000.0,
-		1000.0, 1000.0, -1000.0,
-		1000.0, -1000.0, -1000.0,
+		size, -size, -size,
+		size, -size, size,
+		size, size, size,
+		size, size, size,
+		size, size, -size,
+		size, -size, -size,
 
-		-1000.0, -1000.0, 1000.0,
-		-1000.0, 1000.0, 1000.0,
-		1000.0, 1000.0, 1000.0,
-		1000.0, 1000.0, 1000.0,
-		1000.0, -1000.0, 1000.0,
-		-1000.0, -1000.0, 1000.0,
+		-size, -size, size,
+		-size, size, size,
+		size, size, size,
+		size, size, size,
+		size, -size, size,
+		-size, -size, size,
 
-		-1000.0, 1000.0, -1000.0,
-		1000.0, 1000.0, -1000.0,
-		1000.0, 1000.0, 1000.0,
-		1000.0, 1000.0, 1000.0,
-		-1000.0, 1000.0, 1000.0,
-		-1000.0, 1000.0, -1000.0,
+		-size, size, -size,
+		size, size, -size,
+		size, size, size,
+		size, size, size,
+		-size, size, size,
+		-size, size, -size,
 
-		-1000.0, -1000.0, -1000.0,
-		-1000.0, -1000.0, 1000.0,
-		1000.0, -1000.0, -1000.0,
-		1000.0, -1000.0, -1000.0,
-		-1000.0, -1000.0, 1000.0,
-		1000.0, -1000.0, 1000.0,
+		-size, -size, -size,
+		-size, -size, size,
+		size, -size, -size,
+		size, -size, -size,
+		-size, -size, size,
+		size, -size, size,
 	}
 
 	// Create VAO and VBO

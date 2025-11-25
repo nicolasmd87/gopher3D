@@ -85,6 +85,12 @@ func (shader *Shader) SetBool(name string, value bool) {
 	}
 }
 
+func (shader *Shader) SetMat4(name string, value mgl32.Mat4) {
+	// Direct setting for matrices (cache optimization for 4x4 matrices is more complex and less critical than scalar/vec3)
+	location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
+	gl.UniformMatrix4fv(location, 1, false, &value[0])
+}
+
 // IsValid returns true if this shader has source code (not default empty shader)
 func (shader *Shader) IsValid() bool {
 	return shader.vertexSource != "" && shader.fragmentSource != ""
@@ -146,7 +152,9 @@ out vec3 FragPos;         // Pass position to fragment shader
 
 void main() {
     // Decide whether to use instanced or regular model matrix
-    mat4 modelMatrix = isInstanced ? instanceModel : model;
+    // For instanced rendering, we multiply the global model matrix by the instance matrix
+    // This allows moving/scaling/rotating the entire group of instances using the model transform
+    mat4 modelMatrix = isInstanced ? (model * instanceModel) : model;
 
     // High-precision world position calculation
     FragPos = vec3(modelMatrix * vec4(inPosition, 1.0));
@@ -880,6 +888,7 @@ out vec3 fragPosition;
 uniform mat4 model;
 uniform mat4 viewProjection;
 uniform float time;
+uniform float waveSpeedMultiplier;
 
 // Enhanced wave uniforms
 uniform vec3 waveDirections[4];  
@@ -913,7 +922,11 @@ vec3 calculateGerstnerWave(vec3 position, vec3 direction, float amplitude, float
 // GPU Gems normal calculation with wave sharpening
 vec3 calculateGerstnerNormal(vec3 position, vec3 direction, float amplitude, float frequency, float speed, float phase, float steepness, float time) {
     vec2 d = normalize(direction.xz);
-    float wave = dot(d, position.xz) * frequency + time * speed + phase;
+    
+    float effectiveSpeed = speed * waveSpeedMultiplier;
+    if (waveSpeedMultiplier <= 0.001) effectiveSpeed = speed; // Fallback if not set
+
+    float wave = dot(d, position.xz) * frequency + time * effectiveSpeed + phase;
     float c = cos(wave);
     float s = sin(wave);
     
@@ -1001,6 +1014,11 @@ uniform vec3 lightColor;
 uniform float lightIntensity;
 uniform vec3 viewPos;
 uniform float time;
+
+// Water appearance
+uniform vec3 waterBaseColor;
+uniform float waterTransparency;
+uniform float waveSpeedMultiplier;
 
 // GPU Gems Chapter 2: Caustics uniforms
 uniform bool enableCaustics;
@@ -1206,8 +1224,11 @@ void main() {
     float normalSmoothingIntensity = mix(0.8, 0.3, smoothstep(1000.0, 40000.0, distanceFromCamera));
     norm = mix(norm, normalize(smoothedNormal), normalSmoothingIntensity);
     
-    // Completely uniform ocean color - NO noise or variation
-    vec3 baseOceanColor = vec3(0.05, 0.15, 0.35);        // Natural deep ocean blue
+    // Use uniform water color
+    vec3 baseOceanColor = waterBaseColor;
+    if (baseOceanColor.r == 0.0 && baseOceanColor.g == 0.0 && baseOceanColor.b == 0.0) {
+        baseOceanColor = vec3(0.05, 0.15, 0.35); // Fallback default
+    }
     
     // Uniform water color - no distance-based gradients
     vec3 waterColor = baseOceanColor; // Use consistent color across entire ocean
@@ -1293,6 +1314,9 @@ void main() {
     // Modern PBR lighting for realistic water
     vec3 sunlightColor = vec3(1.0, 0.98, 0.95);  // Natural sunlight
     float diffuse = max(dot(norm, lightDir), 0.0);
+    
+    // Calculate lighting factors FIRST - needed for both fog and lighting
+    // Smooth ambient lighting based on light intensity - NO hard transitions
     
     vec3 nightAmbient = vec3(0.01, 0.015, 0.03) * lightIntensity * (1.0 + caustics * 0.05);
     nightAmbient = mix(nightAmbient, skyColor * 0.1, 0.3);
@@ -1422,33 +1446,39 @@ void main() {
     vec3 skyReflection = skyColor * fresnel * 0.15; // Subtle sky color reflection
     
     vec3 finalColor = baseColor + 
-                     specularLight * 0.6 +     // Enhanced specular for better reflections
-                     skyReflection +            // Sky color reflections
+                     specularLight * 1.5 +     // Much stronger specular for visible reflections
+                     skyReflection * 0.8 +      // Increased sky reflection
                      subsurface +              
                      rimColor;
     
-    // Natural ocean lighting - much more diffuse, less reflective
-    finalColor *= clamp(lightIntensity * 1.0, 0.3, 0.8); // Tone down to natural water levels
+    // Natural ocean lighting - much brighter for visible reflections
+    finalColor *= clamp(lightIntensity * 1.5, 0.8, 2.0); // Higher multiplier and max brightness
     
     // Enhanced wave lighting with subtle highlights on wave peaks
     float waveFacing = max(0.0, dot(norm, lightDir));
     float waveSlope = length(vec2(dFdx(fragPosition.y), dFdy(fragPosition.y)));
-    float waveHighlight = smoothstep(0.5, 2.0, waveSlope) * 0.08; // Subtle highlights on steep waves
-    float waveLighting = 1.0 + waveFacing * 0.12 + waveHighlight; // Enhanced lighting with highlights
+    float waveHighlight = smoothstep(0.5, 2.0, waveSlope) * 0.08; 
+    float waveLighting = 1.0 + waveFacing * 0.2 + waveHighlight; // Increased wave lighting
     finalColor *= waveLighting;
     
     // Very subtle, natural foam
     if (totalFoam > 0.05) {
-        vec3 foamColor = vec3(0.4, 0.5, 0.6); // Very muted foam color
-        float foamMix = totalFoam * 0.1; // Barely visible
+        vec3 foamColor = vec3(0.6, 0.7, 0.8); // Brighter foam
+        float foamMix = totalFoam * 0.2; 
         finalColor = mix(finalColor, foamColor, foamMix);
     }
     
-    // Make water fully opaque to avoid transparency sorting issues with massive scenes
-    float alpha = 0.85; // Nearly opaque water
+    // Use the transparency uniform from the editor
+    float alpha = waterTransparency;
     
-    // Make water darker to distinguish from skybox
-    finalColor *= 0.6; // Darken the water color
+    // If transparency uniform is 0 (fallback), use default
+    if (alpha <= 0.01) {
+        alpha = 0.85;
+    }
+    
+    // Removed artificial darkening
+    // finalColor *= 0.6; <--- REMOVED
+    
     // GPU Gems Chapter 9 & 11: Apply realistic water shadows
     if (enableShadows) {
         float shadowFactor = 1.0;

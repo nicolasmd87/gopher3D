@@ -59,6 +59,7 @@ type Model struct {
 	IsBatched               bool           // Batching flag
 	Shader                  Shader         // Custom shader for this model
 	CustomUniforms          map[string]interface{} // Custom uniforms for this model
+	Metadata                map[string]interface{} // General metadata for editor/game logic
 	InstanceModelMatrices   []mgl32.Mat4   // Instance model matrices (bulk data)
 	
 	// COLD DATA - Initialization only or rarely accessed
@@ -193,16 +194,11 @@ func (m *Model) updateModelMatrix() {
 	translationMatrix := mgl32.Translate3D(m.Position[0], m.Position[1], m.Position[2])
 	// Combine the transformations: ModelMatrix = translation * rotation * scale (TRS order)
 	m.ModelMatrix = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
-	// If the model is instanced, update the instance matrices automatically
-	if m.IsInstanced && len(m.InstanceModelMatrices) > 0 {
-		for i := 0; i < m.InstanceCount; i++ {
-			instancePosition := m.InstanceModelMatrices[i].Col(3).Vec3() // Retrieve the instance position
-			instanceTranslation := mgl32.Translate3D(instancePosition.X(), instancePosition.Y(), instancePosition.Z())
-			// Correct order: TRS
-			instanceMatrix := instanceTranslation.Mul4(rotationMatrix).Mul4(scaleMatrix)
-			m.InstanceModelMatrices[i] = instanceMatrix
-		}
-	}
+	
+	// For instanced models, we do NOT update instance matrices here.
+	// The shader now handles hierarchical transformation (model * instance).
+	// This allows moving the entire group of instances by changing the Model's position/scale/rotation.
+	
 	if FrustumCullingEnabled {
 		m.CalculateBoundingSphere()
 	}

@@ -1,0 +1,64 @@
+{
+  "show_hierarchy": true,
+  "show_inspector": true,
+  "show_file_explorer": true,
+  "show_console": true,
+  "show_advanced_render": true,
+  "show_scene_settings": true,
+  "hierarchy_layout": {
+    "pos_x": 10,
+    "pos_y": 30,
+    "size_x": 289,
+    "size_y": 456,
+    "collapsed": false
+  },
+  "inspector_layout": {
+    "pos_x": 1546,
+    "pos_y": 516,
+    "size_x": 427,
+    "size_y": 540,
+    "collapsed": false
+  },
+  "file_explorer_layout": {
+    "pos_x": 10,
+    "pos_y": 720,
+    "size_x": 794,
+    "size_y": 252,
+    "collapsed": false
+  },
+  "console_layout": {
+    "pos_x": 883,
+    "pos_y": 649,
+    "size_x": 738,
+    "size_y": 323,
+    "collapsed": false
+  },
+  "scene_settings_layout": {
+    "pos_x": 1583,
+    "pos_y": 179,
+    "size_x": 450,
+    "size_y": 303,
+    "collapsed": false
+  },
+  "advanced_render_layout": {
+    "pos_x": 760,
+    "pos_y": 100,
+    "size_x": 226,
+    "size_y": 169,
+    "collapsed": false
+  },
+  "clear_color_r": 0.23623125,
+  "clear_color_g": 0.44523823,
+  "clear_color_b": 0.5539216,
+  "wireframe_mode": false,
+  "frustum_culling": true,
+  "face_culling": false,
+  "depth_testing": true,
+  "skybox_color_mode": true,
+  "skybox_solid_r": 0.23623125,
+  "skybox_solid_g": 0.44523823,
+  "skybox_solid_b": 0.5539216,
+  "skybox_path": "",
+  "instance_on_add": false,
+  "default_instance_count": 1
+}

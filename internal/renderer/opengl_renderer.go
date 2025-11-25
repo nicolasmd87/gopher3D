@@ -100,7 +100,7 @@ func (rend *OpenGLRenderer) setDepthTest(enabled bool) {
 	if rend.depthTestState != enabled {
 		if enabled {
 			gl.Enable(gl.DEPTH_TEST)
-			gl.DepthFunc(gl.LESS) // Standard depth test
+			gl.DepthFunc(gl.LEQUAL) // Use LEQUAL instead of LESS for better transparency
 			gl.DepthMask(true)
 		} else {
 			gl.Disable(gl.DEPTH_TEST)
@@ -323,7 +323,6 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	rend.lastDrawCalls = 0
 	
 	// Use lights from the Lights array if available, otherwise use passed light
-	// This allows the editor to manage lights via the Lights array
 	var activeLight *Light
 	if len(rend.Lights) > 0 {
 		activeLight = rend.Lights[0] // Use first light as primary
@@ -340,31 +339,29 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 
 	// Priority: 1. Editor clear color, 2. Skybox color, 3. Black default
 	if rend.ClearColorR != 0.0 || rend.ClearColorG != 0.0 || rend.ClearColorB != 0.0 {
-		// Use editor-set clear color (HIGHEST PRIORITY)
 		gl.ClearColor(rend.ClearColorR, rend.ClearColorG, rend.ClearColorB, 1.0)
-	} else if rend.skybox != nil && rend.skybox.Shader.skyColor != (mgl32.Vec3{}) {
-		// Use skybox color as background
+	} else if rend.skybox != nil && rend.skybox.Shader.skyColor != (mgl32.Vec3{}) && rend.skybox.TextureID == 0 {
 		gl.ClearColor(rend.skybox.Shader.skyColor.X(), rend.skybox.Shader.skyColor.Y(), rend.skybox.Shader.skyColor.Z(), 1.0)
 	} else {
-		// Use black background (default)
 		gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 	}
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-	// Skybox is now handled by clear color - no rendering needed
+	// Render skybox if it exists and has a texture
+	if rend.skybox != nil && rend.skybox.TextureID != 0 {
+		rend.skybox.Render(camera)
+	}
 
-	// Set depth test state (only changes if different from current state)
+	// Set depth test state
 	rend.setDepthTest(DepthTestEnabled)
 
-	// Enable alpha blending for transparency
+	// Enable alpha blending
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
-	// For transparent objects, disable depth writing but keep depth testing
-	// This will be handled per-model based on alpha value
 	viewProjection := camera.GetViewProjection()
 
-	// Set face culling state (only changes if different from current state)
+	// Set face culling state
 	rend.setFaceCulling(FaceCullingEnabled)
 
 	// Calculate frustum only if camera moved
@@ -373,172 +370,184 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 		frustumDirty = false
 	}
 
-	modLen := len(rend.Models)
-	for i := 0; i < modLen; i++ {
-		model := rend.Models[i]
+	// Pass 1: Render Opaque Objects (Alpha >= 0.99)
+	// We render these first so they write to the depth buffer
+	for _, model := range rend.Models {
+		rend.renderModelInternal(model, viewProjection, activeLight, camera, false)
+	}
 
-		// Skip rendering if the model is outside the frustum
-		if FrustumCullingEnabled && !frustum.IntersectsSphere(model.BoundingSphereCenter, model.BoundingSphereRadius) {
-			continue
+	// Pass 2: Render Transparent Objects (Alpha < 0.99)
+	// We render these second so they blend correctly with opaque objects behind them
+	// Note: For perfect transparency, these should be sorted back-to-front
+	for _, model := range rend.Models {
+		rend.renderModelInternal(model, viewProjection, activeLight, camera, true)
+	}
+
+	// GL state is now managed through setFaceCulling() and setDepthTest()
+}
+
+// renderModelInternal handles rendering a single model for a specific pass (opaque or transparent)
+func (rend *OpenGLRenderer) renderModelInternal(model *Model, viewProjection mgl32.Mat4, activeLight *Light, camera Camera, renderTransparent bool) {
+	// Skip rendering if the model is outside the frustum
+	if FrustumCullingEnabled && !frustum.IntersectsSphere(model.BoundingSphereCenter, model.BoundingSphereRadius) {
+		return
+	}
+
+	if model.IsDirty {
+		model.calculateModelMatrix()
+		model.IsDirty = false
+	}
+
+	// Determine which shader to use
+	var shader *Shader
+	var uniformCache *UniformCache
+	
+	if model.Shader.IsValid() {
+		shader = &model.Shader
+		// Ensure custom shader is compiled before using
+		if !shader.isCompiled {
+			shader.Compile()
 		}
-
-		if model.IsDirty {
-			// Recalculate the model matrix only if necessary
-			model.calculateModelMatrix()
-			model.IsDirty = false
+		// Get or create cache for this shader
+		if cache, exists := rend.shaderCaches[shader.program]; exists {
+			uniformCache = cache
+		} else {
+			uniformCache = NewUniformCache(shader.program)
+			rend.shaderCaches[shader.program] = uniformCache
 		}
+	} else {
+		shader = &rend.defaultShader
+		uniformCache = rend.defaultUniformCache
+	}
 
-		// Determine which shader to use
-		var shader *Shader
-		var uniformCache *UniformCache
+	// Switch shader if needed
+	if rend.currentShaderProgram != shader.program {
+		shader.Use()
+		rend.currentShaderProgram = shader.program
+	}
+
+	// Set common uniforms for all shaders using cache
+	rend.setCommonUniformsCached(uniformCache, viewProjection, model, activeLight, camera)
+
+	// Set shader-specific uniforms (like water shader uniforms)
+	rend.setShaderSpecificUniforms(shader, model)
+
+	// Bind vertex array
+	gl.BindVertexArray(model.VAO)
+
+	// Check if model has multiple material groups
+	if len(model.MaterialGroups) > 0 {
+		// Multi-material rendering
+		currentTextureID := uint32(0)
+		textureSamplerLoc := uniformCache.GetLocation("textureSampler")
 		
-		if model.Shader.IsValid() {
-			shader = &model.Shader
-			// Ensure custom shader is compiled before using
-			if !shader.isCompiled {
-				shader.Compile()
+		for _, group := range model.MaterialGroups {
+			// Determine transparency
+			alpha := float32(1.0)
+			if group.Material != nil {
+				alpha = group.Material.Alpha
 			}
-			// Get or create cache for this shader
-			if cache, exists := rend.shaderCaches[shader.program]; exists {
-				uniformCache = cache
+			isTransparent := alpha < 0.99
+
+			// Skip if this group doesn't match the current pass
+			if renderTransparent != isTransparent {
+				continue
+			}
+
+			// Set material uniforms
+			rend.setMaterialUniforms(shader, group.Material)
+
+			// Configure GL state for transparency
+			if isTransparent {
+				gl.DepthMask(false) // Disable depth writing for transparent objects
+				gl.Enable(gl.BLEND)
+				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				gl.Disable(gl.CULL_FACE) // Show both sides
 			} else {
-				uniformCache = NewUniformCache(shader.program)
-				rend.shaderCaches[shader.program] = uniformCache
+				gl.DepthMask(true) // Enable depth writing for opaque objects
+				gl.Enable(gl.BLEND) // Keep blending on for smooth edges
+				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				rend.setFaceCulling(FaceCullingEnabled)
 			}
-		} else {
-			shader = &rend.defaultShader
-			uniformCache = rend.defaultUniformCache
-		}
 
-		// Switch shader if needed
-		if rend.currentShaderProgram != shader.program {
-			shader.Use()
-			rend.currentShaderProgram = shader.program
-		}
-
-		// Set common uniforms for all shaders using cache
-		rend.setCommonUniformsCached(uniformCache, viewProjection, model, activeLight, camera)
-
-		// Set shader-specific uniforms (like water shader uniforms)
-		rend.setShaderSpecificUniforms(shader, model)
-
-		// Bind vertex array
-		gl.BindVertexArray(model.VAO)
-
-		// Check if model has multiple material groups
-		if len(model.MaterialGroups) > 0 {
-			// Multi-material rendering - optimized for texture batching
-			currentTextureID := uint32(0)
-			
-			// Cache texture sampler uniform location (only look up once per shader)
-			textureSamplerLoc := uniformCache.GetLocation("textureSampler")
-			
-			for _, group := range model.MaterialGroups {
-				// Set material uniforms for this group
-				rend.setMaterialUniforms(shader, group.Material)
-
-				// Handle transparency: disable depth writes and face culling
-				isTransparent := group.Material != nil && group.Material.Alpha < 0.99
-				if isTransparent {
-					gl.DepthMask(false) // Disable depth writing for transparent objects
-					gl.Enable(gl.BLEND)
-					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-					gl.Disable(gl.CULL_FACE) // Disable face culling to show both front/back faces
-				} else {
-					gl.DepthMask(true) // Enable depth writing for opaque objects
-					gl.Enable(gl.BLEND)
-					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-					// Restore face culling for opaque objects
-					rend.setFaceCulling(FaceCullingEnabled)
+			// Bind texture
+			if group.Material != nil && group.Material.TextureID != 0 {
+				if group.Material.TextureID != currentTextureID {
+					gl.BindTexture(gl.TEXTURE_2D, group.Material.TextureID)
+					gl.Uniform1i(textureSamplerLoc, 0)
+					currentTextureID = group.Material.TextureID
 				}
-
-				// Bind texture only when it changes (optimized for sorted material groups)
-				if group.Material != nil && group.Material.TextureID != 0 {
-					if group.Material.TextureID != currentTextureID {
-						gl.BindTexture(gl.TEXTURE_2D, group.Material.TextureID)
-						gl.Uniform1i(textureSamplerLoc, 0)
-						currentTextureID = group.Material.TextureID
-					}
-				} else if group.Material != nil && group.Material.TextureID == 0 {
-					// Material without texture - bind default white texture
-					if DefaultMaterial.TextureID != 0 && DefaultMaterial.TextureID != currentTextureID {
-						gl.BindTexture(gl.TEXTURE_2D, DefaultMaterial.TextureID)
-						gl.Uniform1i(textureSamplerLoc, 0)
-						currentTextureID = DefaultMaterial.TextureID
-					}
-				}
-
-				// Draw this material group
-				if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
-					if model.InstanceMatricesUpdated {
-						rend.UpdateInstanceMatrices(model)
-						model.InstanceMatricesUpdated = false
-					}
-					shader.SetInt("isInstanced", 1)
-					gl.DrawElementsInstanced(gl.TRIANGLES, group.IndexCount, gl.UNSIGNED_INT, 
-						gl.PtrOffset(int(group.IndexStart)*4), int32(model.InstanceCount))
-					rend.lastDrawCalls++
-				} else {
-					shader.SetInt("isInstanced", 0)
-					gl.DrawElements(gl.TRIANGLES, group.IndexCount, gl.UNSIGNED_INT, 
-						gl.PtrOffset(int(group.IndexStart)*4))
-					rend.lastDrawCalls++
+			} else if group.Material != nil && group.Material.TextureID == 0 {
+				if DefaultMaterial.TextureID != 0 && DefaultMaterial.TextureID != currentTextureID {
+					gl.BindTexture(gl.TEXTURE_2D, DefaultMaterial.TextureID)
+					gl.Uniform1i(textureSamplerLoc, 0)
+					currentTextureID = DefaultMaterial.TextureID
 				}
 			}
-		} else {
-			// Single material rendering (backward compatible)
+
+			// Draw
+			rend.drawElements(model, shader, group.IndexCount, int(group.IndexStart)*4)
+		}
+	} else {
+		// Single material rendering
+		alpha := float32(1.0)
+		if model.Material != nil {
+			alpha = model.Material.Alpha
+		}
+		isTransparent := alpha < 0.99
+
+		// Only render if it matches the current pass
+		if renderTransparent == isTransparent {
 			if model.Material != nil {
 				rend.setMaterialUniforms(shader, model.Material)
-
-				// Handle transparency: disable depth writes and face culling
-				isTransparent := model.Material.Alpha < 0.99
-				if isTransparent {
-					gl.DepthMask(false) // Disable depth writing for transparent objects
-					gl.Enable(gl.BLEND)
-					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-					gl.Disable(gl.CULL_FACE) // Disable face culling to show both front/back faces
-				} else {
-					gl.DepthMask(true) // Enable depth writing for opaque objects
-					gl.Enable(gl.BLEND)
-					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-					// Restore face culling for opaque objects
-					rend.setFaceCulling(FaceCullingEnabled)
-				}
 			}
 
-			// Bind texture (only if it has a valid texture) - optimized
+			if isTransparent {
+				gl.DepthMask(false)
+				gl.Enable(gl.BLEND)
+				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				gl.Disable(gl.CULL_FACE)
+			} else {
+				gl.DepthMask(true)
+				gl.Enable(gl.BLEND)
+				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				rend.setFaceCulling(FaceCullingEnabled)
+			}
+
+			// Bind texture
 			textureSamplerLoc := uniformCache.GetLocation("textureSampler")
-			
 			if model.Material != nil && model.Material.TextureID != 0 {
 				gl.BindTexture(gl.TEXTURE_2D, model.Material.TextureID)
 				gl.Uniform1i(textureSamplerLoc, 0)
-			} else if model.Material != nil && model.Material.TextureID == 0 {
-				// Material without texture - bind default white texture
+			} else {
 				if DefaultMaterial.TextureID != 0 {
 					gl.BindTexture(gl.TEXTURE_2D, DefaultMaterial.TextureID)
 					gl.Uniform1i(textureSamplerLoc, 0)
 				}
 			}
 
-			// Render the model
-			if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
-				if model.InstanceMatricesUpdated {
-					rend.UpdateInstanceMatrices(model)
-					model.InstanceMatricesUpdated = false
-				}
-				shader.SetInt("isInstanced", 1)
-				gl.DrawElementsInstanced(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil, int32(model.InstanceCount))
-				rend.lastDrawCalls++
-			} else {
-				shader.SetInt("isInstanced", 0)
-				gl.DrawElements(gl.TRIANGLES, int32(len(model.Faces)), gl.UNSIGNED_INT, nil)
-				rend.lastDrawCalls++
-			}
+			// Draw
+			rend.drawElements(model, shader, int32(len(model.Faces)), 0)
 		}
-		gl.BindVertexArray(0)
 	}
-	// GL state is now managed through setFaceCulling() and setDepthTest()
-	// No need to disable at end of frame
+	gl.BindVertexArray(0)
+}
+
+// drawElements handles the actual draw call (instanced or regular)
+func (rend *OpenGLRenderer) drawElements(model *Model, shader *Shader, count int32, offset int) {
+	if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
+		if model.InstanceMatricesUpdated {
+			rend.UpdateInstanceMatrices(model)
+			model.InstanceMatricesUpdated = false
+		}
+		shader.SetInt("isInstanced", 1)
+		gl.DrawElementsInstanced(gl.TRIANGLES, count, gl.UNSIGNED_INT, gl.PtrOffset(offset), int32(model.InstanceCount))
+		rend.lastDrawCalls++
+	} else {
+		shader.SetInt("isInstanced", 0)
+		gl.DrawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, gl.PtrOffset(offset))
+		rend.lastDrawCalls++
+	}
 }
 
 // setCommonUniformsCached sets uniforms using cached locations for better performance

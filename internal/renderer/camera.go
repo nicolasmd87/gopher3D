@@ -97,6 +97,14 @@ func (c *Camera) GetViewProjection() mgl32.Mat4 {
 	return c.Projection.Mul4(view)
 }
 
+func (c *Camera) GetViewMatrix() mgl32.Mat4 {
+	return mgl32.LookAtV(c.Position, c.Position.Add(c.Front), c.Up)
+}
+
+func (c *Camera) GetProjectionMatrix() mgl32.Mat4 {
+	return c.Projection
+}
+
 // TODO: THIS IS JUST WHILE I TEST VULKAN INTEGRATION, WE SHOULD NOT BE CONVERTING ANYTHING
 //
 //	WE NEED TO WORK ON A LINMATH CAMERA IMPLEMENTATION FOR VULKAN
