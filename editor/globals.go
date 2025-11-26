@@ -89,6 +89,9 @@ var (
 	
 	// Feature Instances
 	activeWaterSim *WaterSimulation
+	
+	// Advanced Rendering Config (global for all models)
+	globalAdvancedRenderingEnabled = false
 )
 
 type ConsoleEntry struct {

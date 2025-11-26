@@ -386,28 +386,77 @@ func renderEditorUI() {
 				saveConfig()
 			}
 			
-			imgui.Text("Rendering Options & Techniques")
+			imgui.Text("Advanced Rendering Configuration")
 			imgui.Separator()
-
-			// Wireframe Mode
-			if imgui.Checkbox("Wireframe Mode", &renderer.Debug) {
-				logToConsole(fmt.Sprintf("Wireframe: %v", renderer.Debug), "info")
+			
+			// Quality Presets
+			imgui.Text("Quality Presets:")
+			if imgui.Button("Performance") {
+				applyRenderingPreset("performance")
 			}
-
-			// Culling Options
+			imgui.SameLine()
+			if imgui.Button("Balanced") {
+				applyRenderingPreset("balanced")
+			}
+			imgui.SameLine()
+			if imgui.Button("High Quality") {
+				applyRenderingPreset("quality")
+			}
+			imgui.SameLine()
+			if imgui.Button("Voxel") {
+				applyRenderingPreset("voxel")
+			}
+			
 			imgui.Separator()
-			imgui.Text("Culling:")
-			if imgui.Checkbox("Frustum Culling", &renderer.FrustumCullingEnabled) {
-				logToConsole(fmt.Sprintf("Frustum Culling: %v", renderer.FrustumCullingEnabled), "info")
-			}
-			if imgui.Checkbox("Face Culling", &renderer.FaceCullingEnabled) {
-				logToConsole(fmt.Sprintf("Face Culling: %v", renderer.FaceCullingEnabled), "info")
-			}
-
-			// Depth Test
 			imgui.Separator()
-			if imgui.Checkbox("Depth Testing", &renderer.DepthTestEnabled) {
-				logToConsole(fmt.Sprintf("Depth Test: %v", renderer.DepthTestEnabled), "info")
+			
+			// Basic Rendering Options
+			if imgui.CollapsingHeaderV("Basic Rendering", imgui.TreeNodeFlagsDefaultOpen) {
+				if imgui.Checkbox("Wireframe Mode", &renderer.Debug) {
+					logToConsole(fmt.Sprintf("Wireframe: %v", renderer.Debug), "info")
+				}
+				if imgui.Checkbox("Frustum Culling", &renderer.FrustumCullingEnabled) {
+					logToConsole(fmt.Sprintf("Frustum Culling: %v", renderer.FrustumCullingEnabled), "info")
+				}
+				if imgui.Checkbox("Face Culling", &renderer.FaceCullingEnabled) {
+					logToConsole(fmt.Sprintf("Face Culling: %v", renderer.FaceCullingEnabled), "info")
+				}
+				if imgui.Checkbox("Depth Testing", &renderer.DepthTestEnabled) {
+					logToConsole(fmt.Sprintf("Depth Test: %v", renderer.DepthTestEnabled), "info")
+				}
+			}
+			
+			imgui.Separator()
+			
+			// Global Advanced Rendering Toggle
+			if imgui.Checkbox("Enable Advanced Rendering Features", &globalAdvancedRenderingEnabled) {
+				logToConsole(fmt.Sprintf("Advanced Rendering: %v", globalAdvancedRenderingEnabled), "info")
+			}
+			imgui.Text("Enable advanced PBR materials, lighting effects,")
+			imgui.Text("and post-processing for all models.")
+			
+			if globalAdvancedRenderingEnabled {
+				imgui.Separator()
+				
+				// PBR Materials
+				if imgui.CollapsingHeaderV("PBR Materials", 0) {
+					renderAdvancedRenderingPBR()
+				}
+				
+				// Lighting Effects
+				if imgui.CollapsingHeaderV("Lighting Effects", 0) {
+					renderAdvancedRenderingLighting()
+				}
+				
+				// Post Processing
+				if imgui.CollapsingHeaderV("Post Processing", 0) {
+					renderAdvancedRenderingPostProcess()
+				}
+				
+				// Performance
+				if imgui.CollapsingHeaderV("Performance", 0) {
+					renderAdvancedRenderingPerformance()
+				}
 			}
 		}
 		imgui.End()
@@ -629,6 +678,47 @@ func renderEditorUI() {
 						if imgui.ColorEdit3V("Diffuse Color", &diffuse, 0) {
 							model.SetDiffuseColor(diffuse[0], diffuse[1], diffuse[2])
 							model.IsDirty = true
+						}
+						
+						// Texture loading
+						imgui.Separator()
+						if model.Material.TexturePath != "" {
+							imgui.Text(fmt.Sprintf("Texture: %s", filepath.Base(model.Material.TexturePath)))
+						} else {
+							imgui.Text("Texture: None")
+						}
+						
+						if imgui.Button("Load Texture...") {
+							startDir := "../examples/resources/textures"
+							if currentProject != nil {
+								startDir = filepath.Join(currentProject.Path, "resources/textures")
+							}
+							
+							filename, err := dialog.File().
+								SetStartDir(startDir).
+								Filter("Images", "png", "jpg", "jpeg").
+								Title("Load Texture for Model").
+								Load()
+							if err == nil && filename != "" {
+								loadTextureToSelected(filename)
+							}
+						}
+						
+						if model.Material.TexturePath != "" {
+							imgui.SameLine()
+							if imgui.Button("Remove Texture") {
+								model.Material.TextureID = 0
+								model.Material.TexturePath = ""
+								// Remove from material groups too
+								for i := range model.MaterialGroups {
+									if model.MaterialGroups[i].Material != nil {
+										model.MaterialGroups[i].Material.TextureID = 0
+										model.MaterialGroups[i].Material.TexturePath = ""
+									}
+								}
+								model.IsDirty = true
+								logToConsole(fmt.Sprintf("Removed texture from %s", model.Name), "info")
+							}
 						}
 					}
 				}
@@ -932,5 +1022,591 @@ func renderConsoleContent() {
 		}
 	}
 	imgui.PopItemWidth()
+}
+
+// Advanced Rendering UI Helper Functions
+
+func renderAdvancedRenderingPBR() {
+	if eng == nil || eng.GetRenderer() == nil {
+		imgui.Text("No renderer available")
+		return
+	}
+	
+	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+	if !ok {
+		imgui.Text("OpenGL renderer required")
+		return
+	}
+	
+	models := openglRenderer.GetModels()
+	if len(models) == 0 {
+		imgui.Text("No models to configure")
+		return
+	}
+	
+	// Get current config from first model or use defaults
+	config := getAdvancedConfigFromModel(models[0])
+	changed := false
+	
+	// Clearcoat
+	if imgui.Checkbox("Enable Clearcoat", &config.EnableClearcoat) {
+		changed = true
+	}
+	if config.EnableClearcoat {
+		imgui.Indent()
+		if imgui.SliderFloatV("Roughness##clearcoat", &config.ClearcoatRoughness, 0.0, 1.0, "%.2f", 1.0) {
+			changed = true
+		}
+		if imgui.SliderFloatV("Intensity##clearcoat", &config.ClearcoatIntensity, 0.0, 1.0, "%.2f", 1.0) {
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	// Sheen
+	if imgui.Checkbox("Enable Sheen", &config.EnableSheen) {
+		changed = true
+	}
+	if config.EnableSheen {
+		imgui.Indent()
+		sheenColor := [3]float32{config.SheenColor.X(), config.SheenColor.Y(), config.SheenColor.Z()}
+		if imgui.ColorEdit3V("Color##sheen", &sheenColor, 0) {
+			config.SheenColor = mgl.Vec3{sheenColor[0], sheenColor[1], sheenColor[2]}
+			changed = true
+		}
+		if imgui.SliderFloatV("Roughness##sheen", &config.SheenRoughness, 0.0, 1.0, "%.2f", 1.0) {
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	// Transmission
+	if imgui.Checkbox("Enable Transmission", &config.EnableTransmission) {
+		changed = true
+	}
+	if config.EnableTransmission {
+		imgui.Indent()
+		if imgui.SliderFloatV("Factor##transmission", &config.TransmissionFactor, 0.0, 1.0, "%.2f", 1.0) {
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	imgui.Separator()
+	
+	// Advanced Lighting Models
+	if imgui.Checkbox("Multiple Scattering", &config.EnableMultipleScattering) {
+		changed = true
+	}
+	if imgui.Checkbox("Energy Conservation", &config.EnableEnergyConservation) {
+		changed = true
+	}
+	if imgui.Checkbox("Image-Based Lighting", &config.EnableImageBasedLighting) {
+		changed = true
+	}
+	if config.EnableImageBasedLighting {
+		imgui.Indent()
+		if imgui.SliderFloatV("IBL Intensity", &config.IBLIntensity, 0.0, 2.0, "%.2f", 1.0) {
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	if changed {
+		applyAdvancedConfigToAllModels(config)
+	}
+}
+
+func renderAdvancedRenderingLighting() {
+	if eng == nil || eng.GetRenderer() == nil {
+		imgui.Text("No renderer available")
+		return
+	}
+	
+	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+	if !ok {
+		return
+	}
+	
+	models := openglRenderer.GetModels()
+	if len(models) == 0 {
+		imgui.Text("No models to configure")
+		return
+	}
+	
+	config := getAdvancedConfigFromModel(models[0])
+	changed := false
+	
+	// SSAO
+	if imgui.Checkbox("Enable SSAO", &config.EnableSSAO) {
+		changed = true
+	}
+	if config.EnableSSAO {
+		imgui.Indent()
+		if imgui.SliderFloatV("Intensity##ssao", &config.SSAOIntensity, 0.0, 1.0, "%.2f", 1.0) {
+			changed = true
+		}
+		if imgui.SliderFloatV("Radius##ssao", &config.SSAORadius, 10.0, 500.0, "%.0f", 1.0) {
+			changed = true
+		}
+		if imgui.SliderFloatV("Bias##ssao", &config.SSAOBias, 0.0, 0.1, "%.3f", 1.0) {
+			changed = true
+		}
+		samples := int32(config.SSAOSampleCount)
+		if imgui.SliderIntV("Samples##ssao", &samples, 4, 16, "%d", 1.0) {
+			config.SSAOSampleCount = int(samples)
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	// Volumetric Lighting
+	if imgui.Checkbox("Enable Volumetric Lighting", &config.EnableVolumetricLighting) {
+		changed = true
+	}
+	if config.EnableVolumetricLighting {
+		imgui.Indent()
+		if imgui.SliderFloatV("Intensity##volumetric", &config.VolumetricIntensity, 0.0, 2.0, "%.2f", 1.0) {
+			changed = true
+		}
+		steps := int32(config.VolumetricSteps)
+		if imgui.SliderIntV("Steps##volumetric", &steps, 4, 32, "%d", 1.0) {
+			config.VolumetricSteps = int(steps)
+			changed = true
+		}
+		if imgui.SliderFloatV("Scattering##volumetric", &config.VolumetricScattering, 0.0, 1.0, "%.2f", 1.0) {
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	// Global Illumination
+	if imgui.Checkbox("Enable Global Illumination", &config.EnableGlobalIllumination) {
+		changed = true
+	}
+	if config.EnableGlobalIllumination {
+		imgui.Indent()
+		if imgui.SliderFloatV("Intensity##gi", &config.GIIntensity, 0.0, 2.0, "%.2f", 1.0) {
+			changed = true
+		}
+		bounces := int32(config.GIBounces)
+		if imgui.SliderIntV("Bounces##gi", &bounces, 1, 5, "%d", 1.0) {
+			config.GIBounces = int(bounces)
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	// Shadows
+	imgui.Separator()
+	if imgui.Checkbox("Enable Advanced Shadows", &config.EnableAdvancedShadows) {
+		changed = true
+	}
+	if config.EnableAdvancedShadows {
+		imgui.Indent()
+		if imgui.SliderFloatV("Intensity##shadow", &config.ShadowIntensity, 0.0, 1.0, "%.2f", 1.0) {
+			changed = true
+		}
+		if imgui.SliderFloatV("Softness##shadow", &config.ShadowSoftness, 0.0, 1.0, "%.2f", 1.0) {
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	// Subsurface Scattering
+	imgui.Separator()
+	if imgui.Checkbox("Enable Subsurface Scattering", &config.EnableSubsurfaceScattering) {
+		changed = true
+	}
+	if config.EnableSubsurfaceScattering {
+		imgui.Indent()
+		if imgui.SliderFloatV("Intensity##sss", &config.ScatteringIntensity, 0.0, 1.0, "%.2f", 1.0) {
+			changed = true
+		}
+		if imgui.SliderFloatV("Depth##sss", &config.ScatteringDepth, 0.0, 0.1, "%.4f", 1.0) {
+			changed = true
+		}
+		scatterColor := [3]float32{config.ScatteringColor.X(), config.ScatteringColor.Y(), config.ScatteringColor.Z()}
+		if imgui.ColorEdit3V("Color##sss", &scatterColor, 0) {
+			config.ScatteringColor = mgl.Vec3{scatterColor[0], scatterColor[1], scatterColor[2]}
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	if changed {
+		applyAdvancedConfigToAllModels(config)
+	}
+}
+
+func renderAdvancedRenderingPostProcess() {
+	if eng == nil || eng.GetRenderer() == nil {
+		imgui.Text("No renderer available")
+		return
+	}
+	
+	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+	if !ok {
+		return
+	}
+	
+	models := openglRenderer.GetModels()
+	if len(models) == 0 {
+		imgui.Text("No models to configure")
+		return
+	}
+	
+	config := getAdvancedConfigFromModel(models[0])
+	changed := false
+	
+	// Bloom - Read from renderer directly
+	bloomEnabled := openglRenderer.EnableBloom
+	if imgui.Checkbox("Enable Bloom", &bloomEnabled) {
+		openglRenderer.EnableBloom = bloomEnabled
+		config.EnableBloom = bloomEnabled
+		changed = true
+		if bloomEnabled {
+			logToConsole("Bloom enabled", "info")
+		} else {
+			logToConsole("Bloom disabled", "info")
+		}
+	}
+	if bloomEnabled {
+		imgui.Indent()
+		bloomThreshold := openglRenderer.BloomThreshold
+		if imgui.SliderFloatV("Threshold##bloom", &bloomThreshold, 0.5, 2.0, "%.2f", 1.0) {
+			openglRenderer.BloomThreshold = bloomThreshold
+			config.BloomThreshold = bloomThreshold
+			changed = true
+		}
+		imgui.SameLine()
+		imgui.Text("Brightness threshold")
+		
+		bloomIntensity := openglRenderer.BloomIntensity
+		if imgui.SliderFloatV("Intensity##bloom", &bloomIntensity, 0.0, 1.0, "%.2f", 1.0) {
+			openglRenderer.BloomIntensity = bloomIntensity
+			config.BloomIntensity = bloomIntensity
+			changed = true
+		}
+		imgui.SameLine()
+		imgui.Text("Bloom strength")
+		
+		imgui.Unindent()
+	}
+	
+	// Perlin Noise
+	imgui.Separator()
+	if imgui.Checkbox("Enable Perlin Noise", &config.EnablePerlinNoise) {
+		changed = true
+	}
+	if config.EnablePerlinNoise {
+		imgui.Indent()
+		if imgui.SliderFloatV("Scale##noise", &config.NoiseScale, 0.0001, 0.01, "%.4f", 1.0) {
+			changed = true
+		}
+		octaves := int32(config.NoiseOctaves)
+		if imgui.SliderIntV("Octaves##noise", &octaves, 1, 8, "%d", 1.0) {
+			config.NoiseOctaves = int(octaves)
+			changed = true
+		}
+		if imgui.SliderFloatV("Intensity##noise", &config.NoiseIntensity, 0.0, 0.5, "%.3f", 1.0) {
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	// High Quality Filtering
+	imgui.Separator()
+	if imgui.Checkbox("High Quality Filtering", &config.EnableHighQualityFiltering) {
+		changed = true
+	}
+	if config.EnableHighQualityFiltering {
+		imgui.Indent()
+		quality := int32(config.FilteringQuality)
+		if imgui.SliderIntV("Quality Level", &quality, 1, 3, "%d", 1.0) {
+			config.FilteringQuality = int(quality)
+			changed = true
+		}
+		imgui.Unindent()
+	}
+	
+	if changed {
+		applyAdvancedConfigToAllModels(config)
+	}
+}
+
+func renderAdvancedRenderingPerformance() {
+	if eng == nil || eng.GetRenderer() == nil {
+		imgui.Text("No renderer available")
+		return
+	}
+	
+	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+	if !ok {
+		return
+	}
+	
+	models := openglRenderer.GetModels()
+	if len(models) == 0 {
+		imgui.Text("No models to configure")
+		return
+	}
+	
+	config := getAdvancedConfigFromModel(models[0])
+	changed := false
+	
+	// Anti-Aliasing Section
+	if imgui.CollapsingHeaderV("Anti-Aliasing", imgui.TreeNodeFlagsDefaultOpen) {
+		imgui.Text("Hardware MSAA (Multisample Anti-Aliasing):")
+		imgui.Indent()
+		
+		// Get current MSAA from engine (set at startup)
+		currentMSAA := int32(eng.MSAASamples)
+		msaaEnabled := currentMSAA > 0
+		
+		// Checkbox to enable/disable MSAA (doesn't change sample count)
+		if imgui.Checkbox("Enable MSAA", &msaaEnabled) {
+			if msaaEnabled {
+				openglRenderer.EnableMSAA(true)
+				logToConsole(fmt.Sprintf("MSAA enabled (%dx)", currentMSAA), "info")
+			} else {
+				openglRenderer.EnableMSAA(false)
+				logToConsole("MSAA disabled", "info")
+			}
+		}
+		
+		// Display current sample count (read-only, set at startup)
+		imgui.Text(fmt.Sprintf("Sample Count: %dx (set at startup)", currentMSAA))
+		imgui.Text("⚠ To change sample count, edit config")
+		imgui.Text("and restart the application")
+		imgui.Separator()
+		
+		imgui.Unindent()
+		
+		imgui.Text("Software FXAA (Fast Approximate AA):")
+		imgui.Indent()
+		
+		// Read FXAA state directly from renderer (not from model config)
+		fxaaEnabled := openglRenderer.EnableFXAA
+		if imgui.Checkbox("Enable FXAA", &fxaaEnabled) {
+			openglRenderer.EnableFXAA = fxaaEnabled
+			config.EnableFXAA = fxaaEnabled
+			changed = true
+			if fxaaEnabled {
+				logToConsole("FXAA enabled", "info")
+			} else {
+				logToConsole("FXAA disabled", "info")
+			}
+		}
+		imgui.Text("Post-processing edge smoothing")
+		imgui.Text("Good fallback if MSAA is disabled")
+		
+		imgui.Unindent()
+	}
+	
+	imgui.Separator()
+	
+	// Performance Info
+	if imgui.CollapsingHeaderV("Automatic LOD System", imgui.TreeNodeFlagsDefaultOpen) {
+		imgui.Text("Distance-based optimization enabled:")
+		imgui.Bullet()
+		imgui.SameLine()
+		imgui.Text("SSAO: 2-12 samples")
+		imgui.Bullet()
+		imgui.SameLine()
+		imgui.Text("Volumetric: 4-32 steps")
+		imgui.Bullet()
+		imgui.SameLine()
+		imgui.Text("GI: 2-16 samples")
+		imgui.Separator()
+		imgui.Text("Close voxels use minimal samples")
+		imgui.Text("for maximum performance.")
+	}
+	
+	if changed {
+		applyAdvancedConfigToAllModels(config)
+	}
+}
+
+func getAdvancedConfigFromModel(model *renderer.Model) renderer.AdvancedRenderingConfig {
+	// Try to extract config from model's custom uniforms
+	config := renderer.DefaultAdvancedRenderingConfig()
+	
+	if model.CustomUniforms == nil {
+		return config
+	}
+	
+	// Extract values from custom uniforms
+	if val, ok := model.CustomUniforms["enableClearcoat"].(bool); ok {
+		config.EnableClearcoat = val
+	}
+	if val, ok := model.CustomUniforms["clearcoatRoughness"].(float32); ok {
+		config.ClearcoatRoughness = val
+	}
+	if val, ok := model.CustomUniforms["clearcoatIntensity"].(float32); ok {
+		config.ClearcoatIntensity = val
+	}
+	if val, ok := model.CustomUniforms["enableSheen"].(bool); ok {
+		config.EnableSheen = val
+	}
+	if val, ok := model.CustomUniforms["sheenColor"].(mgl.Vec3); ok {
+		config.SheenColor = val
+	}
+	if val, ok := model.CustomUniforms["sheenRoughness"].(float32); ok {
+		config.SheenRoughness = val
+	}
+	if val, ok := model.CustomUniforms["enableTransmission"].(bool); ok {
+		config.EnableTransmission = val
+	}
+	if val, ok := model.CustomUniforms["transmissionFactor"].(float32); ok {
+		config.TransmissionFactor = val
+	}
+	if val, ok := model.CustomUniforms["enableMultipleScattering"].(bool); ok {
+		config.EnableMultipleScattering = val
+	}
+	if val, ok := model.CustomUniforms["enableEnergyConservation"].(bool); ok {
+		config.EnableEnergyConservation = val
+	}
+	if val, ok := model.CustomUniforms["enableImageBasedLighting"].(bool); ok {
+		config.EnableImageBasedLighting = val
+	}
+	if val, ok := model.CustomUniforms["iblIntensity"].(float32); ok {
+		config.IBLIntensity = val
+	}
+	if val, ok := model.CustomUniforms["enableSSAO"].(bool); ok {
+		config.EnableSSAO = val
+	}
+	if val, ok := model.CustomUniforms["ssaoIntensity"].(float32); ok {
+		config.SSAOIntensity = val
+	}
+	if val, ok := model.CustomUniforms["ssaoRadius"].(float32); ok {
+		config.SSAORadius = val
+	}
+	if val, ok := model.CustomUniforms["ssaoBias"].(float32); ok {
+		config.SSAOBias = val
+	}
+	if val, ok := model.CustomUniforms["ssaoSampleCount"].(int32); ok {
+		config.SSAOSampleCount = int(val)
+	}
+	if val, ok := model.CustomUniforms["enableVolumetricLighting"].(bool); ok {
+		config.EnableVolumetricLighting = val
+	}
+	if val, ok := model.CustomUniforms["volumetricIntensity"].(float32); ok {
+		config.VolumetricIntensity = val
+	}
+	if val, ok := model.CustomUniforms["volumetricSteps"].(int32); ok {
+		config.VolumetricSteps = int(val)
+	}
+	if val, ok := model.CustomUniforms["volumetricScattering"].(float32); ok {
+		config.VolumetricScattering = val
+	}
+	if val, ok := model.CustomUniforms["enableGlobalIllumination"].(bool); ok {
+		config.EnableGlobalIllumination = val
+	}
+	if val, ok := model.CustomUniforms["giIntensity"].(float32); ok {
+		config.GIIntensity = val
+	}
+	if val, ok := model.CustomUniforms["giBounces"].(int32); ok {
+		config.GIBounces = int(val)
+	}
+	if val, ok := model.CustomUniforms["enableBloom"].(bool); ok {
+		config.EnableBloom = val
+	}
+	if val, ok := model.CustomUniforms["bloomThreshold"].(float32); ok {
+		config.BloomThreshold = val
+	}
+	if val, ok := model.CustomUniforms["bloomIntensity"].(float32); ok {
+		config.BloomIntensity = val
+	}
+	if val, ok := model.CustomUniforms["bloomRadius"].(float32); ok {
+		config.BloomRadius = val
+	}
+	if val, ok := model.CustomUniforms["enablePerlinNoise"].(bool); ok {
+		config.EnablePerlinNoise = val
+	}
+	if val, ok := model.CustomUniforms["noiseScale"].(float32); ok {
+		config.NoiseScale = val
+	}
+	if val, ok := model.CustomUniforms["noiseOctaves"].(int32); ok {
+		config.NoiseOctaves = int(val)
+	}
+	if val, ok := model.CustomUniforms["noiseIntensity"].(float32); ok {
+		config.NoiseIntensity = val
+	}
+	if val, ok := model.CustomUniforms["enableShadows"].(bool); ok {
+		config.EnableAdvancedShadows = val
+	}
+	if val, ok := model.CustomUniforms["shadowIntensity"].(float32); ok {
+		config.ShadowIntensity = val
+	}
+	if val, ok := model.CustomUniforms["shadowSoftness"].(float32); ok {
+		config.ShadowSoftness = val
+	}
+	if val, ok := model.CustomUniforms["enableSubsurfaceScattering"].(bool); ok {
+		config.EnableSubsurfaceScattering = val
+	}
+	if val, ok := model.CustomUniforms["scatteringIntensity"].(float32); ok {
+		config.ScatteringIntensity = val
+	}
+	if val, ok := model.CustomUniforms["scatteringDepth"].(float32); ok {
+		config.ScatteringDepth = val
+	}
+	if val, ok := model.CustomUniforms["scatteringColor"].(mgl.Vec3); ok {
+		config.ScatteringColor = val
+	}
+	if val, ok := model.CustomUniforms["enableHighQualityFiltering"].(bool); ok {
+		config.EnableHighQualityFiltering = val
+	}
+	if val, ok := model.CustomUniforms["filteringQuality"].(int32); ok {
+		config.FilteringQuality = int(val)
+	}
+	
+	return config
+}
+
+func applyAdvancedConfigToAllModels(config renderer.AdvancedRenderingConfig) {
+	if eng == nil || eng.GetRenderer() == nil {
+		return
+	}
+	
+	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+	if !ok {
+		return
+	}
+	
+	models := openglRenderer.GetModels()
+	for _, model := range models {
+		// Skip water models as they have their own shader
+		if model.Metadata != nil && model.Metadata["type"] == "water" {
+			continue
+		}
+		renderer.ApplyAdvancedRenderingConfig(model, config)
+	}
+	
+	logToConsole("Applied advanced rendering configuration to all models", "info")
+}
+
+func applyRenderingPreset(presetName string) {
+	var config renderer.AdvancedRenderingConfig
+	
+	switch presetName {
+	case "performance":
+		config = renderer.PerformanceRenderingConfig()
+		logToConsole("Applied Performance preset", "info")
+	case "balanced":
+		config = renderer.DefaultAdvancedRenderingConfig()
+		logToConsole("Applied Balanced preset", "info")
+	case "quality":
+		config = renderer.HighQualityRenderingConfig()
+		logToConsole("Applied High Quality preset", "info")
+	case "voxel":
+		config = renderer.VoxelAdvancedRenderingConfig()
+		logToConsole("Applied Voxel preset", "info")
+	default:
+		config = renderer.DefaultAdvancedRenderingConfig()
+	}
+	
+	applyAdvancedConfigToAllModels(config)
+	globalAdvancedRenderingEnabled = true
 }
 

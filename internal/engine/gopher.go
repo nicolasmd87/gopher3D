@@ -45,6 +45,8 @@ type Gopher struct {
 	frameTrackId     int
 	onRenderCallback func(deltaTime float64) // Optional callback for custom rendering (e.g., editor UI)
 	EnableCameraInput bool // Control whether camera processes keyboard/mouse input (for editor)
+	MSAASamples      int  // MSAA samples (0=off, 2, 4, 8, 16)
+	WindowDecorated  bool // Window decoration (border/title bar)
 }
 
 func NewGopher(rendererAPI rendAPI) *Gopher {
@@ -66,6 +68,8 @@ func NewGopher(rendererAPI rendAPI) *Gopher {
 		ModelBatchChan:    make(chan []*renderer.Model, 1000000),
 		frameTrackId:      0,
 		EnableCameraInput: true, // Enabled by default
+		MSAASamples:       4,    // 4x MSAA by default
+		WindowDecorated:   true, // Decorated by default
 	}
 }
 
@@ -80,9 +84,18 @@ func (gopher *Gopher) Render(x, y int) {
 	defer glfw.Terminate()
 
 	// Set GLFW window hints here
-	glfw.WindowHint(glfw.Decorated, glfw.True)
+	if gopher.WindowDecorated {
+		glfw.WindowHint(glfw.Decorated, glfw.True)
+	} else {
+		glfw.WindowHint(glfw.Decorated, glfw.False)
+	}
 	glfw.WindowHint(glfw.Resizable, glfw.True)
 	glfw.WindowHint(glfw.DepthBits, 32) // Request 32-bit depth buffer for better precision
+	
+	// MSAA (Multisample Anti-Aliasing) - Hardware-based, high quality
+	if gopher.MSAASamples > 0 {
+		glfw.WindowHint(glfw.Samples, gopher.MSAASamples)
+	}
 
 	var err error
 

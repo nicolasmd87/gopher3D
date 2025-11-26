@@ -567,6 +567,13 @@ func addModelToScene(path string, name string) *renderer.Model {
 			model.Material.Alpha = 1.0
 		}
 	}
+	
+	// Apply default advanced rendering configuration to new models
+	if globalAdvancedRenderingEnabled {
+		defaultConfig := renderer.DefaultAdvancedRenderingConfig()
+		renderer.ApplyAdvancedRenderingConfig(model, defaultConfig)
+		logToConsole("Applied advanced rendering config to new model", "info")
+	}
 
 	// Apply instancing if enabled
 	if instanceModelOnAdd && instanceCount > 1 {

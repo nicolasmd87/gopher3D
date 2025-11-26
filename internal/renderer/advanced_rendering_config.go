@@ -31,23 +31,15 @@ type AdvancedRenderingConfig struct {
 	NoiseIntensity    float32 `json:"noiseIntensity"`
 
 	// Advanced Shadows with Modern Techniques
-	EnableAdvancedShadows    bool    `json:"enableAdvancedShadows"`
-	ShadowIntensity          float32 `json:"shadowIntensity"`
-	ShadowSoftness           float32 `json:"shadowSoftness"`
-	EnableCascadedShadowMaps bool    `json:"enableCascadedShadowMaps"`
-	EnablePCFShadows         bool    `json:"enablePCFShadows"`
-	PCFKernelSize            int     `json:"pcfKernelSize"`
+	EnableAdvancedShadows bool    `json:"enableAdvancedShadows"`
+	ShadowIntensity       float32 `json:"shadowIntensity"`
+	ShadowSoftness        float32 `json:"shadowSoftness"`
 
 	// Volumetric Lighting
 	EnableVolumetricLighting bool    `json:"enableVolumetricLighting"`
 	VolumetricIntensity      float32 `json:"volumetricIntensity"`
 	VolumetricSteps          int     `json:"volumetricSteps"`
 	VolumetricScattering     float32 `json:"volumetricScattering"`
-
-	// Level of Detail and Performance
-	EnableLOD             bool    `json:"enableLOD"`
-	LODTransitionDistance float32 `json:"lodTransitionDistance"`
-	PerformanceScaling    float32 `json:"performanceScaling"`
 
 	// Subsurface Scattering (Enhanced)
 	EnableSubsurfaceScattering bool       `json:"enableSubsurfaceScattering"`
@@ -73,20 +65,14 @@ type AdvancedRenderingConfig struct {
 	BloomIntensity float32 `json:"bloomIntensity"`
 	BloomRadius    float32 `json:"bloomRadius"`
 
-	// Temporal Anti-Aliasing
-	EnableTAA      bool    `json:"enableTAA"`
-	TAABlendFactor float32 `json:"taaBlendFactor"`
-
 	// High-Quality Filtering
 	EnableHighQualityFiltering bool `json:"enableHighQualityFiltering"`
 	FilteringQuality           int  `json:"filteringQuality"`
-	AntiAliasing               bool `json:"antiAliasing"`
-
-	// Mesh Quality and Tessellation Controls
-	EnableMeshSmoothing    bool    `json:"enableMeshSmoothing"`
-	MeshSmoothingIntensity float32 `json:"meshSmoothingIntensity"`
-	TessellationQuality    int     `json:"tessellationQuality"`
-	NormalSmoothingRadius  float32 `json:"normalSmoothingRadius"`
+	
+	// Anti-Aliasing (AA) - Not part of custom uniforms, controlled at renderer level
+	// These are stored here for persistence but applied via engine/renderer, not shader uniforms
+	MSAASamples int  `json:"msaaSamples"` // 0, 2, 4, 8, 16 (hardware MSAA, requires restart)
+	EnableFXAA  bool `json:"enableFXAA"`  // Software FXAA post-processing
 }
 
 // DefaultAdvancedRenderingConfig returns sensible defaults for all advanced rendering features
@@ -118,12 +104,9 @@ func DefaultAdvancedRenderingConfig() AdvancedRenderingConfig {
 		NoiseIntensity:    0.05,
 
 		// Advanced Shadows - enabled for realism
-		EnableAdvancedShadows:    true,
-		ShadowIntensity:          0.3,
-		ShadowSoftness:           0.2,
-		EnableCascadedShadowMaps: false, // Requires shadow map setup
-		EnablePCFShadows:         true,
-		PCFKernelSize:            3,
+		EnableAdvancedShadows: true,
+		ShadowIntensity:       0.3,
+		ShadowSoftness:        0.2,
 
 		// Volumetric Lighting - disabled by default for performance
 		EnableVolumetricLighting: false,
@@ -131,23 +114,18 @@ func DefaultAdvancedRenderingConfig() AdvancedRenderingConfig {
 		VolumetricSteps:          16,
 		VolumetricScattering:     0.1,
 
-		// LOD/Visibility - enabled for performance
-		EnableLOD:             true,
-		LODTransitionDistance: 50000.0,
-		PerformanceScaling:    0.3,
-
 		// Enhanced Subsurface Scattering
 		EnableSubsurfaceScattering: true,
 		ScatteringIntensity:        0.15,
 		ScatteringDepth:            0.005,
 		ScatteringColor:            mgl32.Vec3{1.0, 0.2, 0.1}, // Warm subsurface color
 
-		// SSAO - enabled for depth perception
+		// SSAO - enabled with hemisphere sampling and distance-based LOD for performance
 		EnableSSAO:      true,
-		SSAOIntensity:   0.25,
-		SSAORadius:      150.0,
-		SSAOBias:        0.025,
-		SSAOSampleCount: 16,
+		SSAOIntensity:   0.35, // Reduced from 0.5 - was too dark
+		SSAORadius:      200.0,
+		SSAOBias:        0.015,
+		SSAOSampleCount: 12,
 
 		// Global Illumination - disabled by default for performance
 		EnableGlobalIllumination: false,
@@ -160,20 +138,13 @@ func DefaultAdvancedRenderingConfig() AdvancedRenderingConfig {
 		BloomIntensity: 0.3,
 		BloomRadius:    0.4,
 
-		// TAA - disabled by default (requires temporal data)
-		EnableTAA:      false,
-		TAABlendFactor: 0.1,
-
 		// High-Quality Filtering - enabled for smooth results
 		EnableHighQualityFiltering: true,
-		FilteringQuality:           2, // Multi-pass smoothing
-		AntiAliasing:               true,
-
-		// Mesh Quality - enabled for smooth surfaces
-		EnableMeshSmoothing:    true,
-		MeshSmoothingIntensity: 0.7,
-		TessellationQuality:    2, // Medium quality
-		NormalSmoothingRadius:  1.0,
+		FilteringQuality:           2,
+		
+		// Anti-Aliasing - good defaults
+		MSAASamples: 4,    // 4x MSAA (hardware)
+		EnableFXAA:  false, // FXAA disabled (use MSAA instead)
 	}
 }
 
@@ -189,7 +160,6 @@ func HighQualityRenderingConfig() AdvancedRenderingConfig {
 	config.EnableVolumetricLighting = true
 	config.EnableGlobalIllumination = true
 	config.EnableBloom = true
-	config.EnableTAA = true
 
 	// Higher quality settings
 	config.ClearcoatIntensity = 0.8
@@ -200,10 +170,12 @@ func HighQualityRenderingConfig() AdvancedRenderingConfig {
 	config.GIIntensity = 0.7
 	config.GIBounces = 3
 	config.BloomIntensity = 0.5
-	config.FilteringQuality = 3         // Maximum quality
-	config.MeshSmoothingIntensity = 0.9 // Maximum smoothing
-	config.TessellationQuality = 4      // Maximum quality
-	config.SSAOSampleCount = 32         // Higher quality SSAO
+	config.FilteringQuality = 3
+	config.SSAOSampleCount = 32
+	
+	// High quality AA
+	config.MSAASamples = 8 // 8x MSAA for high quality
+	config.EnableFXAA = false
 
 	return config
 }
@@ -220,16 +192,15 @@ func PerformanceRenderingConfig() AdvancedRenderingConfig {
 	config.EnableVolumetricLighting = false
 	config.EnableGlobalIllumination = false
 	config.EnableBloom = false
-	config.EnableTAA = false
 	config.EnableSubsurfaceScattering = false
 	config.EnableSSAO = false
 
 	// Lower quality settings for performance
 	config.FilteringQuality = 1
-	config.MeshSmoothingIntensity = 0.3
-	config.TessellationQuality = 1
-	config.PerformanceScaling = 0.5
-	config.PCFKernelSize = 1
+	
+	// Performance AA
+	config.MSAASamples = 2 // 2x MSAA for performance
+	config.EnableFXAA = false
 
 	return config
 }
@@ -242,15 +213,15 @@ func VoxelAdvancedRenderingConfig() AdvancedRenderingConfig {
 	config.EnablePerlinNoise = true
 	config.EnableAdvancedShadows = true
 	config.EnableSSAO = true
-	config.EnableLOD = true
-	config.EnableMeshSmoothing = false // Voxels should stay crisp
 
 	// Optimize for voxel scenes
 	config.NoiseIntensity = 0.1
 	config.ShadowIntensity = 0.4
 	config.SSAOIntensity = 0.3
-	config.PerformanceScaling = 0.5
-	config.TessellationQuality = 1 // Low for voxels
+	
+	// Balanced AA for voxels
+	config.MSAASamples = 4
+	config.EnableFXAA = false
 
 	return config
 }
@@ -290,19 +261,12 @@ func ApplyAdvancedRenderingConfig(model *Model, config AdvancedRenderingConfig) 
 	model.CustomUniforms["enableShadows"] = config.EnableAdvancedShadows
 	model.CustomUniforms["shadowIntensity"] = config.ShadowIntensity
 	model.CustomUniforms["shadowSoftness"] = config.ShadowSoftness
-	model.CustomUniforms["enablePCFShadows"] = config.EnablePCFShadows
-	model.CustomUniforms["pcfKernelSize"] = int32(config.PCFKernelSize)
 
 	// Volumetric Lighting
 	model.CustomUniforms["enableVolumetricLighting"] = config.EnableVolumetricLighting
 	model.CustomUniforms["volumetricIntensity"] = config.VolumetricIntensity
 	model.CustomUniforms["volumetricSteps"] = int32(config.VolumetricSteps)
 	model.CustomUniforms["volumetricScattering"] = config.VolumetricScattering
-
-	// Apply LOD settings
-	model.CustomUniforms["enableLOD"] = config.EnableLOD
-	model.CustomUniforms["lodTransitionDistance"] = config.LODTransitionDistance
-	model.CustomUniforms["performanceScaling"] = config.PerformanceScaling
 
 	// Enhanced subsurface scattering
 	model.CustomUniforms["enableSubsurfaceScattering"] = config.EnableSubsurfaceScattering
@@ -328,18 +292,7 @@ func ApplyAdvancedRenderingConfig(model *Model, config AdvancedRenderingConfig) 
 	model.CustomUniforms["bloomIntensity"] = config.BloomIntensity
 	model.CustomUniforms["bloomRadius"] = config.BloomRadius
 
-	// TAA
-	model.CustomUniforms["enableTAA"] = config.EnableTAA
-	model.CustomUniforms["taaBlendFactor"] = config.TAABlendFactor
-
 	// Apply filtering settings
 	model.CustomUniforms["enableHighQualityFiltering"] = config.EnableHighQualityFiltering
 	model.CustomUniforms["filteringQuality"] = int32(config.FilteringQuality)
-	model.CustomUniforms["antiAliasing"] = config.AntiAliasing
-
-	// Apply mesh quality settings
-	model.CustomUniforms["enableMeshSmoothing"] = config.EnableMeshSmoothing
-	model.CustomUniforms["meshSmoothingIntensity"] = config.MeshSmoothingIntensity
-	model.CustomUniforms["tessellationQuality"] = int32(config.TessellationQuality)
-	model.CustomUniforms["normalSmoothingRadius"] = config.NormalSmoothingRadius
 }
