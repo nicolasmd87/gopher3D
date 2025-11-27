@@ -11,5 +11,5 @@ cd editor
 
 Or build from source:
 ```bash
-go build -o editor.exe main.go
+go build -o .
 ```

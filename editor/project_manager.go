@@ -43,34 +43,82 @@ func renderProjectManager() {
 				}
 				showProjectManager = false
 				currentDirectory = filepath.Join(directory, "resources")
+				// Add to recent projects
+				addRecentProject(*currentProject)
+				saveRecentProjects()
 			}
 		}
 		imgui.SameLine()
 		if imgui.Button("Open Project") {
 			directory, err := dialog.Directory().Title("Open Project Directory").Browse()
 			if err == nil && directory != "" {
-				currentProject = &Project{
-					Name: filepath.Base(directory),
-					Path: directory,
-				}
-				showProjectManager = false
-				// Set file explorer to project root or resources
-				resPath := filepath.Join(directory, "resources")
-				if _, err := os.Stat(resPath); !os.IsNotExist(err) {
-					currentDirectory = resPath
-				} else {
-					currentDirectory = directory
-				}
+				openProject(directory)
 			}
 		}
 
 		imgui.Separator()
 		imgui.Text("Recent Projects:")
-		// TODO: Implement persistent recent projects list
-		imgui.Text("(No recent projects)")
+		if len(recentProjects) == 0 {
+			imgui.Text("(No recent projects)")
+		} else {
+			for i, proj := range recentProjects {
+				if imgui.SelectableV(fmt.Sprintf("%s##recent%d", proj.Name, i), false, 0, imgui.Vec2{}) {
+					openProject(proj.Path)
+					showProjectManager = false
+				}
+				imgui.SameLine()
+				imgui.Text(fmt.Sprintf("- %s", proj.Path))
+			}
+		}
 
 		imgui.End()
 	}
+}
+
+func openProject(directory string) {
+	currentProject = &Project{
+		Name: filepath.Base(directory),
+		Path: directory,
+	}
+	showProjectManager = false
+	// Set file explorer to project root or resources
+	resPath := filepath.Join(directory, "resources")
+	if _, err := os.Stat(resPath); !os.IsNotExist(err) {
+		currentDirectory = resPath
+	} else {
+		currentDirectory = directory
+	}
+	// Add to recent projects
+	addRecentProject(*currentProject)
+	saveRecentProjects()
+}
+
+func addRecentProject(proj Project) {
+	// Remove duplicate if exists
+	for i, p := range recentProjects {
+		if p.Path == proj.Path {
+			recentProjects = append(recentProjects[:i], recentProjects[i+1:]...)
+			break
+		}
+	}
+	
+	// Add to front
+	recentProjects = append([]Project{proj}, recentProjects...)
+	
+	// Keep only 10 most recent
+	if len(recentProjects) > 10 {
+		recentProjects = recentProjects[:10]
+	}
+}
+
+func saveRecentProjects() {
+	// Projects are saved via config system
+	saveConfig()
+}
+
+func loadRecentProjects() {
+	// Projects are loaded via config system
+	loadConfig()
 }
 
 func createProjectStructure(path string) {

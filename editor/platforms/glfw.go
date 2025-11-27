@@ -78,7 +78,7 @@ func NewGLFWFromExistingWindow(window *glfw.Window, io imgui.IO) (*GLFW, error) 
 		window:  window,
 	}
 	platform.setKeyMapping()
-	// Don't install callbacks - let the engine handle input
+	platform.installCallbacks() // CRITICAL: Install callbacks for keyboard/mouse input
 
 	return platform, nil
 }

@@ -250,6 +250,26 @@ func (world *VoxelWorld) SetVoxelSDF(x, y, z int, sdf float32) {
 	world.SDFData[x][y][z] = sdf
 }
 
+// isVoxelSolid checks if a voxel at global coordinates is solid (for face culling)
+func (world *VoxelWorld) isVoxelSolid(x, y, z int) bool {
+	if x < 0 || x >= world.WorldSizeX*world.ChunkSize {
+		return false
+	}
+	if y < 0 || y >= world.MaxHeight {
+		return false
+	}
+	if z < 0 || z >= world.WorldSizeZ*world.ChunkSize {
+		return false
+	}
+	
+	chunkX := x / world.ChunkSize
+	chunkZ := z / world.ChunkSize
+	localX := x % world.ChunkSize
+	localZ := z % world.ChunkSize
+	
+	return world.Chunks[chunkX][chunkZ].Voxels[localX][y][localZ].Active
+}
+
 func (world *VoxelWorld) GetVoxelSDF(x, y, z int) float32 {
 	if world.RenderMode != SurfaceNetsMode {
 		return 1.0
@@ -340,12 +360,8 @@ func (world *VoxelWorld) GenerateSDFParallel(noiseFunc func(x, y, z int) float32
 
 func (world *VoxelWorld) CreateInstancedModel() (*renderer.Model, error) {
 	if world.RenderMode == InstancedMode {
-		model, err := CreateInstancedVoxelModel(world.Geometry, world.ActiveVoxels)
-		if err != nil {
-			return nil, err
-		}
-
-		instanceIndex := 0
+		// First pass: count visible voxels (those with at least one exposed face)
+		visibleCount := 0
 		for chunkX := 0; chunkX < world.WorldSizeX; chunkX++ {
 			for chunkZ := 0; chunkZ < world.WorldSizeZ; chunkZ++ {
 				chunk := world.Chunks[chunkX][chunkZ]
@@ -353,13 +369,76 @@ func (world *VoxelWorld) CreateInstancedModel() (*renderer.Model, error) {
 					for y := 0; y < world.MaxHeight; y++ {
 						for z := 0; z < world.ChunkSize; z++ {
 							voxel := &chunk.Voxels[x][y][z]
-							if voxel.Active && instanceIndex < len(model.InstanceModelMatrices) {
-								model.InstanceModelMatrices[instanceIndex] = mgl32.Translate3D(
-									voxel.Position.X(),
-									voxel.Position.Y(),
-									voxel.Position.Z(),
-								)
-								instanceIndex++
+							if voxel.Active {
+								// Check if voxel has at least one exposed face
+								globalX := chunkX*world.ChunkSize + x
+								globalY := y
+								globalZ := chunkZ*world.ChunkSize + z
+								
+								hasExposedFace := false
+								// Check 6 neighbors
+								if !world.isVoxelSolid(globalX-1, globalY, globalZ) ||
+								   !world.isVoxelSolid(globalX+1, globalY, globalZ) ||
+								   !world.isVoxelSolid(globalX, globalY-1, globalZ) ||
+								   !world.isVoxelSolid(globalX, globalY+1, globalZ) ||
+								   !world.isVoxelSolid(globalX, globalY, globalZ-1) ||
+								   !world.isVoxelSolid(globalX, globalY, globalZ+1) {
+									hasExposedFace = true
+								}
+								
+								if hasExposedFace {
+									visibleCount++
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		// Create model with only visible voxels
+		model, err := CreateInstancedVoxelModel(world.Geometry, visibleCount)
+		if err != nil {
+			return nil, err
+		}
+
+		// Second pass: populate instance matrices for visible voxels only
+		// Process in Y-layers for better cache coherence (Y-major order)
+		instanceIndex := 0
+		for y := 0; y < world.MaxHeight; y++ {
+			for chunkX := 0; chunkX < world.WorldSizeX; chunkX++ {
+				for chunkZ := 0; chunkZ < world.WorldSizeZ; chunkZ++ {
+					chunk := world.Chunks[chunkX][chunkZ]
+					for x := 0; x < world.ChunkSize; x++ {
+						for z := 0; z < world.ChunkSize; z++ {
+							voxel := &chunk.Voxels[x][y][z]
+							if voxel.Active {
+								globalX := chunkX*world.ChunkSize + x
+								globalY := y
+								globalZ := chunkZ*world.ChunkSize + z
+								
+								hasExposedFace := false
+								if !world.isVoxelSolid(globalX-1, globalY, globalZ) ||
+								   !world.isVoxelSolid(globalX+1, globalY, globalZ) ||
+								   !world.isVoxelSolid(globalX, globalY-1, globalZ) ||
+								   !world.isVoxelSolid(globalX, globalY+1, globalZ) ||
+								   !world.isVoxelSolid(globalX, globalY, globalZ-1) ||
+								   !world.isVoxelSolid(globalX, globalY, globalZ+1) {
+									hasExposedFace = true
+								}
+								
+								if hasExposedFace && instanceIndex < len(model.InstanceModelMatrices) {
+									model.InstanceModelMatrices[instanceIndex] = mgl32.Translate3D(
+										voxel.Position.X(),
+										voxel.Position.Y(),
+										voxel.Position.Z(),
+									)
+									
+									// Assign color based on VoxelID
+									model.InstanceColors[instanceIndex] = GetVoxelColor(voxel.ID)
+									
+									instanceIndex++
+								}
 							}
 						}
 					}
@@ -736,6 +815,28 @@ func CreateTetrahedronGeometry(size float32) *VoxelGeometry {
 	}
 }
 
+// GetVoxelColor returns the color for a given voxel type
+func GetVoxelColor(voxelID VoxelID) mgl32.Vec3 {
+	switch voxelID {
+	case 0: // Air
+		return mgl32.Vec3{0, 0, 0}
+	case 1: // Grass
+		return mgl32.Vec3{0.3, 0.7, 0.2}
+	case 2: // Dirt
+		return mgl32.Vec3{0.6, 0.4, 0.2}
+	case 3: // Stone
+		return mgl32.Vec3{0.5, 0.5, 0.5}
+	case 4: // Sand
+		return mgl32.Vec3{0.9, 0.8, 0.5}
+	case 5: // Wood (trunk)
+		return mgl32.Vec3{0.4, 0.25, 0.1} // Brown
+	case 6: // Leaves
+		return mgl32.Vec3{0.2, 0.6, 0.2} // Green
+	default:
+		return mgl32.Vec3{0.8, 0.8, 0.8}
+	}
+}
+
 func CreateInstancedVoxelModel(geometry *VoxelGeometry, instanceCount int) (*renderer.Model, error) {
 	vertexCount := len(geometry.InterleavedData) / 8
 	vertices := make([]float32, vertexCount*3)
@@ -762,6 +863,7 @@ func CreateInstancedVoxelModel(geometry *VoxelGeometry, instanceCount int) (*ren
 	model.Material = &uniqueMaterial
 
 	model.InstanceModelMatrices = make([]mgl32.Mat4, instanceCount)
+	model.InstanceColors = make([]mgl32.Vec3, instanceCount) // Per-instance colors
 
 	model.CalculateBoundingSphere()
 	return model, nil

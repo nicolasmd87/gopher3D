@@ -4,6 +4,7 @@ import (
 	"Gopher3D/internal/engine"
 	"Gopher3D/editor/platforms"
 	"Gopher3D/editor/renderers"
+	_ "Gopher3D/scripts"
 	"fmt"
 	"runtime"
 
@@ -50,7 +51,14 @@ func main() {
 		if imguiInitialized {
 			io := imgui.CurrentIO()
 			// Disable camera input when ImGui wants keyboard or mouse
-			eng.EnableCameraInput = !io.WantCaptureKeyboard() && !io.WantCaptureMouse()
+			wantsKeyboard := io.WantCaptureKeyboard()
+			wantsMouse := io.WantCaptureMouse()
+
+			// Additional check: disable camera if any text input is active
+			anyItemActive := imgui.IsAnyItemActive()
+			
+			// Disable camera if any input field is active or any UI element wants input
+			eng.EnableCameraInput = !wantsKeyboard && !wantsMouse && !anyItemActive
 
 			// Also disable camera if project manager is open
 			if showProjectManager {
@@ -92,6 +100,9 @@ func initializeImGui() {
 
 	// Apply dark theme (defined in helpers.go)
 	applyDarkTheme()
+	
+	// Load editor config (includes recent projects)
+	loadConfig()
 
 	imguiInitialized = true
 	fmt.Println("✓ ImGui initialized successfully!")

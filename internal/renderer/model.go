@@ -48,6 +48,7 @@ type Model struct {
 	EBO                     uint32         // Element Buffer Object
 	InstanceVBO             uint32         // Instance Vertex Buffer Object (for instanced rendering)
 	InstanceVBOCapacity     int            // GPU buffer capacity in bytes for buffer reuse optimization
+	InstanceColorVBO        uint32         // Instance Color VBO (for per-instance colors)
 	InstanceCount           int            // Number of instances
 	IsDirty                 bool           // Needs recalculation flag
 	IsInstanced             bool           // Instanced rendering flag
@@ -61,6 +62,7 @@ type Model struct {
 	CustomUniforms          map[string]interface{} // Custom uniforms for this model
 	Metadata                map[string]interface{} // General metadata for editor/game logic
 	InstanceModelMatrices   []mgl32.Mat4   // Instance model matrices (bulk data)
+	InstanceColors          []mgl32.Vec3   // Per-instance colors (optional, for voxels)
 	
 	// COLD DATA - Initialization only or rarely accessed
 	Id                      int            // Model identifier
@@ -416,6 +418,37 @@ func (m *Model) SetInstancePosition(index int, position mgl32.Vec3) {
 		// Mark instance matrices as needing GPU update
 		m.InstanceMatricesUpdated = true
 	}
+}
+
+func (m *Model) GetPosition() mgl32.Vec3 {
+	return m.Position
+}
+
+func (m *Model) GetRotation() mgl32.Quat {
+	return m.Rotation
+}
+
+func (m *Model) GetScale() mgl32.Vec3 {
+	return m.Scale
+}
+
+func (m *Model) SetPositionVec(pos mgl32.Vec3) {
+	m.Position = pos
+	m.IsDirty = true
+}
+
+func (m *Model) SetRotationQuat(rot mgl32.Quat) {
+	m.Rotation = rot
+	m.IsDirty = true
+}
+
+func (m *Model) SetScaleVec(scale mgl32.Vec3) {
+	m.Scale = scale
+	m.IsDirty = true
+}
+
+func (m *Model) MarkDirty() {
+	m.IsDirty = true
 }
 
 func CreateModel(vertices []mgl32.Vec3, indices []int32) *Model {

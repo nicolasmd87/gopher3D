@@ -44,6 +44,9 @@ type EditorConfig struct {
 	// Model loading
 	InstanceOnAdd        bool `json:"instance_on_add"`
 	DefaultInstanceCount int  `json:"default_instance_count"`
+	
+	// Recent projects
+	RecentProjects []Project `json:"recent_projects,omitempty"`
 }
 
 // Load editor configuration from file
@@ -92,6 +95,11 @@ func loadConfig() {
 	if config.DefaultInstanceCount > 0 {
 		instanceCount = config.DefaultInstanceCount
 	}
+	
+	// Load recent projects
+	if len(config.RecentProjects) > 0 {
+		recentProjects = config.RecentProjects
+	}
 
 	// Load panel layouts
 	hierarchyLayout = config.HierarchyLayout
@@ -134,6 +142,7 @@ func saveConfig() {
 
 		InstanceOnAdd:        instanceModelOnAdd,
 		DefaultInstanceCount: instanceCount,
+		RecentProjects:       recentProjects,
 	}
 
 	if eng != nil && eng.GetRenderer() != nil {

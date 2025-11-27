@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Gopher3D/internal/behaviour"
 	"Gopher3D/internal/renderer"
 	"fmt"
 	"os"
@@ -516,24 +517,6 @@ func renderEditorUI() {
 							Load()
 						if err == nil && filename != "" {
 							eng.SetSkybox(filename)
-							// Clear background color to allow skybox to show (if transparent, though skybox usually draws over)
-							// Actually skybox renders last or uses depth buffer. 
-							// Renderer implementation: checks skybox presence. 
-							// But we need to reset ClearColor to 0 to avoid clearing over it if that logic exists, 
-							// or just trust renderer priority.
-							// In OpenGLRenderer.Render:
-							// if rend.ClearColorR != 0 ... -> Use ClearColor
-							// else if rend.skybox != nil -> Use Skybox Color (solid)
-							// Wait, texture skybox?
-							// The current renderer logic for Skybox with Texture (CreateSkybox) sets TextureID.
-							// But Render() function says: "Skybox rendering is now handled by the renderer using clear color".
-							// That seems to be for SOLID color only!
-							// If we have a textured skybox, we need to draw the cube!
-							// The renderer code for Render(camera) seems to have COMMENTED OUT actual skybox rendering in step 3!
-							// "Skybox rendering is now handled by the renderer using clear color - no rendering needed"
-							// This is WRONG for textured skyboxes.
-							// I should fix the renderer too if textured skybox is broken.
-							// But for now, let's just assume the user wants the button.
 							logToConsole("Loaded skybox: " + getFileNameFromPath(filename), "info")
 						}
 					}
@@ -625,14 +608,46 @@ func renderEditorUI() {
 			if selectedType == "model" && selectedModelIndex >= 0 && selectedModelIndex < len(models) {
 				model := models[selectedModelIndex]
 				
-				imgui.Text("Selected Model:")
-				modelName := model.Name
+				imgui.Text("Name:")
+				imgui.SameLine()
 				imgui.PushItemWidth(-1)
-				// Standard input text for easier editing
-				if imgui.InputTextV("##modelName", &modelName, 0, nil) {
-					model.Name = modelName
+				// Use model name directly as the buffer
+				if imgui.InputTextV("##modelName", &model.Name, 0, nil) {
+					model.IsDirty = true
 				}
 				imgui.PopItemWidth()
+				imgui.Separator()
+				
+				// Delete Model Button
+				if imgui.Button("Delete Model") {
+					// Check if this is water - need to clean up activeWaterSim
+					isWater := false
+					if model.Metadata != nil {
+						if model.Metadata["type"] == "water" {
+							isWater = true
+						}
+					}
+					
+					// Remove the model
+					openglRenderer.RemoveModel(model)
+					
+					// If water, clean up the simulation and remove from behavior manager
+					if isWater && activeWaterSim != nil {
+						behaviour.GlobalBehaviourManager.Remove(activeWaterSim)
+						activeWaterSim = nil
+						logToConsole("Water simulation removed", "info")
+					}
+					
+					// Remove GameObject
+					removeGameObjectForModel(model)
+					
+					// Clear selection
+					selectedModelIndex = -1
+					selectedType = ""
+					// Clear from buffer
+					delete(modelNameEditBuffer, selectedModelIndex)
+					logToConsole(fmt.Sprintf("Deleted model: %s", model.Name), "info")
+				}
 				imgui.Separator()
 
 				imgui.Spacing()
@@ -670,7 +685,17 @@ func renderEditorUI() {
 					}
 				}
 				
-				// Material editing...
+				// Material editing (initialize if missing for voxels)
+				if model.Material == nil {
+					model.Material = &renderer.Material{
+						Name: "DefaultMaterial",
+						DiffuseColor: [3]float32{0.8, 0.8, 0.8},
+						Metallic: 0.0,
+						Roughness: 0.9,
+						Alpha: 1.0,
+					}
+				}
+				
 				if model.Material != nil {
 					imgui.Separator()
 					if imgui.CollapsingHeaderV("Material Properties", imgui.TreeNodeFlagsDefaultOpen) {
@@ -679,6 +704,18 @@ func renderEditorUI() {
 							model.SetDiffuseColor(diffuse[0], diffuse[1], diffuse[2])
 							model.IsDirty = true
 						}
+						
+						// PBR Material Properties
+						imgui.Separator()
+						if imgui.SliderFloatV("Metallic", &model.Material.Metallic, 0.0, 1.0, "%.2f", 1.0) {
+							model.SetMaterialPBR(model.Material.Metallic, model.Material.Roughness)
+							model.IsDirty = true
+						}
+						if imgui.SliderFloatV("Roughness", &model.Material.Roughness, 0.0, 1.0, "%.2f", 1.0) {
+							model.SetMaterialPBR(model.Material.Metallic, model.Material.Roughness)
+							model.IsDirty = true
+						}
+						imgui.Text("Tip: Metallic 1.0 = metal, 0.0 = dielectric")
 						
 						// Texture loading
 						imgui.Separator()
@@ -723,6 +760,111 @@ func renderEditorUI() {
 					}
 				}
 				
+				// Scripts Section (Unity-style)
+				imgui.Spacing()
+				if imgui.CollapsingHeaderV("Scripts", imgui.TreeNodeFlagsDefaultOpen) {
+					obj := getGameObjectForModel(model)
+					if obj != nil {
+						// Show attached scripts
+						if len(obj.Components) > 0 {
+							componentsToRemove := []behaviour.Component{}
+							for i, comp := range obj.Components {
+								imgui.PushIDInt(i)
+								
+								typeName := getComponentTypeName(comp)
+								imgui.Bullet()
+								imgui.SameLine()
+								imgui.Text(typeName)
+								imgui.SameLine()
+								if imgui.Button("Remove##"+fmt.Sprintf("%d", i)) {
+									componentsToRemove = append(componentsToRemove, comp)
+								}
+								
+								imgui.PopID()
+							}
+							
+							for _, comp := range componentsToRemove {
+								obj.RemoveComponent(comp)
+								logToConsole(fmt.Sprintf("Removed script from %s", model.Name), "info")
+							}
+						} else {
+							imgui.Text("(No scripts attached)")
+						}
+						
+						imgui.Spacing()
+						imgui.Separator()
+						
+						// Add Script button
+						if imgui.Button("Add Script") {
+							imgui.OpenPopup("AddScriptPopup")
+						}
+						
+						if imgui.BeginPopup("AddScriptPopup") {
+							imgui.Text("Add Script Component")
+							imgui.Separator()
+							
+							imgui.PushItemWidth(200)
+							imgui.InputTextV("##scriptsearch", &scriptSearchText, 0, nil)
+							imgui.PopItemWidth()
+							imgui.SameLine()
+							if imgui.Button("Clear") {
+								scriptSearchText = ""
+							}
+							
+							imgui.Separator()
+							
+							availableScripts := behaviour.GetAvailableScripts()
+							if len(availableScripts) == 0 {
+								imgui.Text("(No scripts found)")
+								imgui.Spacing()
+								imgui.Text("Expected scripts:")
+								imgui.Text("  - RotateScript")
+								imgui.Text("  - OrbitScript")
+								imgui.Text("  - BounceScript")
+								imgui.Spacing()
+								imgui.Text("Check console for registration")
+							} else {
+								searchLower := strings.ToLower(scriptSearchText)
+								visibleCount := 0
+								
+								for _, scriptName := range availableScripts {
+									if scriptSearchText == "" || strings.Contains(strings.ToLower(scriptName), searchLower) {
+										if imgui.Selectable(scriptName) {
+											comp := behaviour.CreateScript(scriptName)
+											if comp != nil {
+												obj.AddComponent(comp)
+												logToConsole(fmt.Sprintf("Added %s to %s", scriptName, model.Name), "info")
+												scriptSearchText = ""
+											} else {
+												logToConsole(fmt.Sprintf("Failed to create %s", scriptName), "error")
+											}
+											imgui.CloseCurrentPopup()
+										}
+										visibleCount++
+									}
+								}
+								
+								if visibleCount == 0 && scriptSearchText != "" {
+									imgui.Text("No matching scripts")
+								}
+							}
+							imgui.EndPopup()
+						}
+						
+						imgui.SameLine()
+						imgui.Text("(?)")
+						if imgui.IsItemHovered() {
+							imgui.BeginTooltip()
+							imgui.Text("Scripts are behaviors attached to objects")
+							imgui.Text("Create custom scripts in scripts/ folder")
+							imgui.EndTooltip()
+						}
+					} else {
+						imgui.Text("ERROR: No GameObject created")
+						imgui.Text("This is an internal error")
+					}
+				}
+				
 				// Water Settings
 				// Check Metadata first, then verify activeWaterSim matches (optional but safer)
 				if model.Metadata != nil && model.Metadata["type"] == "water" {
@@ -742,13 +884,30 @@ func renderEditorUI() {
 							transparency := sim.Transparency
 							if imgui.SliderFloatV("Transparency", &transparency, 0.0, 1.0, "%.2f", 1.0) {
 								sim.Transparency = transparency
+								sim.ApplyChanges()
 							}
 							
 						// Speed
 						speed := sim.WaveSpeedMultiplier
 						if imgui.SliderFloatV("Wave Speed", &speed, 0.0, 5.0, "%.2f", 1.0) {
 							sim.WaveSpeedMultiplier = speed
+							sim.ApplyChanges()
 						}
+						
+						// Wave Height
+						height := sim.WaveHeight
+						if imgui.SliderFloatV("Wave Height", &height, 0.1, 5.0, "%.2f", 1.0) {
+							sim.WaveHeight = height
+							sim.ApplyChanges()
+						}
+						
+						// Wave Randomness (for stormy seas)
+						randomness := sim.WaveRandomness
+						if imgui.SliderFloatV("Wave Randomness", &randomness, 0.0, 1.0, "%.2f", 1.0) {
+							sim.WaveRandomness = randomness
+							sim.ApplyChanges()
+						}
+						imgui.Text("Tip: Randomness 0.7+ for stormy sea")
 						
 						imgui.Separator()
 						imgui.Text("Advanced Appearance")
@@ -757,28 +916,66 @@ func renderEditorUI() {
 						foam := sim.FoamEnabled
 						if imgui.Checkbox("Enable Atmosphere/Foam", &foam) {
 							sim.FoamEnabled = foam
+							sim.ApplyChanges()
+						}
+						if sim.FoamEnabled {
+							imgui.Indent()
+							foamInt := sim.FoamIntensity
+							if imgui.SliderFloatV("Intensity##foam", &foamInt, 0.0, 1.0, "%.2f", 1.0) {
+								sim.FoamIntensity = foamInt
+								sim.ApplyChanges()
+							}
+							imgui.Unindent()
 						}
 						
-						foamInt := sim.FoamIntensity
-						if imgui.SliderFloatV("Atmosphere Intensity", &foamInt, 0.0, 1.0, "%.2f", 1.0) {
-							sim.FoamIntensity = foamInt
+						// Caustics
+						imgui.Separator()
+						caustics := sim.CausticsEnabled
+						if imgui.Checkbox("Enable Caustics", &caustics) {
+							sim.CausticsEnabled = caustics
+							sim.ApplyChanges()
+						}
+						if sim.CausticsEnabled {
+							imgui.Indent()
+							causticsInt := sim.CausticsIntensity
+							if imgui.SliderFloatV("Intensity##caustics", &causticsInt, 0.0, 1.0, "%.2f", 1.0) {
+								sim.CausticsIntensity = causticsInt
+								sim.ApplyChanges()
+							}
+							causticsScale := sim.CausticsScale
+							if imgui.SliderFloatV("Scale##caustics", &causticsScale, 0.001, 0.01, "%.4f", 1.0) {
+								sim.CausticsScale = causticsScale
+								sim.ApplyChanges()
+							}
+							imgui.Unindent()
 						}
 						
 						// Specular
 						spec := sim.SpecularIntensity
 						if imgui.SliderFloatV("Reflectivity", &spec, 0.0, 2.0, "%.2f", 1.0) {
 							sim.SpecularIntensity = spec
+							sim.ApplyChanges()
 						}
 						
 						// Normal/Distortion
 						norm := sim.NormalStrength
 						if imgui.SliderFloatV("Surface Detail", &norm, 0.0, 2.0, "%.2f", 1.0) {
 							sim.NormalStrength = norm
+							sim.ApplyChanges()
 						}
 						
 						dist := sim.DistortionStrength
 						if imgui.SliderFloatV("Distortion", &dist, 0.0, 1.0, "%.2f", 1.0) {
 							sim.DistortionStrength = dist
+							sim.ApplyChanges()
+						}
+						
+						// Shadows
+						imgui.Separator()
+						shadow := sim.ShadowStrength
+						if imgui.SliderFloatV("Shadow Strength", &shadow, 0.0, 1.0, "%.2f", 1.0) {
+							sim.ShadowStrength = shadow
+							sim.ApplyChanges()
 						}
 						
 						imgui.Separator()
@@ -985,28 +1182,27 @@ func renderConsoleContent() {
 	}
 
 	footerHeight := imgui.FrameHeightWithSpacing()
-	if imgui.BeginChildV("ConsoleScrollRegion", imgui.Vec2{X: 0, Y: -footerHeight}, true, 0) {
-		for _, entry := range consoleLines {
-			var color imgui.Vec4
-			switch entry.Type {
-			case "error":
-				color = imgui.Vec4{X: 1.0, Y: 0.3, Z: 0.3, W: 1.0}
-			case "warning":
-				color = imgui.Vec4{X: 1.0, Y: 0.8, Z: 0.2, W: 1.0}
-			case "command":
-				color = imgui.Vec4{X: 0.5, Y: 0.8, Z: 1.0, W: 1.0}
-			default:
-				color = imgui.Vec4{X: 0.9, Y: 0.9, Z: 0.9, W: 1.0}
-			}
-			imgui.PushStyleColor(imgui.StyleColorText, color)
-			imgui.Text(entry.Message)
-			imgui.PopStyleColor()
+	imgui.BeginChildV("ConsoleScrollRegion", imgui.Vec2{X: 0, Y: -footerHeight}, true, 0)
+	for _, entry := range consoleLines {
+		var color imgui.Vec4
+		switch entry.Type {
+		case "error":
+			color = imgui.Vec4{X: 1.0, Y: 0.3, Z: 0.3, W: 1.0}
+		case "warning":
+			color = imgui.Vec4{X: 1.0, Y: 0.8, Z: 0.2, W: 1.0}
+		case "command":
+			color = imgui.Vec4{X: 0.5, Y: 0.8, Z: 1.0, W: 1.0}
+		default:
+			color = imgui.Vec4{X: 0.9, Y: 0.9, Z: 0.9, W: 1.0}
 		}
-		if consoleAutoScroll && imgui.ScrollY() >= imgui.ScrollMaxY() {
-			imgui.SetScrollHereY(1.0)
-		}
-		imgui.EndChild()
+		imgui.PushStyleColor(imgui.StyleColorText, color)
+		imgui.Text(entry.Message)
+		imgui.PopStyleColor()
 	}
+	if consoleAutoScroll && imgui.ScrollY() >= imgui.ScrollMaxY() {
+		imgui.SetScrollHereY(1.0)
+	}
+	imgui.EndChild()
 
 	imgui.Separator()
 	imgui.PushItemWidth(-1)
@@ -1049,7 +1245,9 @@ func renderAdvancedRenderingPBR() {
 	changed := false
 	
 	// Clearcoat
-	if imgui.Checkbox("Enable Clearcoat", &config.EnableClearcoat) {
+	clearcoatEnabled := config.EnableClearcoat
+	if imgui.Checkbox("Enable Clearcoat", &clearcoatEnabled) {
+		config.EnableClearcoat = clearcoatEnabled
 		changed = true
 	}
 	if config.EnableClearcoat {
@@ -1064,7 +1262,9 @@ func renderAdvancedRenderingPBR() {
 	}
 	
 	// Sheen
-	if imgui.Checkbox("Enable Sheen", &config.EnableSheen) {
+	sheenEnabled := config.EnableSheen
+	if imgui.Checkbox("Enable Sheen", &sheenEnabled) {
+		config.EnableSheen = sheenEnabled
 		changed = true
 	}
 	if config.EnableSheen {
@@ -1081,7 +1281,9 @@ func renderAdvancedRenderingPBR() {
 	}
 	
 	// Transmission
-	if imgui.Checkbox("Enable Transmission", &config.EnableTransmission) {
+	transmissionEnabled := config.EnableTransmission
+	if imgui.Checkbox("Enable Transmission", &transmissionEnabled) {
+		config.EnableTransmission = transmissionEnabled
 		changed = true
 	}
 	if config.EnableTransmission {
@@ -1138,7 +1340,9 @@ func renderAdvancedRenderingLighting() {
 	changed := false
 	
 	// SSAO
-	if imgui.Checkbox("Enable SSAO", &config.EnableSSAO) {
+	ssaoEnabled := config.EnableSSAO
+	if imgui.Checkbox("Enable SSAO", &ssaoEnabled) {
+		config.EnableSSAO = ssaoEnabled
 		changed = true
 	}
 	if config.EnableSSAO {
@@ -1161,7 +1365,9 @@ func renderAdvancedRenderingLighting() {
 	}
 	
 	// Volumetric Lighting
-	if imgui.Checkbox("Enable Volumetric Lighting", &config.EnableVolumetricLighting) {
+	volumetricEnabled := config.EnableVolumetricLighting
+	if imgui.Checkbox("Enable Volumetric Lighting", &volumetricEnabled) {
+		config.EnableVolumetricLighting = volumetricEnabled
 		changed = true
 	}
 	if config.EnableVolumetricLighting {
@@ -1181,7 +1387,9 @@ func renderAdvancedRenderingLighting() {
 	}
 	
 	// Global Illumination
-	if imgui.Checkbox("Enable Global Illumination", &config.EnableGlobalIllumination) {
+	giEnabled := config.EnableGlobalIllumination
+	if imgui.Checkbox("Enable Global Illumination", &giEnabled) {
+		config.EnableGlobalIllumination = giEnabled
 		changed = true
 	}
 	if config.EnableGlobalIllumination {
@@ -1355,30 +1563,22 @@ func renderAdvancedRenderingPerformance() {
 	config := getAdvancedConfigFromModel(models[0])
 	changed := false
 	
-	// Anti-Aliasing Section
 	if imgui.CollapsingHeaderV("Anti-Aliasing", imgui.TreeNodeFlagsDefaultOpen) {
-		imgui.Text("Hardware MSAA (Multisample Anti-Aliasing):")
+		imgui.Text("MSAA (Hardware):")
 		imgui.Indent()
 		
-		// Get current MSAA from engine (set at startup)
-		currentMSAA := int32(eng.MSAASamples)
-		msaaEnabled := currentMSAA > 0
+		msaaEnabled := openglRenderer.EnableMSAAState
 		
-		// Checkbox to enable/disable MSAA (doesn't change sample count)
 		if imgui.Checkbox("Enable MSAA", &msaaEnabled) {
+			openglRenderer.EnableMSAA(msaaEnabled)
 			if msaaEnabled {
-				openglRenderer.EnableMSAA(true)
-				logToConsole(fmt.Sprintf("MSAA enabled (%dx)", currentMSAA), "info")
+				logToConsole(fmt.Sprintf("MSAA enabled (%dx)", eng.MSAASamples), "info")
 			} else {
-				openglRenderer.EnableMSAA(false)
 				logToConsole("MSAA disabled", "info")
 			}
 		}
 		
-		// Display current sample count (read-only, set at startup)
-		imgui.Text(fmt.Sprintf("Sample Count: %dx (set at startup)", currentMSAA))
-		imgui.Text("⚠ To change sample count, edit config")
-		imgui.Text("and restart the application")
+		imgui.Text(fmt.Sprintf("Samples: %dx (restart to change)", eng.MSAASamples))
 		imgui.Separator()
 		
 		imgui.Unindent()
@@ -1387,18 +1587,20 @@ func renderAdvancedRenderingPerformance() {
 		imgui.Indent()
 		
 		// Read FXAA state directly from renderer (not from model config)
+		// FXAA is a post-processing effect, not a per-model setting
 		fxaaEnabled := openglRenderer.EnableFXAA
 		if imgui.Checkbox("Enable FXAA", &fxaaEnabled) {
-			openglRenderer.EnableFXAA = fxaaEnabled
-			config.EnableFXAA = fxaaEnabled
-			changed = true
-			if fxaaEnabled {
-				logToConsole("FXAA enabled", "info")
-			} else {
-				logToConsole("FXAA disabled", "info")
+			if fxaaEnabled != openglRenderer.EnableFXAA {
+				openglRenderer.EnableFXAA = fxaaEnabled
+				if fxaaEnabled {
+					logToConsole("FXAA enabled", "info")
+				} else {
+					logToConsole("FXAA disabled", "info")
+				}
 			}
 		}
 		imgui.Text("Post-processing edge smoothing")
+		imgui.Text("(FXAA is OFF by default)")
 		imgui.Text("Good fallback if MSAA is disabled")
 		
 		imgui.Unindent()

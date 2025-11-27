@@ -126,9 +126,6 @@ func renderAddLightDialog() {
 			}
 			
 			eng.GetRenderer().(*renderer.OpenGLRenderer).AddLight(light)
-			
-			// CRITICAL: Update eng.Light to point to the first light in the scene
-			// This ensures water shader gets correct light data
 			lights := eng.GetRenderer().(*renderer.OpenGLRenderer).GetLights()
 			if len(lights) > 0 {
 				eng.Light = lights[0] // Always use the first light as the main scene light

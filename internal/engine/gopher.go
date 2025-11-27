@@ -85,7 +85,7 @@ func (gopher *Gopher) Render(x, y int) {
 
 	// Set GLFW window hints here
 	if gopher.WindowDecorated {
-		glfw.WindowHint(glfw.Decorated, glfw.True)
+	glfw.WindowHint(glfw.Decorated, glfw.True)
 	} else {
 		glfw.WindowHint(glfw.Decorated, glfw.False)
 	}
@@ -139,7 +139,8 @@ func (gopher *Gopher) Render(x, y int) {
 	//window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled) // Hide and capture the cursor
 	gopher.window.SetInputMode(glfw.CursorMode, glfw.CursorNormal) // Set cursor to normal mode initially
 
-	gopher.window.SetCursorPosCallback(gopher.mouseCallback) // Set the callback function for mouse movement
+	// DON'T set CursorPosCallback - it conflicts with ImGui's callbacks
+	// Mouse movement for camera is now handled via polling in RenderLoop
 
 	gopher.RenderLoop()
 }
@@ -169,6 +170,15 @@ func (gopher *Gopher) RenderLoop() {
 		// Only process camera input if enabled (can be disabled by editor when UI wants keyboard)
 		if gopher.EnableCameraInput {
 			gopher.Camera.ProcessKeyboard(gopher.window, float32(deltaTime))
+			
+			// Process mouse movement for camera (polling instead of callback to avoid ImGui conflicts)
+			if gopher.window.GetMouseButton(glfw.MouseButtonRight) == glfw.Press {
+				xpos, ypos := gopher.window.GetCursorPos()
+				gopher.processCameraMouseMovement(xpos, ypos)
+			} else {
+				// Reset first mouse when right button released
+				firstMouse = true
+			}
 		}
 
 		//TODO: Rignt now it's fixed but maybe in the future we can make it confgigurable?
@@ -183,10 +193,14 @@ func (gopher *Gopher) RenderLoop() {
 			skybox, err := renderer.CreateSkybox(gopher.skyboxPath)
 			if err != nil {
 				logger.Log.Error("Failed to create skybox", zap.String("path", gopher.skyboxPath), zap.Error(err))
+				// Clear the path to prevent infinite retry loop
+				gopher.skyboxPath = ""
 			} else {
 				gopher.skybox = skybox
 				gopher.rendererAPI.SetSkybox(skybox)
 				logger.Log.Info("Skybox created and set", zap.String("path", gopher.skyboxPath))
+				// Clear the path after successful creation
+				gopher.skyboxPath = ""
 			}
 		}
 
@@ -282,10 +296,8 @@ func (gopher *Gopher) GetRenderer() renderer.Render {
 }
 
 // Mouse callback function
-func (gopher *Gopher) mouseCallback(w *glfw.Window, xpos, ypos float64) {
-	// Check if the window is focused and the right mouse button is pressed
-	// Only process if camera input is enabled (can be disabled by editor when UI wants mouse)
-	if gopher.EnableCameraInput && w.GetAttrib(glfw.Focused) == glfw.True && w.GetMouseButton(glfw.MouseButtonRight) == glfw.Press {
+// processCameraMouseMovement handles camera rotation via mouse (called from polling, not callback)
+func (gopher *Gopher) processCameraMouseMovement(xpos, ypos float64) {
 		if firstMouse {
 			lastX = xpos
 			lastY = ypos
@@ -299,8 +311,5 @@ func (gopher *Gopher) mouseCallback(w *glfw.Window, xpos, ypos float64) {
 		lastY = ypos
 
 		gopher.Camera.ProcessMouseMovement(float32(xoffset), float32(yoffset), true)
-	} else {
-		firstMouse = true
 	}
 
-}

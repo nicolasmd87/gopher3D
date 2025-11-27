@@ -48,6 +48,7 @@ type OpenGLRenderer struct {
 	
 	// Anti-aliasing settings
 	EnableFXAA           bool    // Software FXAA post-processing
+	EnableMSAAState      bool    // Hardware MSAA enabled state
 	fxaaShader           Shader  // FXAA post-processing shader
 	postProcessFBO       uint32  // Framebuffer for post-processing
 	postProcessTexture   uint32  // Color texture for post-processing
@@ -56,6 +57,8 @@ type OpenGLRenderer struct {
 	screenQuadVBO        uint32  // VBO for screen quad
 	screenWidth          int32   // Window width for post-processing
 	screenHeight         int32   // Window height for post-processing
+	viewportWidth        int32   // Current viewport width
+	viewportHeight       int32   // Current viewport height
 	
 	// Bloom settings
 	EnableBloom          bool    // Bloom post-processing
@@ -64,6 +67,9 @@ type OpenGLRenderer struct {
 	bloomShader          Shader  // Bloom extraction+blur shader
 	bloomFBO             uint32  // Framebuffer for bloom
 	bloomTexture         uint32  // Bloom texture
+	
+	// Passthrough shader for when no effects are enabled
+	passthroughShader    Shader
 }
 
 func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
@@ -101,6 +107,13 @@ func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
 	
 	// Initialize shader cache map
 	rend.shaderCaches = make(map[uint32]*UniformCache)
+	
+	// Initialize viewport dimensions for post-processing
+	rend.viewportWidth = width
+	rend.viewportHeight = height
+	
+	// Initialize MSAA state (enabled by default)
+	rend.EnableMSAAState = true
 	
 	// Initialize post-processing pipeline (for FXAA)
 	rend.initPostProcessing(width, height)
@@ -169,7 +182,7 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 	gl.EnableVertexAttribArray(2)
 
 	if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
-		// Create a dedicated instance VBO for this model
+		// Create a dedicated instance VBO for transformation matrices
 		var instanceVBO uint32
 		gl.GenBuffers(1, &instanceVBO)
 		gl.BindBuffer(gl.ARRAY_BUFFER, instanceVBO)
@@ -189,6 +202,25 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 			gl.EnableVertexAttribArray(3 + uint32(i))
 			gl.VertexAttribPointer(3+uint32(i), 4, gl.FLOAT, false, int32(unsafe.Sizeof(mgl32.Mat4{})), unsafe.Pointer(uintptr(i*16)))
 			gl.VertexAttribDivisor(3+uint32(i), 1)
+		}
+		
+		// Create instance color VBO (location 7) if colors are provided
+		if len(model.InstanceColors) > 0 {
+			var instanceColorVBO uint32
+			gl.GenBuffers(1, &instanceColorVBO)
+			gl.BindBuffer(gl.ARRAY_BUFFER, instanceColorVBO)
+			
+			colorSize := int(unsafe.Sizeof(mgl32.Vec3{}))
+			colorBufferSize := len(model.InstanceColors) * colorSize
+			gl.BufferData(gl.ARRAY_BUFFER, colorBufferSize, gl.Ptr(model.InstanceColors), gl.STATIC_DRAW)
+			
+			// Attribute location 7 for instance colors
+			gl.EnableVertexAttribArray(7)
+			gl.VertexAttribPointer(7, 3, gl.FLOAT, false, int32(colorSize), nil)
+			gl.VertexAttribDivisor(7, 1) // One color per instance
+			
+			// Store the color VBO for potential updates
+			model.InstanceColorVBO = instanceColorVBO
 		}
 	}
 
@@ -325,6 +357,25 @@ func (rend *OpenGLRenderer) RemoveModel(model *Model) {
 		rend.textureManager.ReleaseTexture(model.Material.TextureID)
 	}
 	
+	// Clean up OpenGL resources
+	if model.VAO != 0 {
+		gl.DeleteVertexArrays(1, &model.VAO)
+		model.VAO = 0
+	}
+	if model.VBO != 0 {
+		gl.DeleteBuffers(1, &model.VBO)
+		model.VBO = 0
+	}
+	if model.EBO != 0 {
+		gl.DeleteBuffers(1, &model.EBO)
+		model.EBO = 0
+	}
+	// Clean up instance color VBO if present
+	if model.InstanceColorVBO != 0 {
+		gl.DeleteBuffers(1, &model.InstanceColorVBO)
+		model.InstanceColorVBO = 0
+	}
+	
 	// Remove from models list
 	for i, m := range rend.Models {
 		if m == model {
@@ -357,9 +408,36 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 		activeLight = light // Fallback to passed light for backward compatibility
 	}
 	
-	// If any post-processing is enabled, render to framebuffer first
+	// Post-processing: render scene to FBO if FXAA or Bloom is enabled
+	postProcessActive := false
 	if rend.EnableFXAA || rend.EnableBloom {
-		gl.BindFramebuffer(gl.FRAMEBUFFER, rend.postProcessFBO)
+		// Only enable post-processing if FBO is valid
+		if rend.postProcessFBO != 0 && rend.postProcessTexture != 0 && rend.screenQuadVAO != 0 {
+			// Check if viewport changed
+			currentViewport := [4]int32{}
+			gl.GetIntegerv(gl.VIEWPORT, &currentViewport[0])
+			
+			if currentViewport[2] > 0 && currentViewport[3] > 0 {
+				// Resize FBOs if viewport changed
+				if currentViewport[2] != rend.viewportWidth || currentViewport[3] != rend.viewportHeight {
+					rend.viewportWidth = currentViewport[2]
+					rend.viewportHeight = currentViewport[3]
+					rend.resizePostProcessing(currentViewport[2], currentViewport[3])
+				}
+				
+				// Bind scene FBO
+				gl.BindFramebuffer(gl.FRAMEBUFFER, rend.postProcessFBO)
+				
+				// Verify FBO is complete
+				status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
+				if status == gl.FRAMEBUFFER_COMPLETE {
+					postProcessActive = true
+				} else {
+					// FBO not ready, render directly to screen
+					gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+				}
+			}
+		}
 	}
 	
 	// Apply wireframe mode if Debug is enabled
@@ -415,8 +493,7 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 		rend.renderModelInternal(model, viewProjection, activeLight, camera, true)
 	}
 
-	// If any post-processing is enabled, apply it
-	if rend.EnableFXAA || rend.EnableBloom {
+	if postProcessActive {
 		rend.renderPostProcess()
 	}
 
@@ -445,12 +522,18 @@ func (rend *OpenGLRenderer) renderModelInternal(model *Model, viewProjection mgl
 			if !shader.isCompiled {
 				shader.Compile()
 			}
-			// Get or create cache for this shader
-			if cache, exists := rend.shaderCaches[shader.program]; exists {
-				uniformCache = cache
+			// Verify shader compiled successfully (program > 0)
+			if shader.program == 0 {
+				shader = &rend.defaultShader
+				uniformCache = rend.defaultUniformCache
 			} else {
-				uniformCache = NewUniformCache(shader.program)
-				rend.shaderCaches[shader.program] = uniformCache
+				// Get or create cache for this shader
+				if cache, exists := rend.shaderCaches[shader.program]; exists {
+					uniformCache = cache
+				} else {
+					uniformCache = NewUniformCache(shader.program)
+					rend.shaderCaches[shader.program] = uniformCache
+				}
 			}
 		} else {
 			shader = &rend.defaultShader
@@ -467,7 +550,7 @@ func (rend *OpenGLRenderer) renderModelInternal(model *Model, viewProjection mgl
 		rend.setCommonUniformsCached(uniformCache, viewProjection, model, activeLight, camera)
 
 		// Set shader-specific uniforms (like water shader uniforms)
-		rend.setShaderSpecificUniforms(shader, model)
+		rend.setShaderSpecificUniforms(shader, uniformCache, model)
 
 		// Bind vertex array
 		gl.BindVertexArray(model.VAO)
@@ -679,7 +762,7 @@ func (rend *OpenGLRenderer) setMaterialUniforms(shader *Shader, material *Materi
 }
 
 // setShaderSpecificUniforms allows models to set custom uniforms for their shaders
-func (rend *OpenGLRenderer) setShaderSpecificUniforms(shader *Shader, model *Model) {
+func (rend *OpenGLRenderer) setShaderSpecificUniforms(shader *Shader, uc *UniformCache, model *Model) {
 	if model.CustomUniforms == nil {
 		return
 	}
@@ -688,16 +771,27 @@ func (rend *OpenGLRenderer) setShaderSpecificUniforms(shader *Shader, model *Mod
 	for name, value := range model.CustomUniforms {
 		switch v := value.(type) {
 		case float32:
-			shader.SetFloat(name, v)
+			uc.SetFloat(name, v)
 		case int32:
-			shader.SetInt(name, v)
+			uc.SetInt(name, v)
 		case bool:
-			shader.SetBool(name, v)
+			// UniformCache doesn't have SetBool, use SetInt
+			if v {
+				uc.SetInt(name, 1)
+			} else {
+				uc.SetInt(name, 0)
+			}
 		case mgl32.Vec3:
-			shader.SetVec3(name, v)
+			uc.SetVec3(name, v.X(), v.Y(), v.Z())
 		case []float32:
 			// Handle float arrays for wave parameters
-			location := gl.GetUniformLocation(shader.program, gl.Str(name+"\x00"))
+			// We need direct location for array setting
+			location := uc.GetLocation(name)
+			if location == -1 {
+				// Some drivers require explicit [0] for array base location
+				location = uc.GetLocation(name + "[0]")
+			}
+			
 			if location != -1 {
 				if name == "waveDirections" {
 					// Special handling for Vec3 arrays (3 floats per element)
@@ -928,11 +1022,77 @@ func (rend *OpenGLRenderer) GetLights() []*Light {
 
 // EnableMSAA enables or disables multisample anti-aliasing in real-time
 func (rend *OpenGLRenderer) EnableMSAA(enable bool) {
+	rend.EnableMSAAState = enable
 	if enable {
 		gl.Enable(gl.MULTISAMPLE)
 	} else {
 		gl.Disable(gl.MULTISAMPLE)
 	}
+}
+
+// resizePostProcessing recreates framebuffer textures when viewport size changes
+func (rend *OpenGLRenderer) resizePostProcessing(width, height int32) {
+	// Safety limit to prevent GPU crashes
+	if width > 8192 { width = 8192 }
+	if height > 8192 { height = 8192 }
+	if width < 1 { width = 1 }
+	if height < 1 { height = 1 }
+
+	// Delete old textures and renderbuffers
+	if rend.postProcessTexture != 0 {
+		gl.DeleteTextures(1, &rend.postProcessTexture)
+	}
+	if rend.bloomTexture != 0 {
+		gl.DeleteTextures(1, &rend.bloomTexture)
+	}
+	if rend.postProcessDepth != 0 {
+		gl.DeleteRenderbuffers(1, &rend.postProcessDepth)
+	}
+	
+	// Recreate post-process color texture
+	gl.GenTextures(1, &rend.postProcessTexture)
+	gl.BindTexture(gl.TEXTURE_2D, rend.postProcessTexture)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	
+	// Recreate depth renderbuffer
+	gl.GenRenderbuffers(1, &rend.postProcessDepth)
+	gl.BindRenderbuffer(gl.RENDERBUFFER, rend.postProcessDepth)
+	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, width, height)
+	
+	// Reattach to FBO
+	gl.BindFramebuffer(gl.FRAMEBUFFER, rend.postProcessFBO)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rend.postProcessTexture, 0)
+	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, rend.postProcessDepth)
+	
+	// Check framebuffer completeness
+	if status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER); status != gl.FRAMEBUFFER_COMPLETE {
+		logger.Log.Error(fmt.Sprintf("Post-process framebuffer incomplete after resize! Status: 0x%X", status))
+	}
+	
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	
+	// Recreate bloom texture (HDR) - Downscaled
+	bloomWidth := width / 4
+	bloomHeight := height / 4
+	if bloomWidth < 1 { bloomWidth = 1 }
+	if bloomHeight < 1 { bloomHeight = 1 }
+
+	gl.GenTextures(1, &rend.bloomTexture)
+	gl.BindTexture(gl.TEXTURE_2D, rend.bloomTexture)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, bloomWidth, bloomHeight, 0, gl.RGBA, gl.FLOAT, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	
+	// Reattach to bloom FBO
+	gl.BindFramebuffer(gl.FRAMEBUFFER, rend.bloomFBO)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rend.bloomTexture, 0)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	
+	logger.Log.Info(fmt.Sprintf("Resized post-processing framebuffers (Scene: %dx%d, Bloom: %dx%d)", width, height, bloomWidth, bloomHeight))
 }
 
 // initPostProcessing initializes framebuffer and shader for post-processing effects (FXAA)
@@ -992,13 +1152,22 @@ func (rend *OpenGLRenderer) initPostProcessing(width, height int32) {
 	rend.bloomShader = InitBloomShader()
 	rend.bloomShader.Compile()
 	
-	// Create bloom framebuffer (can use same size as post-process)
+	// Initialize passthrough shader for simple texture copy
+	rend.passthroughShader = InitPassthroughShader()
+	rend.passthroughShader.Compile()
+	
+	// Create bloom framebuffer (downscaled for performance)
+	bloomWidth := width / 4
+	bloomHeight := height / 4
+	if bloomWidth < 1 { bloomWidth = 1 }
+	if bloomHeight < 1 { bloomHeight = 1 }
+	
 	gl.GenFramebuffers(1, &rend.bloomFBO)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, rend.bloomFBO)
 	
 	gl.GenTextures(1, &rend.bloomTexture)
 	gl.BindTexture(gl.TEXTURE_2D, rend.bloomTexture)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.FLOAT, nil) // HDR texture
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, bloomWidth, bloomHeight, 0, gl.RGBA, gl.FLOAT, nil) // HDR texture
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
@@ -1014,63 +1183,40 @@ func (rend *OpenGLRenderer) initPostProcessing(width, height int32) {
 	rend.BloomThreshold = 1.0
 	rend.BloomIntensity = 0.3
 	
-	logger.Log.Info("Post-processing pipeline initialized (FXAA + Bloom ready)")
+	logger.Log.Info(fmt.Sprintf("Post-processing initialized (Bloom: %dx%d)", bloomWidth, bloomHeight))
 }
 
-// renderPostProcess applies post-processing effects (Bloom, FXAA) to the scene
 func (rend *OpenGLRenderer) renderPostProcess() {
-	gl.Disable(gl.DEPTH_TEST)
-	gl.BindVertexArray(rend.screenQuadVAO)
-	
-	currentTexture := rend.postProcessTexture
-	
-	// Apply Bloom first if enabled
-	if rend.EnableBloom {
-		// Render to bloom framebuffer
-		gl.BindFramebuffer(gl.FRAMEBUFFER, rend.bloomFBO)
-		gl.Clear(gl.COLOR_BUFFER_BIT)
-		
-		rend.bloomShader.Use()
-		rend.bloomShader.SetVec2("texelSize", mgl32.Vec2{1.0 / float32(rend.screenWidth), 1.0 / float32(rend.screenHeight)})
-		rend.bloomShader.SetFloat("bloomThreshold", rend.BloomThreshold)
-		rend.bloomShader.SetFloat("bloomIntensity", rend.BloomIntensity)
-		
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, currentTexture)
-		rend.bloomShader.SetInt("screenTexture", 0)
-		
-		gl.DrawArrays(gl.TRIANGLES, 0, 6)
-		
-		currentTexture = rend.bloomTexture // Use bloom output for next stage
+	if rend.viewportWidth == 0 || rend.viewportHeight == 0 || rend.screenQuadVAO == 0 {
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		return
 	}
 	
-	// Apply FXAA last if enabled (or just render to screen if no FXAA)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	gl.Disable(gl.DEPTH_TEST)
+	gl.DepthMask(false)
+	gl.Disable(gl.BLEND)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
-	
-	if rend.EnableFXAA {
-		rend.fxaaShader.Use()
-		rend.fxaaShader.SetVec2("texelSize", mgl32.Vec2{1.0 / float32(rend.screenWidth), 1.0 / float32(rend.screenHeight)})
-		rend.fxaaShader.SetFloat("edgeThreshold", 0.063)
-		rend.fxaaShader.SetFloat("edgeThresholdMin", 0.0312)
-		rend.fxaaShader.SetFloat("subpixelQuality", 0.75)
-	} else {
-		// Just pass through without FXAA
-		rend.bloomShader.Use() // Use any shader with simple passthrough
-	}
-	
+	gl.BindVertexArray(rend.screenQuadVAO)
 	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, currentTexture)
-	if rend.EnableFXAA {
+	gl.BindTexture(gl.TEXTURE_2D, rend.postProcessTexture)
+	
+	if rend.EnableFXAA && rend.fxaaShader.program != 0 {
+		rend.fxaaShader.Use()
+		texelSize := mgl32.Vec2{1.0 / float32(rend.viewportWidth), 1.0 / float32(rend.viewportHeight)}
+		rend.fxaaShader.SetVec2("texelSize", texelSize)
 		rend.fxaaShader.SetInt("screenTexture", 0)
 	} else {
-		rend.bloomShader.SetInt("screenTexture", 0)
+		rend.passthroughShader.Use()
+		loc := gl.GetUniformLocation(rend.passthroughShader.program, gl.Str("screenTexture\x00"))
+		gl.Uniform1i(loc, 0)
 	}
 	
 	gl.DrawArrays(gl.TRIANGLES, 0, 6)
-	
-	gl.Enable(gl.DEPTH_TEST)
 	gl.BindVertexArray(0)
+	gl.Enable(gl.DEPTH_TEST)
+	gl.DepthMask(true)
+	gl.Enable(gl.BLEND)
 }
 
 // AddLight adds a light to the scene

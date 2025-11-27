@@ -151,7 +151,8 @@ var vertexShaderSource = `#version 330 core
 layout(location = 0) in vec3 inPosition; // Vertex position
 layout(location = 1) in vec2 inTexCoord; // Texture Coordinate
 layout(location = 2) in vec3 inNormal;   // Vertex normal
-layout(location = 3) in mat4 instanceModel; // Instanced model matrix
+layout(location = 3) in mat4 instanceModel; // Instanced model matrix (locations 3,4,5,6)
+layout(location = 7) in vec3 instanceColor; // Per-instance color (for voxels)
 
 uniform bool isInstanced; // Flag to differentiate instanced vs non-instanced rendering
 uniform mat4 model;       // Regular model matrix
@@ -160,6 +161,7 @@ uniform mat4 viewProjection;
 out vec2 fragTexCoord;    // Pass to fragment shader
 out vec3 Normal;          // Pass normal to fragment shader
 out vec3 FragPos;         // Pass position to fragment shader
+out vec3 InstanceColor;   // Pass instance color to fragment shader
 
 void main() {
     // Decide whether to use instanced or regular model matrix
@@ -177,6 +179,9 @@ void main() {
     Normal = normalize(normalMatrix * inNormal);
     
     fragTexCoord = inTexCoord;
+    
+    // Pass instance color to fragment shader (default white if not instanced)
+    InstanceColor = isInstanced ? instanceColor : vec3(1.0, 1.0, 1.0);
 
     // Final vertex position
     gl_Position = viewProjection * modelMatrix * vec4(inPosition, 1.0);
@@ -189,6 +194,7 @@ var fragmentShaderSource = `// Modern PBR-inspired Fragment Shader
 in vec2 fragTexCoord;
 in vec3 Normal;
 in vec3 FragPos;
+in vec3 InstanceColor; // Per-instance color from vertex shader
 
 uniform sampler2D textureSampler;
 uniform struct Light {
@@ -731,7 +737,7 @@ void main() {
     vec3 halfwayDir = normalize(lightDir + viewDir);
     
     // Material properties
-    vec3 albedo = diffuseColor * texColor.rgb;
+    vec3 albedo = diffuseColor * texColor.rgb * InstanceColor; // Apply per-instance color
     
     // Calculate F0 (surface reflection at zero incidence) with realistic values
     vec3 F0 = vec3(0.04); // Default for dielectrics
@@ -824,18 +830,18 @@ void main() {
     vec3 ambient = light.ambientStrength * tempAdjustedLightColor * albedo * 0.8;
     vec3 fillLightContrib = fillLight * tempAdjustedLightColor * albedo * 0.2;
     
-	// GPU Gems Chapter 5: Apply Perlin noise for surface detail if enabled
-	if (enablePerlinNoise) {
-		vec3 noiseCoord = FragPos * noiseScale;
-		float noiseValue = turbulence(noiseCoord, noiseOctaves);
-		
+    // GPU Gems Chapter 5: Apply Perlin noise for surface detail if enabled
+    if (enablePerlinNoise) {
+        vec3 noiseCoord = FragPos * noiseScale;
+        float noiseValue = turbulence(noiseCoord, noiseOctaves);
+        
 		// Apply noise directly to albedo for visible surface detail
 		albedo = mix(albedo, albedo * (1.0 + noiseValue * 0.3), noiseIntensity);
-	}
-	
-	// Use the properly calculated Lo from energy conservation with fill light
-	vec3 color = ambient + fillLightContrib + Lo;
-	
+    }
+    
+    // Use the properly calculated Lo from energy conservation with fill light
+    vec3 color = ambient + fillLightContrib + Lo;
+    
 	// Calculate distance for performance scaling (CRITICAL for voxel terrain performance)
 	float distanceToCamera = length(FragPos - viewPos);
 	
@@ -844,17 +850,17 @@ void main() {
 	// SSAO (Improved hemisphere sampling with distance-based LOD)
 	float ssaoFactor = calculateSSAO(FragPos, norm, distanceToCamera);
 	color *= ssaoFactor;
-	
+    
 	// Volumetric lighting (with distance LOD built-in)
 	vec3 volumetric = calculateVolumetricLighting(FragPos, light.position, viewPos);
 	color += volumetric;
-	
+    
 	// Global Illumination (with distance LOD built-in)
 	vec3 gi = calculateGlobalIllumination(FragPos, norm, albedo, distanceToCamera);
 	color += gi;
-	
+    
 	// Environment reflections (skybox-based)
-	vec3 envReflection = calculateEnvironmentReflection(norm, viewDir, roughness, metallic);
+    vec3 envReflection = calculateEnvironmentReflection(norm, viewDir, roughness, metallic);
 	color += envReflection * 0.3; // More visible reflections
     
     // GPU Gems Chapter 2: Caustics are handled in water shader for now
@@ -938,6 +944,8 @@ uniform mat4 model;
 uniform mat4 viewProjection;
 uniform float time;
 uniform float waveSpeedMultiplier;
+uniform float waveHeightMultiplier; // Control wave amplitude (default 1.0)
+uniform float waveRandomness;       // Add randomness to waves (default 0.0)
 
 // Enhanced wave uniforms
 uniform vec3 waveDirections[4];  
@@ -946,6 +954,31 @@ uniform float waveFrequencies[4];
 uniform float waveSpeeds[4];
 uniform float wavePhases[4];      // Phase offsets for variation
 uniform float waveSteepness[4];   // Control wave shape
+
+// Simple noise function for vertex shader (GPU Gems Chapter 5)
+float hash2D(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float perlinNoise(vec2 p, int octaves) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    for (int i = 0; i < octaves; i++) {
+        vec2 i_p = floor(p);
+        vec2 f_p = fract(p);
+        f_p = f_p * f_p * (3.0 - 2.0 * f_p); // Smoothstep
+        
+        float a = hash2D(i_p);
+        float b = hash2D(i_p + vec2(1.0, 0.0));
+        float c = hash2D(i_p + vec2(0.0, 1.0));
+        float d = hash2D(i_p + vec2(1.0, 1.0));
+        
+        value += amplitude * mix(mix(a, b, f_p.x), mix(c, d, f_p.x), f_p.y);
+        amplitude *= 0.5;
+        p *= 2.0;
+    }
+    return value;
+}
 
 // GPU Gems enhanced Gerstner wave with wave sharpening
 vec3 calculateGerstnerWave(vec3 position, vec3 direction, float amplitude, float frequency, float speed, float phase, float steepness, float time) {
@@ -1000,12 +1033,21 @@ void main() {
     vec3 totalDisplacement = vec3(0.0);
     vec3 totalNormal = vec3(0.0, 1.0, 0.0);
     
-    // Process 4 waves for debugging
+    // Process 4 waves with height multiplier and randomness
     for (int i = 0; i < 4; i++) {
+        // Add randomness to amplitude based on position and time
+        float randomFactor = 1.0;
+        if (waveRandomness > 0.001) {
+            float randomNoise = perlinNoise(worldPos.xz * 0.01 + time * 0.1 + float(i), 2);
+            randomFactor = mix(1.0, 0.5 + randomNoise, waveRandomness);
+        }
+        
+        float adjustedAmplitude = waveAmplitudes[i] * waveHeightMultiplier * randomFactor;
+        
         vec3 waveDisp = calculateGerstnerWave(
             worldPos,
             waveDirections[i],
-            waveAmplitudes[i],
+            adjustedAmplitude,
             waveFrequencies[i],
             waveSpeeds[i],
             wavePhases[i],
@@ -1016,7 +1058,7 @@ void main() {
         vec3 waveNormal = calculateGerstnerNormal(
             worldPos,
             waveDirections[i],
-            waveAmplitudes[i],
+            adjustedAmplitude,
             waveFrequencies[i],
             waveSpeeds[i],
             wavePhases[i],
@@ -1068,6 +1110,8 @@ uniform float time;
 uniform vec3 waterBaseColor;
 uniform float waterTransparency;
 uniform float waveSpeedMultiplier;
+uniform float waveHeightMultiplier; // NEW: Control wave amplitude
+uniform float waveRandomness;       // NEW: Add randomness to waves
 
 // GPU Gems Chapter 2: Caustics uniforms
 uniform bool enableCaustics;
@@ -1216,21 +1260,41 @@ vec3 rayPlaneIntersection(vec3 rayOrigin, vec3 rayDirection, vec3 planeNormal, f
     return rayOrigin + rayDirection * t;
 }
 
-// Simplified caustic pattern for cleaner water
+// Enhanced caustic pattern with multiple layers and randomness
 float generateCaustics(vec3 worldPos, float time) {
     if (!enableCaustics) return 0.0;
     
-    // Much simpler caustics - just gentle light variation
-    vec2 causticsCoord = worldPos.xz * 0.0001 + time * 0.01;
+    // Use Perlin noise for organic, non-repeating caustic patterns
+    vec2 causticsCoord = worldPos.xz * causticsScale;
     
-    // Single, smooth caustic pattern
-    float caustic = sin(causticsCoord.x * 4.0) * sin(causticsCoord.y * 4.0) * 0.5 + 0.5;
-    caustic = smoothstep(0.3, 0.7, caustic) * 0.1; // Very subtle
+    // Layer 1: Main caustic pattern (warped by noise)
+    vec2 warp1 = vec2(
+        perlinNoise(causticsCoord * 0.5 + time * 0.02, 2),
+        perlinNoise(causticsCoord * 0.5 + time * 0.025 + vec2(5.2, 1.3), 2)
+    );
+    float caustic1 = perlinNoise(causticsCoord + warp1 * 0.3 + time * 0.015, 3);
     
-    // Simple distance attenuation
-    float distanceAttenuation = 1.0 / (1.0 + length(worldPos.xz - viewPos.xz) * 0.00001);
+    // Layer 2: Secondary pattern at different scale
+    vec2 warp2 = vec2(
+        perlinNoise(causticsCoord * 0.8 - time * 0.018, 2),
+        perlinNoise(causticsCoord * 0.8 - time * 0.022 + vec2(3.7, 2.1), 2)
+    );
+    float caustic2 = perlinNoise(causticsCoord * 1.3 + warp2 * 0.25 - time * 0.012, 3);
     
-    return caustic * causticsIntensity * distanceAttenuation * 0.5; // Much more subtle
+    // Layer 3: Fine detail
+    float caustic3 = perlinNoise(causticsCoord * 2.0 + time * 0.03, 2);
+    
+    // Combine with different weights
+    float combined = caustic1 * 0.5 + caustic2 * 0.3 + caustic3 * 0.2;
+    
+    // Apply contrast to create bright spots
+    combined = pow(abs(combined), 2.5) * 1.3;
+    combined = smoothstep(0.2, 0.8, combined);
+    
+    // Distance attenuation
+    float distanceAttenuation = 1.0 / (1.0 + length(worldPos.xz - viewPos.xz) * 0.00005);
+    
+    return combined * causticsIntensity * distanceAttenuation;
 }
 
 void main() {
@@ -1282,16 +1346,27 @@ void main() {
     // Uniform water color - no distance-based gradients
     vec3 waterColor = baseOceanColor; // Use consistent color across entire ocean
     
-    // Minimal, realistic foam system
+    // Enhanced foam system with wave-based trails
     float totalFoam = 0.0;
     
-    // Only add very subtle foam on extreme wave peaks
+    // Wave height foam (peaks)
     if (waveHeight > 450.0) {
-        float heightFoam = smoothstep(450.0, 600.0, waveHeight) * 0.1; // Much more subtle
-        totalFoam = heightFoam;
+        float heightFoam = smoothstep(450.0, 600.0, waveHeight) * 0.15;
+        totalFoam += heightFoam;
     }
     
-    totalFoam = clamp(totalFoam, 0.0, 0.15); // Very limited foam
+    // Dynamic foam trails based on wave velocity
+    vec2 waveVelocity = vec2(dFdx(fragPosition.y), dFdy(fragPosition.y));
+    float waveSpeed = length(waveVelocity) * 100.0;
+    float velocityFoam = smoothstep(0.3, 1.0, waveSpeed) * 0.12;
+    
+    // Foam persistence using noise (foam lingers)
+    vec2 foamCoord = fragPosition.xz * 0.01 - time * 0.05;
+    float foamPersistence = ridgedNoise(foamCoord) * 0.08;
+    
+    // Combine foam types
+    totalFoam += velocityFoam * foamPersistence;
+    totalFoam = clamp(totalFoam, 0.0, 0.25);
     
     // GPU Gems Chapter 19: Physically accurate Fresnel for water
     float NdotV = max(dot(norm, viewDir), 0.0);
@@ -1445,22 +1520,29 @@ void main() {
     // GPU Gems Chapter 14: Smooth perspective-corrected reflection blending
     vec3 sunColor = lightColor * vec3(1.0, 0.95, 0.8); // Warm sun color
     
-    // Enhanced sun reflections for better visibility
+    // Reduced sun reflection intensity for more natural look
     vec3 enhancedSpecular = (
-        sunReflection * 0.8 +          // More visible sun core
-        wideReflection * 0.4 +         // Better spread  
-        glitterReflection * 0.2        // More visible glitter
+        sunReflection * 0.3 +          // Reduced sun core (was 0.8)
+        wideReflection * 0.2 +         // Reduced spread (was 0.4)
+        glitterReflection * 0.15       // Reduced glitter (was 0.2)
     ) * sunColor * waveReflectionBoost * waveSmoothing;
     
     // Multi-layer smoothing for very gradual transitions
     float smoothingFactor1 = smoothstep(0.0, 1.0, length(enhancedSpecular));
     float smoothingFactor2 = smoothstep(0.1, 0.8, smoothingFactor1);
-    enhancedSpecular *= smoothingFactor2 * 0.8;
+    enhancedSpecular *= smoothingFactor2 * 0.5; // Reduced (was 0.8)
+    
+    // Add subtle wave-based reflections that dance on the surface
+    float waveReflect1 = sin(fragPosition.x * 0.01 + time * 0.5) * cos(fragPosition.z * 0.008 + time * 0.3);
+    float waveReflect2 = sin(fragPosition.x * 0.015 - time * 0.4) * cos(fragPosition.z * 0.012 - time * 0.25);
+    float subtleWaveReflection = (waveReflect1 + waveReflect2) * 0.5 + 0.5;
+    subtleWaveReflection = pow(subtleWaveReflection, 3.0) * 0.15 * fresnel;
+    vec3 waveReflectionColor = sunColor * subtleWaveReflection * NdotL;
     
     // Enhanced quality scaling for more visible reflections
-    float qualityScale = mix(0.5, 0.9, perspectiveCorrection); 
-    qualityScale = smoothstep(0.0, 1.0, qualityScale); // Additional smoothing
-    vec3 specularLight = (specular * skyColor * 0.02 + enhancedSpecular * qualityScale * 0.15) * lightIntensity;
+    float qualityScale = mix(0.4, 0.7, perspectiveCorrection); // Reduced (was 0.5-0.9)
+    qualityScale = smoothstep(0.0, 1.0, qualityScale);
+    vec3 specularLight = (specular * skyColor * 0.02 + enhancedSpecular * qualityScale * 0.1 + waveReflectionColor) * lightIntensity;
     
     // Subtle rim lighting
     float rimIntensity = pow(1.0 - dot(norm, viewDir), 3.0) * 0.05;
@@ -1491,12 +1573,23 @@ void main() {
     float gpuGemsCaustics = generateCaustics(fragPosition, time);
     baseColor += vec3(gpuGemsCaustics) * sunlightColor * (1.0 - depthFactor * 0.3);
     
-    // Add subtle sky reflections based on viewing angle
-    vec3 skyReflection = skyColor * fresnel * 0.15; // Subtle sky color reflection
+    // Enhanced reflections system
+    vec3 reflectVector = reflect(-viewDir, norm);
+    
+    // Sky reflection
+    vec3 skyReflection = skyColor * fresnel * 0.18;
+    
+    // Simulated environment reflection (horizon + zenith gradient)
+    float horizonFactor = abs(reflectVector.y);
+    vec3 horizonReflection = mix(horizonColor, skyColor, horizonFactor);
+    vec3 environmentReflection = horizonReflection * fresnel * 0.12;
+    
+    // Combine sky and environment reflections
+    vec3 totalReflection = skyReflection + environmentReflection;
     
     vec3 finalColor = baseColor + 
-                     specularLight * 1.5 +     // Much stronger specular for visible reflections
-                     skyReflection * 0.8 +      // Increased sky reflection
+                     specularLight * 0.8 +     // Reduced specular (was 1.5)
+                     totalReflection * 0.6 +   // Reduced reflection (was 0.9)
                      subsurface +              
                      rimColor;
     
@@ -1551,6 +1644,28 @@ void main() {
     // NO wave-based subsurface scattering - uniform water appearance
     
     // NO wave-based ambient occlusion - uniform lighting
+    
+    // Underwater camera effect (when camera is below water surface)
+    float underwaterDepth = max(0.0, waterPlaneHeight - viewPos.y);
+    if (underwaterDepth > 0.5) {
+        // Underwater color tint (blue-green)
+        vec3 underwaterTint = vec3(0.1, 0.3, 0.5);
+        float tintStrength = clamp(underwaterDepth * 0.015, 0.0, 0.7);
+        finalColor = mix(finalColor, underwaterTint, tintStrength);
+        
+        // Underwater fog/murkiness
+        float underwaterFog = clamp(distanceFromCamera * 0.0002, 0.0, 0.85);
+        finalColor = mix(finalColor, waterBaseColor * 0.4, underwaterFog);
+        
+        // Underwater caustics are more prominent
+        finalColor += vec3(gpuGemsCaustics * 0.6);
+        
+        // God rays effect (simple volumetric light approximation)
+        vec3 toLight = normalize(lightPos - fragPosition);
+        float godRayStrength = max(0.0, dot(toLight, viewDir));
+        godRayStrength = pow(godRayStrength, 4.0) * 0.1;
+        finalColor += lightColor * godRayStrength * (1.0 - tintStrength);
+    }
     
     alpha = clamp(alpha, 0.001, 0.98); // Allow almost complete transparency
     
@@ -1820,13 +1935,15 @@ in vec3 TexCoords;
 uniform sampler2D skybox;
 
 void main() {
-    // Convert 3D direction to spherical UV coordinates
     vec3 dir = normalize(TexCoords);
-    vec2 uv;
-    uv.x = atan(dir.z, dir.x) / (2.0 * 3.14159265359) + 0.5;
-    uv.y = asin(dir.y) / 3.14159265359 + 0.5;
     
-    FragColor = texture(skybox, uv);
+    float theta = atan(dir.z, dir.x);
+    float phi = asin(dir.y);
+    
+    float u = (theta + 3.14159265) / 6.28318531;
+    float v = (phi + 1.57079633) / 3.14159265;
+    
+    FragColor = texture(skybox, vec2(u, v));
 }
 ` + "\x00"
 
@@ -2065,6 +2182,29 @@ func InitBloomShader() Shader {
 		vertexSource:   fxaaVertexShaderSource, // Same vertex shader as FXAA
 		fragmentSource: bloomFragmentShaderSource,
 		Name:           "bloom",
+	}
+	return shader
+}
+
+// Simple passthrough shader for when no post-processing is needed
+const passthroughFragmentShaderSource = `
+#version 410 core
+
+in vec2 TexCoords;
+out vec4 FragColor;
+
+uniform sampler2D screenTexture;
+
+void main() {
+    FragColor = texture(screenTexture, TexCoords);
+}
+` + "\x00"
+
+func InitPassthroughShader() Shader {
+	shader := Shader{
+		vertexSource:   fxaaVertexShaderSource, // Same vertex shader
+		fragmentSource: passthroughFragmentShaderSource,
+		Name:           "passthrough",
 	}
 	return shader
 }

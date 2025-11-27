@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	WaterResolution = 4096
+	WaterResolution = 256 // Reasonable resolution for editor (256x256 = 65k vertices)
 	MaxWaves        = 4
 )
 
@@ -40,10 +40,17 @@ type WaterSimulation struct {
 	WaterColor          mgl32.Vec3
 	Transparency        float32
 	WaveSpeedMultiplier float32
+	WaveHeight          float32 // NEW: Control wave amplitude
+	WaveRandomness      float32 // NEW: Add randomness to waves
 	
 	// Advanced Appearance
 	FoamEnabled         bool
 	FoamIntensity       float32
+	
+	// Caustics
+	CausticsEnabled     bool
+	CausticsIntensity   float32
+	CausticsScale       float32
 	
 	// Lighting & Shadows
 	SpecularIntensity   float32
@@ -90,8 +97,13 @@ func NewWaterSimulation(engine *engine.Gopher, size float32, amplitude float32) 
 		WaterColor:          mgl32.Vec3{0.06, 0.22, 0.45}, // Natural ocean blue (from working example)
 		Transparency:        0.85, // Visual transparency in shader (not alpha blending)
 		WaveSpeedMultiplier: 1.0,
+		WaveHeight:          1.0,  // Default wave amplitude multiplier
+		WaveRandomness:      0.0,  // Default: no randomness (smooth waves)
 		FoamEnabled:         true,
 		FoamIntensity:       0.5,
+		CausticsEnabled:     false, // Disabled by default (performance)
+		CausticsIntensity:   0.3,
+		CausticsScale:       0.003,
 		SpecularIntensity:   1.0,
 		ShadowStrength:      0.5,
 		DistortionStrength:  0.2,
@@ -167,6 +179,7 @@ func (ws *WaterSimulation) Start() {
 	ws.model = model
 	ws.setupWaterUniforms()
 	ws.engine.AddModel(model)
+	createGameObjectForModel(model)
 	
 	// Set initial sky color
 	ws.lastSkyColor = mgl32.Vec3{skyboxSolidColor[0], skyboxSolidColor[1], skyboxSolidColor[2]}
@@ -202,6 +215,9 @@ func (ws *WaterSimulation) Update() {
 	// Send advanced uniforms
 	ws.model.CustomUniforms["enableFog"] = ws.FoamEnabled
 	ws.model.CustomUniforms["fogIntensity"] = ws.FoamIntensity
+	ws.model.CustomUniforms["enableCaustics"] = ws.CausticsEnabled
+	ws.model.CustomUniforms["causticsIntensity"] = ws.CausticsIntensity
+	ws.model.CustomUniforms["causticsScale"] = ws.CausticsScale
 	ws.model.CustomUniforms["waterReflectionIntensity"] = ws.SpecularIntensity
 	ws.model.CustomUniforms["shadowIntensity"] = ws.ShadowStrength
 	ws.model.CustomUniforms["waterDistortionIntensity"] = ws.DistortionStrength
@@ -298,13 +314,28 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 	ws.model.CustomUniforms["waveSpeeds"] = speeds
 	ws.model.CustomUniforms["wavePhases"] = phases
 	ws.model.CustomUniforms["waveSteepness"] = steepness
+	
+	// CRITICAL: Set wave height multiplier (default 1.0) - without this, waves have zero amplitude!
+	ws.model.CustomUniforms["waveHeightMultiplier"] = ws.WaveHeight
+	ws.model.CustomUniforms["waveRandomness"] = ws.WaveRandomness
+	ws.model.CustomUniforms["time"] = float32(0.0) // Initial time
 
+	// Apply photorealistic water rendering configuration (BASE DEFAULTS)
+	// This ensures all hidden uniforms are set correctly, matching the working example
 	waterRenderConfig := renderer.WaterPhotorealisticConfig()
 	waterRenderConfig.MeshSmoothingIntensity = 0.85
+	waterRenderConfig.FilteringQuality = 3
+	waterRenderConfig.AntiAliasing = true
+	waterRenderConfig.NormalSmoothingRadius = 1.2
+	waterRenderConfig.EnableCaustics = ws.CausticsEnabled
+	waterRenderConfig.NoiseIntensity = 0.0
+	
 	renderer.ApplyWaterRenderingConfig(ws.model, waterRenderConfig)
+	
+	// Water-specific uniforms
+	ws.model.CustomUniforms["waterPlaneHeight"] = float32(5.0)
 
 	// Initial height - dynamic update in Update()
-	ws.model.CustomUniforms["waterPlaneHeight"] = float32(5.0)
 	ws.model.CustomUniforms["waterBaseColor"] = ws.WaterColor
 	ws.model.CustomUniforms["waterTransparency"] = ws.Transparency
 	ws.model.CustomUniforms["waveSpeedMultiplier"] = ws.WaveSpeedMultiplier
@@ -362,4 +393,32 @@ func RestoreWaterSimulation(eng *engine.Gopher, model *renderer.Model, config Wa
 	
 	// Register behavior (Start() will be called by manager)
 	behaviour.GlobalBehaviourManager.Add(ws)
+}
+
+// ApplyChanges forces water uniform updates when properties change via UI
+func (ws *WaterSimulation) ApplyChanges() {
+	if ws.model == nil || ws.model.CustomUniforms == nil {
+		return
+	}
+	
+	// Update editable properties directly (same as Update() but without time/light)
+	ws.model.CustomUniforms["waterBaseColor"] = ws.WaterColor
+	ws.model.CustomUniforms["waterTransparency"] = ws.Transparency
+	ws.model.CustomUniforms["waveSpeedMultiplier"] = ws.WaveSpeedMultiplier
+	ws.model.CustomUniforms["waveHeightMultiplier"] = ws.WaveHeight
+	ws.model.CustomUniforms["waveRandomness"] = ws.WaveRandomness
+	ws.model.CustomUniforms["enableFog"] = ws.FoamEnabled
+	ws.model.CustomUniforms["fogIntensity"] = ws.FoamIntensity
+	ws.model.CustomUniforms["enableCaustics"] = ws.CausticsEnabled
+	ws.model.CustomUniforms["causticsIntensity"] = ws.CausticsIntensity
+	ws.model.CustomUniforms["causticsScale"] = ws.CausticsScale
+	ws.model.CustomUniforms["waterReflectionIntensity"] = ws.SpecularIntensity
+	ws.model.CustomUniforms["shadowIntensity"] = ws.ShadowStrength
+	ws.model.CustomUniforms["waterDistortionIntensity"] = ws.DistortionStrength
+	ws.model.CustomUniforms["waterNormalIntensity"] = ws.NormalStrength
+	
+	// Update material alpha if needed
+	if ws.model.Material != nil {
+		ws.model.Material.Alpha = 1.0
+	}
 }

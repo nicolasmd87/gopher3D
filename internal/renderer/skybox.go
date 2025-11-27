@@ -3,7 +3,6 @@ package renderer
 import (
 	"fmt"
 	"image"
-	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
@@ -136,7 +135,8 @@ func (s *Skybox) Render(camera Camera) {
 	s.Shader.SetMat4("view", view)
 	s.Shader.SetMat4("projection", projection)
 
-	// Change depth function so skybox passes when depth is 1.0 (far plane)
+
+	gl.DepthMask(false)
 	gl.DepthFunc(gl.LEQUAL)
 	
 	// Bind texture
@@ -148,28 +148,59 @@ func (s *Skybox) Render(camera Camera) {
 	gl.DrawArrays(gl.TRIANGLES, 0, 36)
 	gl.BindVertexArray(0)
 	
-	// Restore depth function
+	// Restore OpenGL state
+	gl.DepthMask(true)
 	gl.DepthFunc(gl.LESS)
 }
 
 // loadSkyboxTexture loads a texture specifically for skybox use
 func loadSkyboxTexture(filePath string) (uint32, error) {
+	fmt.Printf("Loading skybox texture: %s\n", filePath)
+	
 	imgFile, err := os.Open(filePath)
 	if err != nil {
 		return 0, err
 	}
 	defer imgFile.Close()
 
-	img, _, err := image.Decode(imgFile)
+	img, format, err := image.Decode(imgFile)
 	if err != nil {
 		return 0, err
 	}
 
-	rgba := image.NewRGBA(img.Bounds())
-	if rgba.Stride != rgba.Rect.Size().X*4 {
+	fmt.Printf("Decoded %s image successfully\n", format)
+
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	
+	maxSize := 2048
+	if width > maxSize || height > maxSize {
+		fmt.Printf("WARNING: Large skybox (%dx%d) may impact performance\n", width, height)
+	}
+	
+	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
+	if rgba.Stride != width*4 {
 		return 0, fmt.Errorf("unsupported stride")
 	}
-	draw.Draw(rgba, rgba.Bounds(), img, image.Point{0, 0}, draw.Src)
+	
+	for y := 0; y < height; y++ {
+		srcY := bounds.Min.Y + y
+		dstY := height - 1 - y
+		dstOffset := dstY * rgba.Stride
+		
+		for x := 0; x < width; x++ {
+			srcX := bounds.Min.X + x
+			r, g, b, a := img.At(srcX, srcY).RGBA()
+			offset := dstOffset + x*4
+			rgba.Pix[offset+0] = uint8(r >> 8)
+			rgba.Pix[offset+1] = uint8(g >> 8)
+			rgba.Pix[offset+2] = uint8(b >> 8)
+			rgba.Pix[offset+3] = uint8(a >> 8)
+		}
+	}
+
+	fmt.Printf("Uploading texture to GPU (%dx%d)...\n", width, height)
 
 	var textureID uint32
 	gl.GenTextures(1, &textureID)
@@ -179,9 +210,15 @@ func loadSkyboxTexture(filePath string) (uint32, error) {
 	// Skybox-specific texture parameters
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	
+	// Use mipmaps for better performance and quality
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 
+	fmt.Printf("Generating mipmaps...\n")
+	gl.GenerateMipmap(gl.TEXTURE_2D)
+	
+	fmt.Printf("Skybox texture loaded successfully! (ID: %d)\n", textureID)
 	return textureID, nil
 }
 
@@ -261,18 +298,14 @@ func CreateSolidColorSkybox(r, g, b float32) (*Skybox, error) {
 	return skybox, nil
 }
 
-// SetSkyboxColor easily sets custom skybox color (RGB values 0.0-1.0)
-// Call this BEFORE engine.SetSkybox() in your examples!
-// Example: renderer.SetSkyboxColor(1.0, 0.5, 0.2) // Orange sky
+
 func SetSkyboxColor(r, g, b float32) {
 	SkyboxR = r
 	SkyboxG = g
 	SkyboxB = b
 }
 
-// SetSkyboxSize sets the skybox size (default is 1000.0)
-// Call this BEFORE engine.SetSkybox() in your examples!
-// Example: renderer.SetSkyboxSize(5000.0) // Large skybox for big worlds
+
 func SetSkyboxSize(size float32) {
 	SkyboxSize = size
 }
@@ -294,8 +327,7 @@ func SetSkyboxBrightBlue() {
 	SetSkyboxColor(0.3, 0.6, 1.0) // Very bright blue
 }
 
-// UpdateCurrentSkyboxColor updates the color of an existing skybox (if solid color)
-// This is useful for changing colors after the skybox is already created
+
 func UpdateCurrentSkyboxColor(skybox *Skybox, r, g, b float32) {
 	if skybox != nil {
 		skybox.UpdateColor(r, g, b)

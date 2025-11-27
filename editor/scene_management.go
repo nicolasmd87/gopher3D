@@ -16,9 +16,10 @@ import (
 )
 
 type SceneData struct {
-	Models []SceneModel `json:"models"`
-	Lights []SceneLight `json:"lights"`
-	Water  *SceneWater  `json:"water,omitempty"` // Optional water configuration
+	Models        []SceneModel  `json:"models"`
+	Lights        []SceneLight  `json:"lights"`
+	Water         *SceneWater   `json:"water,omitempty"`  // Optional water configuration
+	Skybox        *SceneSkybox  `json:"skybox,omitempty"` // Optional skybox configuration
 }
 
 type SceneModel struct {
@@ -40,6 +41,13 @@ type SceneModel struct {
 	
 	// Voxel Specific Data
 	VoxelConfig *VoxelConfig `json:"voxel_config,omitempty"`
+	
+	// Components
+	Components []SceneComponent `json:"components,omitempty"`
+}
+
+type SceneComponent struct {
+	Type string `json:"type"`
 }
 
 type SceneLight struct {
@@ -63,6 +71,21 @@ type SceneWater struct {
 	Transparency        float32    `json:"transparency"`
 	WaveSpeedMultiplier float32    `json:"wave_speed_multiplier"`
 	Position            [3]float32 `json:"position"`
+	FoamEnabled         bool       `json:"foam_enabled"`
+	FoamIntensity       float32    `json:"foam_intensity"`
+	CausticsEnabled     bool       `json:"caustics_enabled"`
+	CausticsIntensity   float32    `json:"caustics_intensity"`
+	CausticsScale       float32    `json:"caustics_scale"`
+	SpecularIntensity   float32    `json:"specular_intensity"`
+	NormalStrength      float32    `json:"normal_strength"`
+	DistortionStrength  float32    `json:"distortion_strength"`
+	ShadowStrength      float32    `json:"shadow_strength"`
+}
+
+type SceneSkybox struct {
+	Type      string     `json:"type"`       // "image" or "color"
+	ImagePath string     `json:"image_path"` // Path to skybox texture (for image type)
+	Color     [3]float32 `json:"color"`      // RGB color (for color type)
 }
 
 func newScene() {
@@ -102,7 +125,7 @@ func newScene() {
 	// Ensure we have at least one default light
 	if len(lights) == 0 {
 		defaultLight := renderer.CreateDirectionalLight(
-			mgl.Vec3{0.3, -0.8, 0.5}.Normalize(),
+			mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(), // FROM surface TO sun (upward Y)
 			mgl.Vec3{1.0, 0.95, 0.85},
 			4.5, // Much higher intensity for water reflections
 		)
@@ -179,12 +202,25 @@ func saveScene() {
 		
 		// Check for voxel configuration
 		if model.Metadata != nil {
-			if config, ok := model.Metadata["voxelConfig"].(VoxelConfig); ok {
-				sceneModel.VoxelConfig = &config
+		if config, ok := model.Metadata["voxelConfig"].(VoxelConfig); ok {
+			sceneModel.VoxelConfig = &config
+		}
+	}
+	
+	// Save components
+	if obj := getGameObjectForModel(model); obj != nil {
+		sceneModel.Components = make([]SceneComponent, 0)
+		for _, comp := range obj.Components {
+			typeName := getComponentTypeName(comp)
+			if typeName != "" {
+				sceneModel.Components = append(sceneModel.Components, SceneComponent{
+					Type: typeName,
+				})
 			}
 		}
-		
-		sceneData.Models = append(sceneData.Models, sceneModel)
+	}
+	
+	sceneData.Models = append(sceneData.Models, sceneModel)
 	}
 
 	// Save lights with complete properties
@@ -215,6 +251,28 @@ func saveScene() {
 			Transparency:        activeWaterSim.Transparency,
 			WaveSpeedMultiplier: activeWaterSim.WaveSpeedMultiplier,
 			Position:            [3]float32{activeWaterSim.model.Position.X(), activeWaterSim.model.Position.Y(), activeWaterSim.model.Position.Z()},
+			FoamEnabled:         activeWaterSim.FoamEnabled,
+			FoamIntensity:       activeWaterSim.FoamIntensity,
+			CausticsEnabled:     activeWaterSim.CausticsEnabled,
+			CausticsIntensity:   activeWaterSim.CausticsIntensity,
+			CausticsScale:       activeWaterSim.CausticsScale,
+			SpecularIntensity:   activeWaterSim.SpecularIntensity,
+			NormalStrength:      activeWaterSim.NormalStrength,
+			DistortionStrength:  activeWaterSim.DistortionStrength,
+			ShadowStrength:      activeWaterSim.ShadowStrength,
+		}
+	}
+	
+	// Save skybox if it exists
+	if skyboxColorMode {
+		sceneData.Skybox = &SceneSkybox{
+			Type:  "color",
+			Color: skyboxSolidColor,
+		}
+	} else if skyboxTexturePath != "" {
+		sceneData.Skybox = &SceneSkybox{
+			Type:      "image",
+			ImagePath: skyboxTexturePath,
 		}
 	}
 
@@ -298,6 +356,17 @@ func loadScene() {
 				logToConsole(fmt.Sprintf("Failed to regenerate voxel terrain: %s", sceneModel.Name), "error")
 				continue
 			}
+			
+			// Restore texture path for voxels BEFORE adding model
+			if sceneModel.TexturePath != "" {
+				if model.Material == nil {
+					model.Material = &renderer.Material{}
+				}
+				model.Material.TexturePath = sceneModel.TexturePath
+				model.Material.TextureID = 0
+				logToConsole(fmt.Sprintf("Voxel texture will be loaded: %s", filepath.Base(sceneModel.TexturePath)), "info")
+			}
+			
 			// Manually add model here since regenerateVoxelTerrain no longer does it
 			eng.AddModel(model)
 		} else {
@@ -470,6 +539,22 @@ func loadScene() {
 
 		// Mark model as dirty to ensure uniforms are updated on next render
 		model.IsDirty = true
+		
+		// Force texture loading if path is set (renderer will auto-load on next AddModel/render)
+		if model.Material != nil && model.Material.TexturePath != "" && model.Material.TextureID == 0 {
+			// Texture will be loaded automatically by renderer on next render
+			logToConsole(fmt.Sprintf("Texture queued for loading: %s", filepath.Base(model.Material.TexturePath)), "info")
+		}
+		
+		// Create GameObject and restore components
+		obj := createGameObjectForModel(model)
+		for _, sceneComp := range sceneModel.Components {
+			comp := behaviour.CreateScript(sceneComp.Type)
+			if comp != nil {
+				obj.AddComponent(comp)
+				logToConsole(fmt.Sprintf("Restored component %s to %s", sceneComp.Type, model.Name), "info")
+			}
+		}
 	}
 
 	// Load lights with complete properties
@@ -510,7 +595,7 @@ func loadScene() {
 	if eng.Light == nil {
 		logToConsole("No lights found in scene file, creating default Sun", "warning")
 		defaultLight := renderer.CreateDirectionalLight(
-			mgl.Vec3{0.3, -0.8, 0.5}.Normalize(),
+			mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(), // FROM surface TO sun (upward Y)
 			mgl.Vec3{1.0, 0.95, 0.85},
 			4.5, // Much higher intensity for water reflections
 		)
@@ -527,11 +612,51 @@ func loadScene() {
 		ws.WaterColor = mgl.Vec3{sceneData.Water.WaterColor[0], sceneData.Water.WaterColor[1], sceneData.Water.WaterColor[2]}
 		ws.Transparency = sceneData.Water.Transparency
 		ws.WaveSpeedMultiplier = sceneData.Water.WaveSpeedMultiplier
+		ws.FoamEnabled = sceneData.Water.FoamEnabled
+		ws.FoamIntensity = sceneData.Water.FoamIntensity
+		ws.CausticsEnabled = sceneData.Water.CausticsEnabled
+		ws.CausticsIntensity = sceneData.Water.CausticsIntensity
+		ws.CausticsScale = sceneData.Water.CausticsScale
+		ws.SpecularIntensity = sceneData.Water.SpecularIntensity
+		ws.NormalStrength = sceneData.Water.NormalStrength
+		ws.DistortionStrength = sceneData.Water.DistortionStrength
+		ws.ShadowStrength = sceneData.Water.ShadowStrength
 		
 		activeWaterSim = ws
 		behaviour.GlobalBehaviourManager.Add(ws)
 		
 		logToConsole("Water loaded from scene", "info")
+	}
+	
+	// Load skybox if it exists in scene
+	if sceneData.Skybox != nil {
+		if sceneData.Skybox.Type == "color" {
+			skyboxColorMode = true
+			skyboxSolidColor = sceneData.Skybox.Color
+			openglRenderer.ClearColorR = sceneData.Skybox.Color[0]
+			openglRenderer.ClearColorG = sceneData.Skybox.Color[1]
+			openglRenderer.ClearColorB = sceneData.Skybox.Color[2]
+			logToConsole("Skybox color loaded from scene", "info")
+		} else if sceneData.Skybox.Type == "image" && sceneData.Skybox.ImagePath != "" {
+			skyboxColorMode = false
+			skyboxTexturePath = sceneData.Skybox.ImagePath
+			// Load the skybox texture
+			skybox, err := renderer.CreateSkybox(skyboxTexturePath)
+			if err != nil {
+				logToConsole(fmt.Sprintf("Failed to load skybox: %v", err), "error")
+			} else {
+				openglRenderer.SetSkybox(skybox)
+				logToConsole("Skybox image loaded from scene", "info")
+			}
+		}
+	} else {
+		// No skybox saved - use default color
+		skyboxColorMode = true
+		skyboxSolidColor = [3]float32{0.5, 0.7, 1.0}
+		openglRenderer.ClearColorR = 0.5
+		openglRenderer.ClearColorG = 0.7
+		openglRenderer.ClearColorB = 1.0
+		logToConsole("Using default skybox color", "info")
 	}
 
 	currentScenePath = filename
@@ -559,7 +684,17 @@ func addModelToScene(path string, name string) *renderer.Model {
 	model.SetScale(10, 10, 10)
 
 	// Ensure proper material defaults
-	if model.Material != nil {
+	if model.Material == nil {
+		model.Material = &renderer.Material{
+			Name:         "Default",
+			DiffuseColor: [3]float32{0.8, 0.8, 0.8},
+			Metallic:     0.0,
+			Roughness:    0.5,
+			Alpha:        1.0,
+			Exposure:     1.0,
+		}
+	} else {
+		// Fix common issues with loaded materials
 		if model.Material.Exposure == 0 {
 			model.Material.Exposure = 1.0
 		}
@@ -567,6 +702,9 @@ func addModelToScene(path string, name string) *renderer.Model {
 			model.Material.Alpha = 1.0
 		}
 	}
+	
+	// Always ensure model has proper exposure set via method
+	model.SetExposure(1.0)
 	
 	// Apply default advanced rendering configuration to new models
 	if globalAdvancedRenderingEnabled {
@@ -603,7 +741,43 @@ func addModelToScene(path string, name string) *renderer.Model {
 	}
 
 	eng.AddModel(model)
+	
+	createGameObjectForModel(model)
+	
 	return model
+}
+
+func createGameObjectForModel(model *renderer.Model) *behaviour.GameObject {
+	obj := behaviour.NewGameObject(model.Name)
+	obj.SetModel(model)
+	obj.Transform.SetPosition(model.Position)
+	obj.Transform.SetRotation(model.Rotation)
+	obj.Transform.SetScale(model.Scale)
+	
+	modelToGameObject[model] = obj
+	behaviour.GlobalComponentManager.RegisterGameObject(obj)
+	
+	return obj
+}
+
+func getGameObjectForModel(model *renderer.Model) *behaviour.GameObject {
+	return modelToGameObject[model]
+}
+
+func removeGameObjectForModel(model *renderer.Model) {
+	if obj, exists := modelToGameObject[model]; exists {
+		behaviour.GlobalComponentManager.UnregisterGameObject(obj)
+		delete(modelToGameObject, model)
+	}
+}
+
+func getComponentTypeName(comp behaviour.Component) string {
+	typeName := fmt.Sprintf("%T", comp)
+	parts := strings.Split(typeName, ".")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return typeName
 }
 
 func setupEditorScene() {
@@ -622,7 +796,7 @@ func setupEditorScene() {
 
 	// Create default light
 	defaultLight := renderer.CreateDirectionalLight(
-		mgl.Vec3{0.3, -0.8, 0.5}.Normalize(), // Sun angle from upper-right
+		mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(), // FROM surface TO sun (upward Y)
 		mgl.Vec3{1.0, 0.95, 0.85},
 		4.5, // Much higher intensity for water reflections
 	)

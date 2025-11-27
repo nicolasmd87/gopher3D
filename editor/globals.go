@@ -1,7 +1,9 @@
 package main
 
 import (
+	"Gopher3D/internal/behaviour"
 	"Gopher3D/internal/engine"
+	"Gopher3D/internal/renderer"
 	"Gopher3D/editor/platforms"
 	"Gopher3D/editor/renderers"
 	"time"
@@ -56,11 +58,15 @@ var (
 	// Scene management
 	currentScenePath = ""
 	sceneModified    = false
+	
+	// Model name editing buffer
+	modelNameEditBuffer = make(map[int]string)
 
 	// Skybox management
-	currentSkyboxPath = ""
-	skyboxColorMode   = true
-	skyboxSolidColor  = [3]float32{0.4, 0.6, 0.9} // Default sky blue
+	currentSkyboxPath  = ""
+	skyboxTexturePath  = ""
+	skyboxColorMode    = true
+	skyboxSolidColor   = [3]float32{0.4, 0.6, 0.9} // Default sky blue
 
 	// Model instancing
 	instanceModelOnAdd = false
@@ -91,7 +97,13 @@ var (
 	activeWaterSim *WaterSimulation
 	
 	// Advanced Rendering Config (global for all models)
-	globalAdvancedRenderingEnabled = false
+	globalAdvancedRenderingEnabled = true // Default to enabled for proper lighting
+	
+	// Script search in inspector
+	scriptSearchText = ""
+	
+	// Model to GameObject mapping
+	modelToGameObject = make(map[*renderer.Model]*behaviour.GameObject)
 )
 
 type ConsoleEntry struct {
