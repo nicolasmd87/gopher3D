@@ -90,7 +90,7 @@ chmod +x gopher3d-editor-linux-amd64
 
 Extract and run. You may need to allow the app in System Preferences → Security & Privacy.
 
-## Running Examples
+## Examples using the lib direclty without the editor (old implementation and tests)
 
 ```bash
 # Lighting demo
@@ -175,8 +175,6 @@ Built with:
 
 ## Images
 
-![Black hole instanciated](https://github.com/user-attachments/assets/0f9467b4-e4b5-4ebf-ac66-ed3e8bc87efc)
+![Black hole](https://github.com/user-attachments/assets/0f9467b4-e4b5-4ebf-ac66-ed3e8bc87efc)
 *Black hole particle simulation with orbital mechanics*
 
-![Mars](https://github.com/nicolasmd87/Gopher3D/assets/8224408/09d2a39b-c1cb-4548-87fb-1a877df24453)
-*Basic planetary rendering example*

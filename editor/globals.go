@@ -1,11 +1,11 @@
 package main
 
 import (
+	"Gopher3D/editor/platforms"
+	"Gopher3D/editor/renderers"
 	"Gopher3D/internal/behaviour"
 	"Gopher3D/internal/engine"
 	"Gopher3D/internal/renderer"
-	"Gopher3D/editor/platforms"
-	"Gopher3D/editor/renderers"
 	"time"
 )
 
@@ -28,10 +28,10 @@ var (
 	showAdvancedRender = false
 	showSceneSettings  = false
 	showGizmos         = true // Default to visible
-	
+
 	// New Feature Flags
-	showAddWater       = false
-	showAddVoxel       = false
+	showAddWater = false
+	showAddVoxel = false
 
 	// FPS tracking
 	lastFrameTime = time.Now()
@@ -39,8 +39,8 @@ var (
 	fps           = 0.0
 	fpsUpdateTime = time.Now()
 
-	imguiInitialized = false
-	sceneSetup       = false
+	imguiInitialized   = false
+	sceneSetup         = false
 	firstFrameComplete = false
 
 	// File explorer state
@@ -58,15 +58,15 @@ var (
 	// Scene management
 	currentScenePath = ""
 	sceneModified    = false
-	
+
 	// Model name editing buffer
 	modelNameEditBuffer = make(map[int]string)
 
 	// Skybox management
-	currentSkyboxPath  = ""
-	skyboxTexturePath  = ""
-	skyboxColorMode    = true
-	skyboxSolidColor   = [3]float32{0.4, 0.6, 0.9} // Default sky blue
+	currentSkyboxPath = ""
+	skyboxTexturePath = ""
+	skyboxColorMode   = true
+	skyboxSolidColor  = [3]float32{0.4, 0.6, 0.9} // Default sky blue
 
 	// Model instancing
 	instanceModelOnAdd = false
@@ -76,8 +76,7 @@ var (
 	availableModels = []struct {
 		Name string
 		Path string
-	}{
-	}
+	}{}
 
 	// Editor config
 	configPath = "editor_config.json"
@@ -92,23 +91,23 @@ var (
 
 	// Track if layouts have been initialized
 	layoutsInitialized = false
-	
+
 	// Feature Instances
 	activeWaterSim *WaterSimulation
-	
+
 	// Advanced Rendering Config (global for all models)
 	globalAdvancedRenderingEnabled = true // Default to enabled for proper lighting
-	
+
 	// Script search in inspector
 	scriptSearchText = ""
-	
+
 	// Model to GameObject mapping
 	modelToGameObject = make(map[*renderer.Model]*behaviour.GameObject)
-	
+
 	// Saved style colors (loaded from config)
 	savedStyleColors   StyleColors
 	styleColorsApplied = false
-	
+
 	// Window border color (OS level)
 	windowBorderR = float32(0.0)
 	windowBorderG = float32(0.0)
