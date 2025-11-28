@@ -24,13 +24,12 @@ func (o *OrbitScript) Start() {}
 func (o *OrbitScript) Update() {
 	deltaTime := float32(0.016)
 	o.time += deltaTime * o.Speed
-	
+
 	x := float32(math.Cos(float64(o.time))) * o.Radius
 	z := float32(math.Sin(float64(o.time))) * o.Radius
-	
+
 	o.GetGameObject().Transform.Position[0] = x
 	o.GetGameObject().Transform.Position[2] = z
 }
 
 func (o *OrbitScript) FixedUpdate() {}
-

@@ -10,7 +10,6 @@ import (
 )
 
 var (
-	// Voxel generation parameters
 	voxelScale       = float32(0.05)
 	voxelAmplitude   = float32(15.0)
 	voxelSeed        = int32(time.Now().Unix())
@@ -18,36 +17,51 @@ var (
 	voxelOctaves     = int32(4)
 	voxelChunkSize   = int32(32)
 	voxelWorldSize   = int32(2)
-	voxelBiome       = int32(0) // 0=Plains, 1=Mountains, 2=Desert, 3=Islands, 4=Caves
+	voxelBiome       = int32(0)
 	voxelTreeDensity = float32(0.02)
+
+	voxelColorGrass  = [3]float32{0.3, 0.7, 0.2}
+	voxelColorDirt   = [3]float32{0.6, 0.4, 0.2}
+	voxelColorStone  = [3]float32{0.5, 0.5, 0.5}
+	voxelColorSand   = [3]float32{0.9, 0.8, 0.5}
+	voxelColorWood   = [3]float32{0.4, 0.25, 0.1}
+	voxelColorLeaves = [3]float32{0.2, 0.6, 0.2}
 )
 
 type VoxelConfig struct {
-	Scale       float32 `json:"scale"`
-	Amplitude   float32 `json:"amplitude"`
-	Seed        int32   `json:"seed"`
-	Threshold   float32 `json:"threshold"`
-	Octaves     int32   `json:"octaves"`
-	ChunkSize   int32   `json:"chunk_size"`
-	WorldSize   int32   `json:"world_size"`
-	Biome       int32   `json:"biome"`
-	TreeDensity float32 `json:"tree_density"`
+	Scale       float32    `json:"scale"`
+	Amplitude   float32    `json:"amplitude"`
+	Seed        int32      `json:"seed"`
+	Threshold   float32    `json:"threshold"`
+	Octaves     int32      `json:"octaves"`
+	ChunkSize   int32      `json:"chunk_size"`
+	WorldSize   int32      `json:"world_size"`
+	Biome       int32      `json:"biome"`
+	TreeDensity float32    `json:"tree_density"`
+	ColorGrass  [3]float32 `json:"color_grass,omitempty"`
+	ColorDirt   [3]float32 `json:"color_dirt,omitempty"`
+	ColorStone  [3]float32 `json:"color_stone,omitempty"`
+	ColorSand   [3]float32 `json:"color_sand,omitempty"`
+	ColorWood   [3]float32 `json:"color_wood,omitempty"`
+	ColorLeaves [3]float32 `json:"color_leaves,omitempty"`
 }
 
 func renderAddVoxelDialog() {
-	if eng == nil { return }
+	if eng == nil {
+		return
+	}
 	imgui.OpenPopup("Add Voxel Terrain")
 	centerX := float32(eng.Width) / 2
 	centerY := float32(eng.Height) / 2
-	imgui.SetNextWindowPosV(imgui.Vec2{X: centerX - 250, Y: centerY - 200}, imgui.ConditionAppearing, imgui.Vec2{})
-	imgui.SetNextWindowSizeV(imgui.Vec2{X: 500, Y: 400}, imgui.ConditionAppearing)
+	imgui.SetNextWindowPosV(imgui.Vec2{X: centerX - 250, Y: centerY - 280}, imgui.ConditionAppearing, imgui.Vec2{})
+	imgui.SetNextWindowSizeV(imgui.Vec2{X: 500, Y: 560}, imgui.ConditionAppearing)
 
 	if imgui.BeginPopupModalV("Add Voxel Terrain", nil, imgui.WindowFlagsNoResize) {
 		imgui.Text("Generate Realistic Voxel Terrain using Perlin Noise")
 		imgui.Separator()
-		
+
 		imgui.Spacing()
-		
+
 		// Biome selection
 		biomeNames := []string{"Plains", "Mountains", "Desert", "Islands", "Caves"}
 		if imgui.BeginCombo("Biome", biomeNames[voxelBiome]) {
@@ -85,7 +99,7 @@ func renderAddVoxelDialog() {
 			}
 			imgui.EndCombo()
 		}
-		
+
 		imgui.Separator()
 		imgui.DragFloatV("Scale", &voxelScale, 0.001, 0.001, 10.0, "%.3f", 1.0)
 		imgui.DragFloatV("Amplitude", &voxelAmplitude, 0.5, 1.0, 500.0, "%.1f", 1.0)
@@ -95,10 +109,31 @@ func renderAddVoxelDialog() {
 		imgui.SliderInt("Chunk Size", &voxelChunkSize, 8, 128)
 		imgui.SliderInt("World Size (Chunks)", &voxelWorldSize, 1, 32)
 		imgui.DragFloatV("Tree Density", &voxelTreeDensity, 0.001, 0.0, 1.0, "%.3f", 1.0)
-		
+
+		imgui.Spacing()
+
+		if imgui.CollapsingHeaderV("Tile Colors", imgui.TreeNodeFlagsNone) {
+			imgui.ColorEdit3V("Grass", &voxelColorGrass, 0)
+			imgui.ColorEdit3V("Dirt", &voxelColorDirt, 0)
+			imgui.ColorEdit3V("Stone", &voxelColorStone, 0)
+			imgui.ColorEdit3V("Sand", &voxelColorSand, 0)
+			imgui.ColorEdit3V("Wood (Trunk)", &voxelColorWood, 0)
+			imgui.ColorEdit3V("Leaves", &voxelColorLeaves, 0)
+
+			imgui.Spacing()
+			if imgui.Button("Reset Colors") {
+				voxelColorGrass = [3]float32{0.3, 0.7, 0.2}
+				voxelColorDirt = [3]float32{0.6, 0.4, 0.2}
+				voxelColorStone = [3]float32{0.5, 0.5, 0.5}
+				voxelColorSand = [3]float32{0.9, 0.8, 0.5}
+				voxelColorWood = [3]float32{0.4, 0.25, 0.1}
+				voxelColorLeaves = [3]float32{0.2, 0.6, 0.2}
+			}
+		}
+
 		imgui.Spacing()
 		imgui.Separator()
-		
+
 		if imgui.Button("Generate Terrain") {
 			model := generateVoxelTerrain()
 			if model != nil {
@@ -122,31 +157,35 @@ func generateVoxelTerrain() *renderer.Model {
 	chunkSize := int(voxelChunkSize)
 	worldSize := int(voxelWorldSize)
 	voxelSizeVal := float32(1.0)
-	
-	// Create noise generator
+
+	loader.ClearCustomVoxelColors()
+	loader.SetVoxelColor(1, mgl32.Vec3{voxelColorGrass[0], voxelColorGrass[1], voxelColorGrass[2]})
+	loader.SetVoxelColor(2, mgl32.Vec3{voxelColorDirt[0], voxelColorDirt[1], voxelColorDirt[2]})
+	loader.SetVoxelColor(3, mgl32.Vec3{voxelColorStone[0], voxelColorStone[1], voxelColorStone[2]})
+	loader.SetVoxelColor(4, mgl32.Vec3{voxelColorSand[0], voxelColorSand[1], voxelColorSand[2]})
+	loader.SetVoxelColor(5, mgl32.Vec3{voxelColorWood[0], voxelColorWood[1], voxelColorWood[2]})
+	loader.SetVoxelColor(6, mgl32.Vec3{voxelColorLeaves[0], voxelColorLeaves[1], voxelColorLeaves[2]})
+
 	noise := renderer.NewImprovedPerlinNoise(int64(voxelSeed))
-	
-	// Use the internal loader library to create the voxel world structure
-	// This leverages the existing @internal/loader/voxel_core.go implementation
 	world := loader.NewVoxelWorld(chunkSize, worldSize, worldSize, 64, voxelSizeVal, loader.CreateCubeGeometry(voxelSizeVal), loader.InstancedMode)
-	
+
 	totalChunks := worldSize * worldSize
-	logToConsole(fmt.Sprintf("Generating voxel terrain: %d chunks (%dx%d), Seed: %d, Scale: %.3f", 
+	logToConsole(fmt.Sprintf("Generating voxel terrain: %d chunks (%dx%d), Seed: %d, Scale: %.3f",
 		totalChunks, worldSize, worldSize, voxelSeed, voxelScale), "info")
 
 	// Terrain generation using Perlin noise with biome support
 	world.GenerateVoxelsParallel(func(x, y, z int) (loader.VoxelID, bool) {
 		fx, fy, fz := float64(x)*float64(voxelScale), float64(y)*float64(voxelScale), float64(z)*float64(voxelScale)
-		
+
 		// 3D Noise for caves/overhangs
 		n3d := noise.Turbulence(fx, fy, fz, int(voxelOctaves), 0.5)
-		
+
 		// Biome-specific generation
 		switch voxelBiome {
 		case 0: // Plains - Rolling hills
 			h := noise.Turbulence2D(fx, fz, int(voxelOctaves), 0.5)
 			height := int(float32(h)*voxelAmplitude) + 15
-			
+
 			if y <= height {
 				if n3d > float64(voxelThreshold) {
 					return 0, false // Cave
@@ -158,17 +197,17 @@ func generateVoxelTerrain() *renderer.Model {
 				}
 				return 3, true // Stone
 			}
-			
+
 		case 1: // Mountains - Tall peaks with overhangs
 			h := noise.Turbulence2D(fx, fz, int(voxelOctaves), 0.6)
 			height := int(float32(h)*voxelAmplitude) + 20
-			
+
 			// Add mountain peaks using 3D noise
 			peakNoise := noise.Turbulence(fx, fy*0.3, fz, int(voxelOctaves), 0.5)
 			if peakNoise > 0.3 {
 				height += int(float32(peakNoise-0.3) * 15.0)
 			}
-			
+
 			if y <= height {
 				if n3d > float64(voxelThreshold) {
 					return 0, false // Cave
@@ -182,28 +221,28 @@ func generateVoxelTerrain() *renderer.Model {
 				}
 				return 3, true // Stone
 			}
-			
+
 		case 2: // Desert - Flat with dunes
 			h := noise.Turbulence2D(fx*2.0, fz*2.0, int(voxelOctaves-1), 0.4)
 			height := int(float32(h)*voxelAmplitude) + 12
-			
+
 			// Sand dunes (no caves in desert)
 			if y <= height {
 				return 4, true // Sand (VoxelID 4)
 			}
-			
+
 		case 3: // Islands - Water level with islands
 			h := noise.Turbulence2D(fx, fz, int(voxelOctaves), 0.5)
 			islandNoise := noise.Turbulence2D(fx*0.5, fz*0.5, 2, 0.5)
-			
+
 			waterLevel := 18
 			height := int(float32(h)*voxelAmplitude) + 10
-			
+
 			// Create islands using low-frequency noise
 			if islandNoise > 0.2 {
 				height += int((float32(islandNoise) - 0.2) * 20.0)
 			}
-			
+
 			if y <= height {
 				if n3d > float64(voxelThreshold) && y > waterLevel {
 					return 0, false // Cave (only above water)
@@ -217,19 +256,19 @@ func generateVoxelTerrain() *renderer.Model {
 				}
 				return 3, true // Stone
 			}
-			
+
 		case 4: // Caves - Complex cave systems
 			h := noise.Turbulence2D(fx, fz, int(voxelOctaves), 0.5)
 			height := int(float32(h)*voxelAmplitude) + 15
-			
+
 			// Multiple cave layers using different noise scales
 			cave1 := noise.Turbulence(fx, fy, fz, int(voxelOctaves), 0.5)
 			cave2 := noise.Turbulence(fx*2.0, fy*2.0, fz*2.0, int(voxelOctaves-1), 0.5)
 			cave3 := noise.Turbulence(fx*0.5, fy*0.5, fz*0.5, 2, 0.5)
-			
+
 			// Combine cave noises for complex systems
 			combinedCave := (cave1 + cave2*0.5 + cave3*0.3) / 1.8
-			
+
 			if y <= height {
 				if combinedCave > float64(voxelThreshold) {
 					return 0, false // Cave
@@ -242,30 +281,30 @@ func generateVoxelTerrain() *renderer.Model {
 				return 3, true // Stone
 			}
 		}
-		
+
 		return 0, false
 	})
-	
+
 	// Generate trees after terrain if enabled
 	if voxelTreeDensity > 0.001 {
 		generateVoxelTrees(world, noise, int(voxelSeed))
 	}
-	
+
 	model, err := world.CreateInstancedModel()
 	if err != nil {
 		logToConsole(fmt.Sprintf("Failed to create voxel mesh: %v", err), "error")
 		return nil
 	}
-	
+
 	model.Name = fmt.Sprintf("Voxel Terrain (%dx%d)", worldSize, worldSize)
 	model.SetPosition(0, 0, 0)
-	
+
 	// Voxel terrain uses vertex colors or texture atlas usually, but here we use global material
 	// In a real engine, voxels would have per-instance material/color data
-	model.SetDiffuseColor(0.5, 0.5, 0.5) 
+	model.SetDiffuseColor(0.5, 0.5, 0.5)
 	model.SetMaterialPBR(0.0, 0.9)
 	model.SetExposure(1.0) // Fix lighting issue (was defaulting to 0/black)
-	
+
 	// Store configuration in metadata for saving/loading
 	if model.Metadata == nil {
 		model.Metadata = make(map[string]interface{})
@@ -282,20 +321,20 @@ func generateVoxelTerrain() *renderer.Model {
 		Biome:       voxelBiome,
 		TreeDensity: voxelTreeDensity,
 	}
-	
+
 	// Ensure material has correct exposure (fixes dark voxels after deletion)
 	if model.Material != nil {
 		model.Material.Exposure = 1.0
 	}
-	
+
 	// PERFORMANCE: Apply optimized rendering config for voxels (disables expensive effects)
 	voxelConfig := renderer.PerformanceRenderingConfig()
 	renderer.ApplyAdvancedRenderingConfig(model, voxelConfig)
-	
+
 	// Log the actual voxel count
-	logToConsole(fmt.Sprintf("Voxel terrain created: %d voxels, %d chunks (%dx%d)", 
+	logToConsole(fmt.Sprintf("Voxel terrain created: %d voxels, %d chunks (%dx%d)",
 		world.ActiveVoxels, totalChunks, worldSize, worldSize), "success")
-	
+
 	return model
 }
 
@@ -304,30 +343,30 @@ func generateVoxelTrees(world *loader.VoxelWorld, noise *renderer.ImprovedPerlin
 	chunkSize := world.ChunkSize
 	worldSizeX := world.WorldSizeX
 	worldSizeZ := world.WorldSizeZ
-	
+
 	// Tree generation parameters
 	trunkHeight := 4
 	canopyRadius := 2
-	
+
 	// Try to place trees at intervals based on density
 	gridSpacing := int(1.0 / float64(voxelTreeDensity))
 	if gridSpacing < 3 {
 		gridSpacing = 3
 	}
-	
+
 	for cx := 0; cx < worldSizeX; cx++ {
 		for cz := 0; cz < worldSizeZ; cz++ {
 			for lx := 0; lx < chunkSize; lx += gridSpacing {
 				for lz := 0; lz < chunkSize; lz += gridSpacing {
-				// Add randomness to tree placement
-				treeNoise := noise.Noise3D(float64(cx*chunkSize+lx+seed)*0.1, float64(cz*chunkSize+lz+seed)*0.1, float64(seed))
-				
-				// Use density directly as threshold (0.02 = 2% chance, 0.01 = 1% chance)
-				if treeNoise > (0.8 - float64(voxelTreeDensity)*5.0) && treeNoise < (0.85 + float64(voxelTreeDensity)*5.0) {
+					// Add randomness to tree placement
+					treeNoise := noise.Noise3D(float64(cx*chunkSize+lx+seed)*0.1, float64(cz*chunkSize+lz+seed)*0.1, float64(seed))
+
+					// Use density directly as threshold (0.02 = 2% chance, 0.01 = 1% chance)
+					if treeNoise > (0.8-float64(voxelTreeDensity)*5.0) && treeNoise < (0.85+float64(voxelTreeDensity)*5.0) {
 						// Find surface height at this position
 						gx := cx*chunkSize + lx
 						gz := cz*chunkSize + lz
-						
+
 						// Find the highest solid voxel (surface)
 						surfaceY := -1
 						for y := world.MaxHeight - 1; y >= 0; y-- {
@@ -336,7 +375,7 @@ func generateVoxelTrees(world *loader.VoxelWorld, noise *renderer.ImprovedPerlin
 								break
 							}
 						}
-						
+
 						// Only place trees on grass (VoxelID 1) and above water
 						if surfaceY > 0 && surfaceY < world.MaxHeight-trunkHeight-canopyRadius-2 {
 							if world.Chunks[cx][cz].Voxels[lx][surfaceY][lz].ID == 1 { // Grass
@@ -353,7 +392,7 @@ func generateVoxelTrees(world *loader.VoxelWorld, noise *renderer.ImprovedPerlin
 // placeTree places a simple voxel tree at the given position
 func placeTree(world *loader.VoxelWorld, x, y, z, trunkHeight, canopyRadius int) {
 	chunkSize := world.ChunkSize
-	
+
 	// Place trunk (VoxelID 5 = wood)
 	for i := 0; i < trunkHeight; i++ {
 		ty := y + i
@@ -362,7 +401,7 @@ func placeTree(world *loader.VoxelWorld, x, y, z, trunkHeight, canopyRadius int)
 			cz := z / chunkSize
 			lx := x % chunkSize
 			lz := z % chunkSize
-			
+
 			if cx >= 0 && cx < world.WorldSizeX && cz >= 0 && cz < world.WorldSizeZ {
 				world.Chunks[cx][cz].Voxels[lx][ty][lz] = loader.VoxelData{
 					ID:       5, // Wood
@@ -372,7 +411,7 @@ func placeTree(world *loader.VoxelWorld, x, y, z, trunkHeight, canopyRadius int)
 			}
 		}
 	}
-	
+
 	// Place canopy (VoxelID 6 = leaves) - spherical shape
 	canopyY := y + trunkHeight
 	for dx := -canopyRadius; dx <= canopyRadius; dx++ {
@@ -384,22 +423,22 @@ func placeTree(world *loader.VoxelWorld, x, y, z, trunkHeight, canopyRadius int)
 					tx := x + dx
 					ty := canopyY + dy
 					tz := z + dz
-					
+
 					if ty < world.MaxHeight && ty > 0 {
 						cx := tx / chunkSize
 						cz := tz / chunkSize
 						lx := tx % chunkSize
 						lz := tz % chunkSize
-						
+
 						if cx >= 0 && cx < world.WorldSizeX && cz >= 0 && cz < world.WorldSizeZ &&
 							lx >= 0 && lx < chunkSize && lz >= 0 && lz < chunkSize {
 							// Only place leaves if not replacing trunk
 							if !(dx == 0 && dz == 0 && dy <= 0) {
-							world.Chunks[cx][cz].Voxels[lx][ty][lz] = loader.VoxelData{
-								ID:       6, // Leaves
-								Position: mgl32.Vec3{float32(tx), float32(ty), float32(tz)},
-								Active:   true,
-							}
+								world.Chunks[cx][cz].Voxels[lx][ty][lz] = loader.VoxelData{
+									ID:       6, // Leaves
+									Position: mgl32.Vec3{float32(tx), float32(ty), float32(tz)},
+									Active:   true,
+								}
 							}
 						}
 					}
@@ -419,14 +458,14 @@ func regenerateVoxelTerrain(config VoxelConfig) *renderer.Model {
 	voxelWorldSize = config.WorldSize
 	voxelBiome = config.Biome
 	voxelTreeDensity = config.TreeDensity
-	
+
 	biomeNames := []string{"Plains", "Mountains", "Desert", "Islands", "Caves"}
 	biomeName := "Unknown"
 	if config.Biome >= 0 && config.Biome < 5 {
 		biomeName = biomeNames[config.Biome]
 	}
-	
+
 	logToConsole(fmt.Sprintf("Regenerating %s voxel terrain: Seed=%d, Scale=%.3f, Amp=%.1f", biomeName, voxelSeed, voxelScale, voxelAmplitude), "info")
-	
+
 	return generateVoxelTerrain()
 }

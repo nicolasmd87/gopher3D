@@ -7,9 +7,25 @@ import (
 	"io/ioutil"
 )
 
-// EditorConfig stores all editor settings
+type StyleColors struct {
+	BorderR       float32 `json:"border_r"`
+	BorderG       float32 `json:"border_g"`
+	BorderB       float32 `json:"border_b"`
+	TitleActiveR  float32 `json:"title_active_r"`
+	TitleActiveG  float32 `json:"title_active_g"`
+	TitleActiveB  float32 `json:"title_active_b"`
+	HeaderR       float32 `json:"header_r"`
+	HeaderG       float32 `json:"header_g"`
+	HeaderB       float32 `json:"header_b"`
+	ButtonHoverR  float32 `json:"button_hover_r"`
+	ButtonHoverG  float32 `json:"button_hover_g"`
+	ButtonHoverB  float32 `json:"button_hover_b"`
+	WindowBorderR float32 `json:"window_border_r"`
+	WindowBorderG float32 `json:"window_border_g"`
+	WindowBorderB float32 `json:"window_border_b"`
+}
+
 type EditorConfig struct {
-	// Panel visibility
 	ShowHierarchy      bool `json:"show_hierarchy"`
 	ShowInspector      bool `json:"show_inspector"`
 	ShowFileExplorer   bool `json:"show_file_explorer"`
@@ -17,7 +33,6 @@ type EditorConfig struct {
 	ShowAdvancedRender bool `json:"show_advanced_render"`
 	ShowSceneSettings  bool `json:"show_scene_settings"`
 
-	// Panel layouts
 	HierarchyLayout      PanelLayout `json:"hierarchy_layout"`
 	InspectorLayout      PanelLayout `json:"inspector_layout"`
 	FileExplorerLayout   PanelLayout `json:"file_explorer_layout"`
@@ -25,7 +40,6 @@ type EditorConfig struct {
 	SceneSettingsLayout  PanelLayout `json:"scene_settings_layout"`
 	AdvancedRenderLayout PanelLayout `json:"advanced_render_layout"`
 
-	// Rendering settings
 	ClearColorR    float32 `json:"clear_color_r"`
 	ClearColorG    float32 `json:"clear_color_g"`
 	ClearColorB    float32 `json:"clear_color_b"`
@@ -34,19 +48,21 @@ type EditorConfig struct {
 	FaceCulling    bool    `json:"face_culling"`
 	DepthTesting   bool    `json:"depth_testing"`
 
-	// Skybox
 	SkyboxColorMode bool    `json:"skybox_color_mode"`
 	SkyboxSolidR    float32 `json:"skybox_solid_r"`
 	SkyboxSolidG    float32 `json:"skybox_solid_g"`
 	SkyboxSolidB    float32 `json:"skybox_solid_b"`
 	SkyboxPath      string  `json:"skybox_path"`
 
-	// Model loading
 	InstanceOnAdd        bool `json:"instance_on_add"`
 	DefaultInstanceCount int  `json:"default_instance_count"`
-	
-	// Recent projects
-	RecentProjects []Project `json:"recent_projects,omitempty"`
+
+	RecentProjects []Project   `json:"recent_projects,omitempty"`
+	StyleColors    StyleColors `json:"style_colors,omitempty"`
+
+	WindowWidth     int32 `json:"window_width"`
+	WindowHeight    int32 `json:"window_height"`
+	WindowMaximized bool  `json:"window_maximized"`
 }
 
 // Load editor configuration from file
@@ -95,19 +111,24 @@ func loadConfig() {
 	if config.DefaultInstanceCount > 0 {
 		instanceCount = config.DefaultInstanceCount
 	}
-	
+
 	// Load recent projects
 	if len(config.RecentProjects) > 0 {
 		recentProjects = config.RecentProjects
 	}
 
-	// Load panel layouts
 	hierarchyLayout = config.HierarchyLayout
 	inspectorLayout = config.InspectorLayout
 	fileExplorerLayout = config.FileExplorerLayout
 	consoleLayout = config.ConsoleLayout
 	sceneSettingsLayout = config.SceneSettingsLayout
 	advancedRenderLayout = config.AdvancedRenderLayout
+
+	savedStyleColors = config.StyleColors
+
+	windowBorderR = config.StyleColors.WindowBorderR
+	windowBorderG = config.StyleColors.WindowBorderG
+	windowBorderB = config.StyleColors.WindowBorderB
 
 	fmt.Println("✓ Editor config loaded")
 }
@@ -143,6 +164,7 @@ func saveConfig() {
 		InstanceOnAdd:        instanceModelOnAdd,
 		DefaultInstanceCount: instanceCount,
 		RecentProjects:       recentProjects,
+		StyleColors:          getCurrentStyleColors(),
 	}
 
 	if eng != nil && eng.GetRenderer() != nil {
@@ -164,5 +186,3 @@ func saveConfig() {
 		return
 	}
 }
-
-

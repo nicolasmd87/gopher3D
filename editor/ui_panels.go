@@ -13,65 +13,63 @@ import (
 	"github.com/sqweek/dialog"
 )
 
-// getDefaultPanelLayout returns default layout for a panel
 func getDefaultPanelLayout(panelName string, width, height int32) PanelLayout {
+	menuBar := float32(20)
+	leftW := float32(280)
+	rightW := float32(320)
+	bottomH := float32(200)
+
 	switch panelName {
 	case "hierarchy":
 		return PanelLayout{
-			PosX:      10,
-			PosY:      30,
-			SizeX:     300,
-			SizeY:     float32(height) - 420, 
-			Collapsed: false,
+			PosX:  0,
+			PosY:  menuBar,
+			SizeX: leftW,
+			SizeY: float32(height) - menuBar - bottomH,
 		}
 	case "inspector":
 		return PanelLayout{
-			PosX:      float32(width) - 350,
-			PosY:      30,
-			SizeX:     340,
-			SizeY:     float32(height) - 420,
-			Collapsed: false,
+			PosX:  float32(width) - rightW,
+			PosY:  menuBar,
+			SizeX: rightW,
+			SizeY: float32(height) - menuBar,
 		}
 	case "file_explorer":
 		return PanelLayout{
-			PosX:      10,
-			PosY:      float32(height) - 360,
-			SizeX:     300,
-			SizeY:     150,
-			Collapsed: false,
+			PosX:  0,
+			PosY:  float32(height) - bottomH,
+			SizeX: leftW,
+			SizeY: bottomH,
 		}
 	case "console":
 		return PanelLayout{
-			PosX:      320,
-			PosY:      float32(height) - 360,
-			SizeX:     float32(width) - 680,
-			SizeY:     350,
-			Collapsed: false,
+			PosX:  leftW,
+			PosY:  float32(height) - bottomH,
+			SizeX: float32(width) - leftW - rightW,
+			SizeY: bottomH,
 		}
 	case "scene_settings":
 		return PanelLayout{
-			PosX:      float32(width) - 380,
-			PosY:      float32(height) - 430,
-			SizeX:     370,
-			SizeY:     420,
-			Collapsed: false,
+			PosX:  float32(width)/2 - 150,
+			PosY:  80,
+			SizeX: 300,
+			SizeY: 350,
 		}
 	case "advanced_render":
 		return PanelLayout{
-			PosX:      float32(width)/2 - 200,
-			PosY:      100,
-			SizeX:     400,
-			SizeY:     450,
-			Collapsed: false,
+			PosX:  float32(width)/2 - 180,
+			PosY:  80,
+			SizeX: 360,
+			SizeY: 400,
 		}
 	default:
-		return PanelLayout{PosX: 100, PosY: 100, SizeX: 300, SizeY: 300, Collapsed: false}
+		return PanelLayout{PosX: 100, PosY: 100, SizeX: 280, SizeY: 300}
 	}
 }
 
 func initializePanelLayouts() {
 	if eng == nil || eng.Width <= 0 || eng.Height <= 0 {
-		return 
+		return
 	}
 
 	if !layoutsInitialized {
@@ -102,7 +100,7 @@ func renderEditorUI() {
 	if eng == nil || eng.GetRenderer() == nil {
 		return
 	}
-	
+
 	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if !ok {
 		return
@@ -132,7 +130,7 @@ func renderEditorUI() {
 				if currentProject != nil {
 					startDir = filepath.Join(currentProject.Path, "resources/models")
 				}
-				
+
 				filename, err := dialog.File().
 					SetStartDir(startDir).
 					Filter("3D Models", "obj").
@@ -154,7 +152,7 @@ func renderEditorUI() {
 						if currentProject != nil {
 							startDir = filepath.Join(currentProject.Path, "resources/textures")
 						}
-						
+
 						filename, err := dialog.File().
 							SetStartDir(startDir).
 							Filter("Images", "png", "jpg", "jpeg").
@@ -167,6 +165,14 @@ func renderEditorUI() {
 						fmt.Println("Please select a model first before loading a texture")
 					}
 				}
+			}
+			imgui.Separator()
+			if imgui.MenuItem("Export Game...") {
+				showExportDialog = true
+			}
+			imgui.Separator()
+			if imgui.MenuItem("Exit") {
+				eng.GetWindow().SetShouldClose(true)
 			}
 			imgui.EndMenu()
 		}
@@ -249,15 +255,20 @@ func renderEditorUI() {
 	if showAddLight {
 		renderAddLightDialog()
 	}
-	
+
 	// Add Water Dialog
 	if showAddWater {
 		renderAddWaterDialog()
 	}
-	
+
 	// Add Voxel Dialog
 	if showAddVoxel {
 		renderAddVoxelDialog()
+	}
+
+	// Export Game Dialog
+	if showExportDialog {
+		renderExportDialog()
 	}
 
 	// File Explorer (Bottom Left)
@@ -266,8 +277,9 @@ func renderEditorUI() {
 		if !layoutsInitialized {
 			imgui.SetNextWindowSizeV(imgui.Vec2{X: fileExplorerLayout.SizeX, Y: fileExplorerLayout.SizeY}, imgui.ConditionFirstUseEver)
 		}
-		if imgui.BeginV("File Explorer", nil, 0) {
-			// Save layout changes
+		imgui.PushStyleVarFloat(imgui.StyleVarWindowRounding, 0)
+		imgui.PushStyleVarFloat(imgui.StyleVarWindowBorderSize, 1)
+		if imgui.BeginV("Project", &showFileExplorer, 0) {
 			size := imgui.WindowSize()
 			pos := imgui.WindowPos()
 			if size.X != fileExplorerLayout.SizeX || size.Y != fileExplorerLayout.SizeY || pos.X != fileExplorerLayout.PosX || pos.Y != fileExplorerLayout.PosY {
@@ -280,6 +292,7 @@ func renderEditorUI() {
 			renderFileExplorerContent()
 		}
 		imgui.End()
+		imgui.PopStyleVarV(2)
 	}
 
 	// Console (Bottom Middle)
@@ -288,7 +301,9 @@ func renderEditorUI() {
 		if !layoutsInitialized {
 			imgui.SetNextWindowSizeV(imgui.Vec2{X: consoleLayout.SizeX, Y: consoleLayout.SizeY}, imgui.ConditionFirstUseEver)
 		}
-		if imgui.BeginV("Console", nil, imgui.WindowFlagsMenuBar) {
+		imgui.PushStyleVarFloat(imgui.StyleVarWindowRounding, 0)
+		imgui.PushStyleVarFloat(imgui.StyleVarWindowBorderSize, 1)
+		if imgui.BeginV("Console", &showConsole, imgui.WindowFlagsMenuBar) {
 			size := imgui.WindowSize()
 			pos := imgui.WindowPos()
 			if size.X != consoleLayout.SizeX || size.Y != consoleLayout.SizeY || pos.X != consoleLayout.PosX || pos.Y != consoleLayout.PosY {
@@ -301,6 +316,7 @@ func renderEditorUI() {
 			renderConsoleContent()
 		}
 		imgui.End()
+		imgui.PopStyleVarV(2)
 	}
 
 	// Style Editor (Restored)
@@ -350,9 +366,20 @@ func renderEditorUI() {
 			}
 
 			imgui.Separator()
+			imgui.Text("Window Border (OS):")
+			windowBorderColor := [3]float32{windowBorderR, windowBorderG, windowBorderB}
+			if imgui.ColorEdit3V("Window Border", &windowBorderColor, 0) {
+				windowBorderR = windowBorderColor[0]
+				windowBorderG = windowBorderColor[1]
+				windowBorderB = windowBorderColor[2]
+				updateWindowBorderColor()
+				saveConfig()
+			}
+
+			imgui.Separator()
 			imgui.Text("Quick Presets:")
 			if imgui.Button("Go Cyan") {
-				applyDarkTheme() 
+				applyDarkTheme()
 			}
 			imgui.SameLine()
 			if imgui.Button("Reset to Dark") {
@@ -370,12 +397,12 @@ func renderEditorUI() {
 				advancedRenderLayout = getDefaultPanelLayout("advanced_render", eng.Width, eng.Height)
 			}
 		}
-		
+
 		imgui.SetNextWindowPosV(imgui.Vec2{X: advancedRenderLayout.PosX, Y: advancedRenderLayout.PosY}, imgui.ConditionFirstUseEver, imgui.Vec2{})
 		if !layoutsInitialized {
 			imgui.SetNextWindowSizeV(imgui.Vec2{X: advancedRenderLayout.SizeX, Y: advancedRenderLayout.SizeY}, imgui.ConditionFirstUseEver)
 		}
-		
+
 		if imgui.BeginV("Advanced Rendering", nil, 0) {
 			size := imgui.WindowSize()
 			pos := imgui.WindowPos()
@@ -386,10 +413,10 @@ func renderEditorUI() {
 				advancedRenderLayout.PosY = pos.Y
 				saveConfig()
 			}
-			
+
 			imgui.Text("Advanced Rendering Configuration")
 			imgui.Separator()
-			
+
 			// Quality Presets
 			imgui.Text("Quality Presets:")
 			if imgui.Button("Performance") {
@@ -407,10 +434,10 @@ func renderEditorUI() {
 			if imgui.Button("Voxel") {
 				applyRenderingPreset("voxel")
 			}
-			
+
 			imgui.Separator()
 			imgui.Separator()
-			
+
 			// Basic Rendering Options
 			if imgui.CollapsingHeaderV("Basic Rendering", imgui.TreeNodeFlagsDefaultOpen) {
 				if imgui.Checkbox("Wireframe Mode", &renderer.Debug) {
@@ -426,34 +453,34 @@ func renderEditorUI() {
 					logToConsole(fmt.Sprintf("Depth Test: %v", renderer.DepthTestEnabled), "info")
 				}
 			}
-			
+
 			imgui.Separator()
-			
+
 			// Global Advanced Rendering Toggle
 			if imgui.Checkbox("Enable Advanced Rendering Features", &globalAdvancedRenderingEnabled) {
 				logToConsole(fmt.Sprintf("Advanced Rendering: %v", globalAdvancedRenderingEnabled), "info")
 			}
 			imgui.Text("Enable advanced PBR materials, lighting effects,")
 			imgui.Text("and post-processing for all models.")
-			
+
 			if globalAdvancedRenderingEnabled {
 				imgui.Separator()
-				
+
 				// PBR Materials
 				if imgui.CollapsingHeaderV("PBR Materials", 0) {
 					renderAdvancedRenderingPBR()
 				}
-				
+
 				// Lighting Effects
 				if imgui.CollapsingHeaderV("Lighting Effects", 0) {
 					renderAdvancedRenderingLighting()
 				}
-				
+
 				// Post Processing
 				if imgui.CollapsingHeaderV("Post Processing", 0) {
 					renderAdvancedRenderingPostProcess()
 				}
-				
+
 				// Performance
 				if imgui.CollapsingHeaderV("Performance", 0) {
 					renderAdvancedRenderingPerformance()
@@ -469,7 +496,7 @@ func renderEditorUI() {
 		if !layoutsInitialized {
 			imgui.SetNextWindowSizeV(imgui.Vec2{X: sceneSettingsLayout.SizeX, Y: sceneSettingsLayout.SizeY}, imgui.ConditionFirstUseEver)
 		}
-		
+
 		if imgui.BeginV("Scene Settings", nil, 0) {
 			size := imgui.WindowSize()
 			pos := imgui.WindowPos()
@@ -480,7 +507,7 @@ func renderEditorUI() {
 				sceneSettingsLayout.PosY = pos.Y
 				saveConfig()
 			}
-			
+
 			if imgui.CollapsingHeaderV("Skybox / Background", imgui.TreeNodeFlagsDefaultOpen) {
 				imgui.Text("Background Mode:")
 				if imgui.RadioButton("Solid Color", skyboxColorMode) {
@@ -505,11 +532,11 @@ func renderEditorUI() {
 				} else {
 					// Skybox Image Mode
 					if imgui.Button("Load Skybox Image...") {
-						startDir := "../examples/resources/textures"
+						startDir := "../resources/textures"
 						if currentProject != nil {
 							startDir = filepath.Join(currentProject.Path, "resources/textures")
 						}
-						
+
 						filename, err := dialog.File().
 							SetStartDir(startDir).
 							Filter("Images", "png", "jpg", "jpeg").
@@ -517,8 +544,34 @@ func renderEditorUI() {
 							Load()
 						if err == nil && filename != "" {
 							eng.SetSkybox(filename)
-							logToConsole("Loaded skybox: " + getFileNameFromPath(filename), "info")
+							logToConsole("Loaded skybox: "+getFileNameFromPath(filename), "info")
 						}
+					}
+				}
+			}
+
+			if imgui.CollapsingHeaderV("Window", imgui.TreeNodeFlagsNone) {
+				window := eng.GetWindow()
+				if window != nil {
+					w, h := window.GetSize()
+					imgui.Text(fmt.Sprintf("Size: %d x %d", w, h))
+
+					imgui.Spacing()
+					if imgui.Button("1280 x 720") {
+						window.SetSize(1280, 720)
+					}
+					imgui.SameLine()
+					if imgui.Button("1920 x 1080") {
+						window.SetSize(1920, 1080)
+					}
+
+					imgui.Spacing()
+					if imgui.Button("Maximize") {
+						window.Maximize()
+					}
+					imgui.SameLine()
+					if imgui.Button("Restore") {
+						window.Restore()
 					}
 				}
 			}
@@ -532,7 +585,9 @@ func renderEditorUI() {
 		if !layoutsInitialized {
 			imgui.SetNextWindowSizeV(imgui.Vec2{X: hierarchyLayout.SizeX, Y: hierarchyLayout.SizeY}, imgui.ConditionFirstUseEver)
 		}
-		if imgui.BeginV("Scene Hierarchy", nil, 0) {
+		imgui.PushStyleVarFloat(imgui.StyleVarWindowRounding, 0)
+		imgui.PushStyleVarFloat(imgui.StyleVarWindowBorderSize, 1)
+		if imgui.BeginV("Hierarchy", &showHierarchy, 0) {
 			size := imgui.WindowSize()
 			pos := imgui.WindowPos()
 			if size.X != hierarchyLayout.SizeX || size.Y != hierarchyLayout.SizeY || pos.X != hierarchyLayout.PosX || pos.Y != hierarchyLayout.PosY {
@@ -561,7 +616,7 @@ func renderEditorUI() {
 					imgui.PopID()
 				}
 			}
-			
+
 			// Lights section
 			lights := openglRenderer.GetLights()
 			if imgui.CollapsingHeaderV("[L] Lights", imgui.TreeNodeFlagsDefaultOpen) {
@@ -586,6 +641,7 @@ func renderEditorUI() {
 			}
 		}
 		imgui.End()
+		imgui.PopStyleVarV(2)
 	}
 
 	// Inspector (Right Side, Top)
@@ -594,7 +650,9 @@ func renderEditorUI() {
 		if !layoutsInitialized {
 			imgui.SetNextWindowSizeV(imgui.Vec2{X: inspectorLayout.SizeX, Y: inspectorLayout.SizeY}, imgui.ConditionFirstUseEver)
 		}
-		if imgui.BeginV("Inspector", nil, 0) {
+		imgui.PushStyleVarFloat(imgui.StyleVarWindowRounding, 0)
+		imgui.PushStyleVarFloat(imgui.StyleVarWindowBorderSize, 1)
+		if imgui.BeginV("Inspector", &showInspector, 0) {
 			size := imgui.WindowSize()
 			pos := imgui.WindowPos()
 			if size.X != inspectorLayout.SizeX || size.Y != inspectorLayout.SizeY || pos.X != inspectorLayout.PosX || pos.Y != inspectorLayout.PosY {
@@ -607,7 +665,7 @@ func renderEditorUI() {
 
 			if selectedType == "model" && selectedModelIndex >= 0 && selectedModelIndex < len(models) {
 				model := models[selectedModelIndex]
-				
+
 				imgui.Text("Name:")
 				imgui.SameLine()
 				imgui.PushItemWidth(-1)
@@ -617,7 +675,7 @@ func renderEditorUI() {
 				}
 				imgui.PopItemWidth()
 				imgui.Separator()
-				
+
 				// Delete Model Button
 				if imgui.Button("Delete Model") {
 					// Check if this is water - need to clean up activeWaterSim
@@ -627,20 +685,20 @@ func renderEditorUI() {
 							isWater = true
 						}
 					}
-					
+
 					// Remove the model
 					openglRenderer.RemoveModel(model)
-					
+
 					// If water, clean up the simulation and remove from behavior manager
 					if isWater && activeWaterSim != nil {
 						behaviour.GlobalBehaviourManager.Remove(activeWaterSim)
 						activeWaterSim = nil
 						logToConsole("Water simulation removed", "info")
 					}
-					
+
 					// Remove GameObject
 					removeGameObjectForModel(model)
-					
+
 					// Clear selection
 					selectedModelIndex = -1
 					selectedType = ""
@@ -657,45 +715,57 @@ func renderEditorUI() {
 					w := imgui.ContentRegionAvail().X
 					imgui.PushItemWidth(w / 3.3)
 					changed := false
-					if imgui.DragFloatV("##posX", &posX, 0.5, 0, 0, "X: %.1f", 0) { changed = true }
+					if imgui.DragFloatV("##posX", &posX, 0.5, 0, 0, "X: %.1f", 0) {
+						changed = true
+					}
 					imgui.SameLine()
-					if imgui.DragFloatV("##posY", &posY, 0.5, 0, 0, "Y: %.1f", 0) { changed = true }
+					if imgui.DragFloatV("##posY", &posY, 0.5, 0, 0, "Y: %.1f", 0) {
+						changed = true
+					}
 					imgui.SameLine()
-					if imgui.DragFloatV("##posZ", &posZ, 0.5, 0, 0, "Z: %.1f", 0) { changed = true }
+					if imgui.DragFloatV("##posZ", &posZ, 0.5, 0, 0, "Z: %.1f", 0) {
+						changed = true
+					}
 					imgui.PopItemWidth()
 					if changed {
 						model.SetPosition(posX, posY, posZ)
 						model.IsDirty = true
 					}
-					
+
 					imgui.Spacing()
 					imgui.Text("Scale")
 					scaleX, scaleY, scaleZ := model.Scale.X(), model.Scale.Y(), model.Scale.Z()
 					imgui.PushItemWidth(w / 3.3)
 					changed = false
-					if imgui.DragFloatV("##scaleX", &scaleX, 0.05, 0, 0, "X: %.2f", 0) { changed = true }
+					if imgui.DragFloatV("##scaleX", &scaleX, 0.05, 0, 0, "X: %.2f", 0) {
+						changed = true
+					}
 					imgui.SameLine()
-					if imgui.DragFloatV("##scaleY", &scaleY, 0.05, 0, 0, "Y: %.2f", 0) { changed = true }
+					if imgui.DragFloatV("##scaleY", &scaleY, 0.05, 0, 0, "Y: %.2f", 0) {
+						changed = true
+					}
 					imgui.SameLine()
-					if imgui.DragFloatV("##scaleZ", &scaleZ, 0.05, 0, 0, "Z: %.2f", 0) { changed = true }
+					if imgui.DragFloatV("##scaleZ", &scaleZ, 0.05, 0, 0, "Z: %.2f", 0) {
+						changed = true
+					}
 					imgui.PopItemWidth()
 					if changed {
 						model.SetScale(scaleX, scaleY, scaleZ)
 						model.IsDirty = true
 					}
 				}
-				
+
 				// Material editing (initialize if missing for voxels)
 				if model.Material == nil {
 					model.Material = &renderer.Material{
-						Name: "DefaultMaterial",
+						Name:         "DefaultMaterial",
 						DiffuseColor: [3]float32{0.8, 0.8, 0.8},
-						Metallic: 0.0,
-						Roughness: 0.9,
-						Alpha: 1.0,
+						Metallic:     0.0,
+						Roughness:    0.9,
+						Alpha:        1.0,
 					}
 				}
-				
+
 				if model.Material != nil {
 					imgui.Separator()
 					if imgui.CollapsingHeaderV("Material Properties", imgui.TreeNodeFlagsDefaultOpen) {
@@ -704,7 +774,7 @@ func renderEditorUI() {
 							model.SetDiffuseColor(diffuse[0], diffuse[1], diffuse[2])
 							model.IsDirty = true
 						}
-						
+
 						// PBR Material Properties
 						imgui.Separator()
 						if imgui.SliderFloatV("Metallic", &model.Material.Metallic, 0.0, 1.0, "%.2f", 1.0) {
@@ -716,7 +786,7 @@ func renderEditorUI() {
 							model.IsDirty = true
 						}
 						imgui.Text("Tip: Metallic 1.0 = metal, 0.0 = dielectric")
-						
+
 						// Texture loading
 						imgui.Separator()
 						if model.Material.TexturePath != "" {
@@ -724,13 +794,13 @@ func renderEditorUI() {
 						} else {
 							imgui.Text("Texture: None")
 						}
-						
+
 						if imgui.Button("Load Texture...") {
-							startDir := "../examples/resources/textures"
+							startDir := "../resources/textures"
 							if currentProject != nil {
 								startDir = filepath.Join(currentProject.Path, "resources/textures")
 							}
-							
+
 							filename, err := dialog.File().
 								SetStartDir(startDir).
 								Filter("Images", "png", "jpg", "jpeg").
@@ -740,7 +810,7 @@ func renderEditorUI() {
 								loadTextureToSelected(filename)
 							}
 						}
-						
+
 						if model.Material.TexturePath != "" {
 							imgui.SameLine()
 							if imgui.Button("Remove Texture") {
@@ -759,7 +829,7 @@ func renderEditorUI() {
 						}
 					}
 				}
-				
+
 				// Scripts Section (Unity-style)
 				imgui.Spacing()
 				if imgui.CollapsingHeaderV("Scripts", imgui.TreeNodeFlagsDefaultOpen) {
@@ -770,19 +840,19 @@ func renderEditorUI() {
 							componentsToRemove := []behaviour.Component{}
 							for i, comp := range obj.Components {
 								imgui.PushIDInt(i)
-								
+
 								typeName := getComponentTypeName(comp)
 								imgui.Bullet()
 								imgui.SameLine()
 								imgui.Text(typeName)
 								imgui.SameLine()
-								if imgui.Button("Remove##"+fmt.Sprintf("%d", i)) {
+								if imgui.Button("Remove##" + fmt.Sprintf("%d", i)) {
 									componentsToRemove = append(componentsToRemove, comp)
 								}
-								
+
 								imgui.PopID()
 							}
-							
+
 							for _, comp := range componentsToRemove {
 								obj.RemoveComponent(comp)
 								logToConsole(fmt.Sprintf("Removed script from %s", model.Name), "info")
@@ -790,19 +860,19 @@ func renderEditorUI() {
 						} else {
 							imgui.Text("(No scripts attached)")
 						}
-						
+
 						imgui.Spacing()
 						imgui.Separator()
-						
+
 						// Add Script button
 						if imgui.Button("Add Script") {
 							imgui.OpenPopup("AddScriptPopup")
 						}
-						
+
 						if imgui.BeginPopup("AddScriptPopup") {
 							imgui.Text("Add Script Component")
 							imgui.Separator()
-							
+
 							imgui.PushItemWidth(200)
 							imgui.InputTextV("##scriptsearch", &scriptSearchText, 0, nil)
 							imgui.PopItemWidth()
@@ -810,9 +880,9 @@ func renderEditorUI() {
 							if imgui.Button("Clear") {
 								scriptSearchText = ""
 							}
-							
+
 							imgui.Separator()
-							
+
 							availableScripts := behaviour.GetAvailableScripts()
 							if len(availableScripts) == 0 {
 								imgui.Text("(No scripts found)")
@@ -826,7 +896,7 @@ func renderEditorUI() {
 							} else {
 								searchLower := strings.ToLower(scriptSearchText)
 								visibleCount := 0
-								
+
 								for _, scriptName := range availableScripts {
 									if scriptSearchText == "" || strings.Contains(strings.ToLower(scriptName), searchLower) {
 										if imgui.Selectable(scriptName) {
@@ -843,14 +913,14 @@ func renderEditorUI() {
 										visibleCount++
 									}
 								}
-								
+
 								if visibleCount == 0 && scriptSearchText != "" {
 									imgui.Text("No matching scripts")
 								}
 							}
 							imgui.EndPopup()
 						}
-						
+
 						imgui.SameLine()
 						imgui.Text("(?)")
 						if imgui.IsItemHovered() {
@@ -864,14 +934,14 @@ func renderEditorUI() {
 						imgui.Text("This is an internal error")
 					}
 				}
-				
+
 				// Water Settings
 				// Check Metadata first, then verify activeWaterSim matches (optional but safer)
 				if model.Metadata != nil && model.Metadata["type"] == "water" {
 					imgui.Separator()
 					// Ensure we are editing the CORRECT water simulation if multiple could exist (singleton for now)
-					sim := activeWaterSim 
-					
+					sim := activeWaterSim
+
 					if sim != nil {
 						if imgui.CollapsingHeaderV("Water Simulation", imgui.TreeNodeFlagsDefaultOpen) {
 							// Color
@@ -879,140 +949,140 @@ func renderEditorUI() {
 							if imgui.ColorEdit3V("Water Color", &waterColor, 0) {
 								sim.WaterColor = mgl.Vec3{waterColor[0], waterColor[1], waterColor[2]}
 							}
-							
+
 							// Transparency
 							transparency := sim.Transparency
 							if imgui.SliderFloatV("Transparency", &transparency, 0.0, 1.0, "%.2f", 1.0) {
 								sim.Transparency = transparency
 								sim.ApplyChanges()
 							}
-							
-						// Speed
-						speed := sim.WaveSpeedMultiplier
-						if imgui.SliderFloatV("Wave Speed", &speed, 0.0, 5.0, "%.2f", 1.0) {
-							sim.WaveSpeedMultiplier = speed
-							sim.ApplyChanges()
-						}
-						
-						// Wave Height
-						height := sim.WaveHeight
-						if imgui.SliderFloatV("Wave Height", &height, 0.1, 5.0, "%.2f", 1.0) {
-							sim.WaveHeight = height
-							sim.ApplyChanges()
-						}
-						
-						// Wave Randomness (for stormy seas)
-						randomness := sim.WaveRandomness
-						if imgui.SliderFloatV("Wave Randomness", &randomness, 0.0, 1.0, "%.2f", 1.0) {
-							sim.WaveRandomness = randomness
-							sim.ApplyChanges()
-						}
-						imgui.Text("Tip: Randomness 0.7+ for stormy sea")
-						
-						imgui.Separator()
-						imgui.Text("Advanced Appearance")
-						
-						// Foam / Fog
-						foam := sim.FoamEnabled
-						if imgui.Checkbox("Enable Atmosphere/Foam", &foam) {
-							sim.FoamEnabled = foam
-							sim.ApplyChanges()
-						}
-						if sim.FoamEnabled {
-							imgui.Indent()
-							foamInt := sim.FoamIntensity
-							if imgui.SliderFloatV("Intensity##foam", &foamInt, 0.0, 1.0, "%.2f", 1.0) {
-								sim.FoamIntensity = foamInt
+
+							// Speed
+							speed := sim.WaveSpeedMultiplier
+							if imgui.SliderFloatV("Wave Speed", &speed, 0.0, 5.0, "%.2f", 1.0) {
+								sim.WaveSpeedMultiplier = speed
 								sim.ApplyChanges()
 							}
-							imgui.Unindent()
-						}
-						
-						// Caustics
-						imgui.Separator()
-						caustics := sim.CausticsEnabled
-						if imgui.Checkbox("Enable Caustics", &caustics) {
-							sim.CausticsEnabled = caustics
-							sim.ApplyChanges()
-						}
-						if sim.CausticsEnabled {
-							imgui.Indent()
-							causticsInt := sim.CausticsIntensity
-							if imgui.SliderFloatV("Intensity##caustics", &causticsInt, 0.0, 1.0, "%.2f", 1.0) {
-								sim.CausticsIntensity = causticsInt
+
+							// Wave Height
+							height := sim.WaveHeight
+							if imgui.SliderFloatV("Wave Height", &height, 0.1, 5.0, "%.2f", 1.0) {
+								sim.WaveHeight = height
 								sim.ApplyChanges()
 							}
-							causticsScale := sim.CausticsScale
-							if imgui.SliderFloatV("Scale##caustics", &causticsScale, 0.001, 0.01, "%.4f", 1.0) {
-								sim.CausticsScale = causticsScale
+
+							// Wave Randomness (for stormy seas)
+							randomness := sim.WaveRandomness
+							if imgui.SliderFloatV("Wave Randomness", &randomness, 0.0, 1.0, "%.2f", 1.0) {
+								sim.WaveRandomness = randomness
 								sim.ApplyChanges()
 							}
-							imgui.Unindent()
-						}
-						
-						// Specular
-						spec := sim.SpecularIntensity
-						if imgui.SliderFloatV("Reflectivity", &spec, 0.0, 2.0, "%.2f", 1.0) {
-							sim.SpecularIntensity = spec
-							sim.ApplyChanges()
-						}
-						
-						// Normal/Distortion
-						norm := sim.NormalStrength
-						if imgui.SliderFloatV("Surface Detail", &norm, 0.0, 2.0, "%.2f", 1.0) {
-							sim.NormalStrength = norm
-							sim.ApplyChanges()
-						}
-						
-						dist := sim.DistortionStrength
-						if imgui.SliderFloatV("Distortion", &dist, 0.0, 1.0, "%.2f", 1.0) {
-							sim.DistortionStrength = dist
-							sim.ApplyChanges()
-						}
-						
-						// Shadows
-						imgui.Separator()
-						shadow := sim.ShadowStrength
-						if imgui.SliderFloatV("Shadow Strength", &shadow, 0.0, 1.0, "%.2f", 1.0) {
-							sim.ShadowStrength = shadow
-							sim.ApplyChanges()
-						}
-						
-						imgui.Separator()
-						if imgui.Button("Load Water Texture...") {
-							startDir := "../examples/resources/textures"
-							if currentProject != nil {
-								startDir = filepath.Join(currentProject.Path, "resources/textures")
+							imgui.Text("Tip: Randomness 0.7+ for stormy sea")
+
+							imgui.Separator()
+							imgui.Text("Advanced Appearance")
+
+							// Foam / Fog
+							foam := sim.FoamEnabled
+							if imgui.Checkbox("Enable Atmosphere/Foam", &foam) {
+								sim.FoamEnabled = foam
+								sim.ApplyChanges()
 							}
-							
-							filename, err := dialog.File().
-								SetStartDir(startDir).
-								Filter("Images", "png", "jpg", "jpeg").
-								Title("Load Water Texture").
-								Load()
-							if err == nil && filename != "" {
-								sim.TexturePath = filename
-								// Apply to model material
-								if model.Material == nil {
-									model.Material = &renderer.Material{
-										Name: "WaterMaterial",
-										DiffuseColor: [3]float32{1, 1, 1},
-										Alpha: sim.Transparency,
-									}
+							if sim.FoamEnabled {
+								imgui.Indent()
+								foamInt := sim.FoamIntensity
+								if imgui.SliderFloatV("Intensity##foam", &foamInt, 0.0, 1.0, "%.2f", 1.0) {
+									sim.FoamIntensity = foamInt
+									sim.ApplyChanges()
 								}
-								model.Material.TexturePath = filename
-								model.Material.TextureID = 0 // Force reload
-								logToConsole("Loaded water texture: " + getFileNameFromPath(filename), "info")
+								imgui.Unindent()
 							}
-						}
-						
-						imgui.Text("Note: Some changes update in real-time")
+
+							// Caustics
+							imgui.Separator()
+							caustics := sim.CausticsEnabled
+							if imgui.Checkbox("Enable Caustics", &caustics) {
+								sim.CausticsEnabled = caustics
+								sim.ApplyChanges()
+							}
+							if sim.CausticsEnabled {
+								imgui.Indent()
+								causticsInt := sim.CausticsIntensity
+								if imgui.SliderFloatV("Intensity##caustics", &causticsInt, 0.0, 1.0, "%.2f", 1.0) {
+									sim.CausticsIntensity = causticsInt
+									sim.ApplyChanges()
+								}
+								causticsScale := sim.CausticsScale
+								if imgui.SliderFloatV("Scale##caustics", &causticsScale, 0.001, 0.01, "%.4f", 1.0) {
+									sim.CausticsScale = causticsScale
+									sim.ApplyChanges()
+								}
+								imgui.Unindent()
+							}
+
+							// Specular
+							spec := sim.SpecularIntensity
+							if imgui.SliderFloatV("Reflectivity", &spec, 0.0, 2.0, "%.2f", 1.0) {
+								sim.SpecularIntensity = spec
+								sim.ApplyChanges()
+							}
+
+							// Normal/Distortion
+							norm := sim.NormalStrength
+							if imgui.SliderFloatV("Surface Detail", &norm, 0.0, 2.0, "%.2f", 1.0) {
+								sim.NormalStrength = norm
+								sim.ApplyChanges()
+							}
+
+							dist := sim.DistortionStrength
+							if imgui.SliderFloatV("Distortion", &dist, 0.0, 1.0, "%.2f", 1.0) {
+								sim.DistortionStrength = dist
+								sim.ApplyChanges()
+							}
+
+							// Shadows
+							imgui.Separator()
+							shadow := sim.ShadowStrength
+							if imgui.SliderFloatV("Shadow Strength", &shadow, 0.0, 1.0, "%.2f", 1.0) {
+								sim.ShadowStrength = shadow
+								sim.ApplyChanges()
+							}
+
+							imgui.Separator()
+							if imgui.Button("Load Water Texture...") {
+								startDir := "../resources/textures"
+								if currentProject != nil {
+									startDir = filepath.Join(currentProject.Path, "resources/textures")
+								}
+
+								filename, err := dialog.File().
+									SetStartDir(startDir).
+									Filter("Images", "png", "jpg", "jpeg").
+									Title("Load Water Texture").
+									Load()
+								if err == nil && filename != "" {
+									sim.TexturePath = filename
+									// Apply to model material
+									if model.Material == nil {
+										model.Material = &renderer.Material{
+											Name:         "WaterMaterial",
+											DiffuseColor: [3]float32{1, 1, 1},
+											Alpha:        sim.Transparency,
+										}
+									}
+									model.Material.TexturePath = filename
+									model.Material.TextureID = 0 // Force reload
+									logToConsole("Loaded water texture: "+getFileNameFromPath(filename), "info")
+								}
+							}
+
+							imgui.Text("Note: Some changes update in real-time")
 						}
 					} else {
 						imgui.Text("Water Simulation State Lost")
 					}
 				}
-				
+
 			} else if selectedType == "light" && selectedLightIndex >= 0 {
 				// Safety check for index
 				lights := openglRenderer.GetLights()
@@ -1021,7 +1091,7 @@ func renderEditorUI() {
 					light := lights[selectedLightIndex]
 					imgui.Text("Selected Light: " + light.Name)
 					imgui.Separator()
-					
+
 					// Light Type/Mode Display
 					imgui.Text("Type: " + strings.Title(light.Mode))
 					imgui.Spacing()
@@ -1032,11 +1102,17 @@ func renderEditorUI() {
 					w := imgui.ContentRegionAvail().X
 					imgui.PushItemWidth(w / 3.3)
 					changed := false
-					if imgui.DragFloatV("##lposX", &posX, 0.5, 0, 0, "X: %.1f", 0) { changed = true }
+					if imgui.DragFloatV("##lposX", &posX, 0.5, 0, 0, "X: %.1f", 0) {
+						changed = true
+					}
 					imgui.SameLine()
-					if imgui.DragFloatV("##lposY", &posY, 0.5, 0, 0, "Y: %.1f", 0) { changed = true }
+					if imgui.DragFloatV("##lposY", &posY, 0.5, 0, 0, "Y: %.1f", 0) {
+						changed = true
+					}
 					imgui.SameLine()
-					if imgui.DragFloatV("##lposZ", &posZ, 0.5, 0, 0, "Z: %.1f", 0) { changed = true }
+					if imgui.DragFloatV("##lposZ", &posZ, 0.5, 0, 0, "Z: %.1f", 0) {
+						changed = true
+					}
 					imgui.PopItemWidth()
 					if changed {
 						light.Position = mgl.Vec3{posX, posY, posZ}
@@ -1049,11 +1125,17 @@ func renderEditorUI() {
 						dirX, dirY, dirZ := light.Direction.X(), light.Direction.Y(), light.Direction.Z()
 						imgui.PushItemWidth(w / 3.3)
 						changed = false
-						if imgui.DragFloatV("##ldirX", &dirX, 0.05, -1, 1, "X: %.2f", 0) { changed = true }
+						if imgui.DragFloatV("##ldirX", &dirX, 0.05, -1, 1, "X: %.2f", 0) {
+							changed = true
+						}
 						imgui.SameLine()
-						if imgui.DragFloatV("##ldirY", &dirY, 0.05, -1, 1, "Y: %.2f", 0) { changed = true }
+						if imgui.DragFloatV("##ldirY", &dirY, 0.05, -1, 1, "Y: %.2f", 0) {
+							changed = true
+						}
 						imgui.SameLine()
-						if imgui.DragFloatV("##ldirZ", &dirZ, 0.05, -1, 1, "Z: %.2f", 0) { changed = true }
+						if imgui.DragFloatV("##ldirZ", &dirZ, 0.05, -1, 1, "Z: %.2f", 0) {
+							changed = true
+						}
 						imgui.PopItemWidth()
 						if changed {
 							light.Direction = mgl.Vec3{dirX, dirY, dirZ}
@@ -1061,7 +1143,7 @@ func renderEditorUI() {
 					}
 
 					imgui.Separator()
-					
+
 					// Color
 					color := [3]float32{light.Color.X(), light.Color.Y(), light.Color.Z()}
 					if imgui.ColorEdit3V("Color", &color, 0) {
@@ -1079,7 +1161,7 @@ func renderEditorUI() {
 					if imgui.SliderFloatV("Ambient", &ambient, 0.0, 1.0, "%.2f", 0) {
 						light.AmbientStrength = ambient
 					}
-					
+
 					// Temperature
 					temp := light.Temperature
 					if imgui.SliderFloatV("Temperature (K)", &temp, 1000.0, 12000.0, "%.0f", 0) {
@@ -1093,15 +1175,22 @@ func renderEditorUI() {
 						constant := light.ConstantAtten
 						linear := light.LinearAtten
 						quad := light.QuadraticAtten
-						
-						if imgui.DragFloatV("Constant", &constant, 0.01, 0, 10, "%.3f", 0) { light.ConstantAtten = constant }
-						if imgui.DragFloatV("Linear", &linear, 0.0001, 0, 1, "%.4f", 0) { light.LinearAtten = linear }
-						if imgui.DragFloatV("Quadratic", &quad, 0.000001, 0, 1, "%.6f", 0) { light.QuadraticAtten = quad }
+
+						if imgui.DragFloatV("Constant", &constant, 0.01, 0, 10, "%.3f", 0) {
+							light.ConstantAtten = constant
+						}
+						if imgui.DragFloatV("Linear", &linear, 0.0001, 0, 1, "%.4f", 0) {
+							light.LinearAtten = linear
+						}
+						if imgui.DragFloatV("Quadratic", &quad, 0.000001, 0, 1, "%.6f", 0) {
+							light.QuadraticAtten = quad
+						}
 					}
 				}
 			}
 		}
 		imgui.End()
+		imgui.PopStyleVarV(2)
 	}
 
 	if showDemoWindow {
@@ -1113,7 +1202,7 @@ func renderFileExplorerContent() {
 	// Breadcrumb navigation
 	imgui.Text("Path:")
 	imgui.SameLine()
-	
+
 	// Update current directory if default
 	if currentDirectory == "." {
 		wd, _ := os.Getwd()
@@ -1159,7 +1248,7 @@ func renderFileExplorerContent() {
 		if !entry.IsDir() {
 			ext := strings.ToLower(filepath.Ext(entry.Name()))
 			selected := selectedFilePath == filepath.Join(currentDirectory, entry.Name())
-			
+
 			if imgui.SelectableV(entry.Name(), selected, 0, imgui.Vec2{}) {
 				selectedFilePath = filepath.Join(currentDirectory, entry.Name())
 				if imgui.IsItemHovered() && imgui.IsMouseDoubleClicked(0) {
@@ -1206,7 +1295,7 @@ func renderConsoleContent() {
 
 	imgui.Separator()
 	imgui.PushItemWidth(-1)
-	
+
 	// Check for Enter key manually if needed, or rely on InputTextFlagsEnterReturnsTrue
 	// Using InputText with flags
 	if imgui.InputTextV("##ConsoleInput", &consoleInput, imgui.InputTextFlagsEnterReturnsTrue, nil) {
@@ -1227,23 +1316,23 @@ func renderAdvancedRenderingPBR() {
 		imgui.Text("No renderer available")
 		return
 	}
-	
+
 	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if !ok {
 		imgui.Text("OpenGL renderer required")
 		return
 	}
-	
+
 	models := openglRenderer.GetModels()
 	if len(models) == 0 {
 		imgui.Text("No models to configure")
 		return
 	}
-	
+
 	// Get current config from first model or use defaults
 	config := getAdvancedConfigFromModel(models[0])
 	changed := false
-	
+
 	// Clearcoat
 	clearcoatEnabled := config.EnableClearcoat
 	if imgui.Checkbox("Enable Clearcoat", &clearcoatEnabled) {
@@ -1260,7 +1349,7 @@ func renderAdvancedRenderingPBR() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	// Sheen
 	sheenEnabled := config.EnableSheen
 	if imgui.Checkbox("Enable Sheen", &sheenEnabled) {
@@ -1279,7 +1368,7 @@ func renderAdvancedRenderingPBR() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	// Transmission
 	transmissionEnabled := config.EnableTransmission
 	if imgui.Checkbox("Enable Transmission", &transmissionEnabled) {
@@ -1293,9 +1382,9 @@ func renderAdvancedRenderingPBR() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	imgui.Separator()
-	
+
 	// Advanced Lighting Models
 	if imgui.Checkbox("Multiple Scattering", &config.EnableMultipleScattering) {
 		changed = true
@@ -1313,7 +1402,7 @@ func renderAdvancedRenderingPBR() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	if changed {
 		applyAdvancedConfigToAllModels(config)
 	}
@@ -1324,21 +1413,21 @@ func renderAdvancedRenderingLighting() {
 		imgui.Text("No renderer available")
 		return
 	}
-	
+
 	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if !ok {
 		return
 	}
-	
+
 	models := openglRenderer.GetModels()
 	if len(models) == 0 {
 		imgui.Text("No models to configure")
 		return
 	}
-	
+
 	config := getAdvancedConfigFromModel(models[0])
 	changed := false
-	
+
 	// SSAO
 	ssaoEnabled := config.EnableSSAO
 	if imgui.Checkbox("Enable SSAO", &ssaoEnabled) {
@@ -1363,7 +1452,7 @@ func renderAdvancedRenderingLighting() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	// Volumetric Lighting
 	volumetricEnabled := config.EnableVolumetricLighting
 	if imgui.Checkbox("Enable Volumetric Lighting", &volumetricEnabled) {
@@ -1385,7 +1474,7 @@ func renderAdvancedRenderingLighting() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	// Global Illumination
 	giEnabled := config.EnableGlobalIllumination
 	if imgui.Checkbox("Enable Global Illumination", &giEnabled) {
@@ -1404,7 +1493,7 @@ func renderAdvancedRenderingLighting() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	// Shadows
 	imgui.Separator()
 	if imgui.Checkbox("Enable Advanced Shadows", &config.EnableAdvancedShadows) {
@@ -1420,7 +1509,7 @@ func renderAdvancedRenderingLighting() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	// Subsurface Scattering
 	imgui.Separator()
 	if imgui.Checkbox("Enable Subsurface Scattering", &config.EnableSubsurfaceScattering) {
@@ -1441,7 +1530,7 @@ func renderAdvancedRenderingLighting() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	if changed {
 		applyAdvancedConfigToAllModels(config)
 	}
@@ -1452,21 +1541,21 @@ func renderAdvancedRenderingPostProcess() {
 		imgui.Text("No renderer available")
 		return
 	}
-	
+
 	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if !ok {
 		return
 	}
-	
+
 	models := openglRenderer.GetModels()
 	if len(models) == 0 {
 		imgui.Text("No models to configure")
 		return
 	}
-	
+
 	config := getAdvancedConfigFromModel(models[0])
 	changed := false
-	
+
 	// Bloom - Read from renderer directly
 	bloomEnabled := openglRenderer.EnableBloom
 	if imgui.Checkbox("Enable Bloom", &bloomEnabled) {
@@ -1489,7 +1578,7 @@ func renderAdvancedRenderingPostProcess() {
 		}
 		imgui.SameLine()
 		imgui.Text("Brightness threshold")
-		
+
 		bloomIntensity := openglRenderer.BloomIntensity
 		if imgui.SliderFloatV("Intensity##bloom", &bloomIntensity, 0.0, 1.0, "%.2f", 1.0) {
 			openglRenderer.BloomIntensity = bloomIntensity
@@ -1498,10 +1587,10 @@ func renderAdvancedRenderingPostProcess() {
 		}
 		imgui.SameLine()
 		imgui.Text("Bloom strength")
-		
+
 		imgui.Unindent()
 	}
-	
+
 	// Perlin Noise
 	imgui.Separator()
 	if imgui.Checkbox("Enable Perlin Noise", &config.EnablePerlinNoise) {
@@ -1522,7 +1611,7 @@ func renderAdvancedRenderingPostProcess() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	// High Quality Filtering
 	imgui.Separator()
 	if imgui.Checkbox("High Quality Filtering", &config.EnableHighQualityFiltering) {
@@ -1537,7 +1626,7 @@ func renderAdvancedRenderingPostProcess() {
 		}
 		imgui.Unindent()
 	}
-	
+
 	if changed {
 		applyAdvancedConfigToAllModels(config)
 	}
@@ -1548,27 +1637,27 @@ func renderAdvancedRenderingPerformance() {
 		imgui.Text("No renderer available")
 		return
 	}
-	
+
 	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if !ok {
 		return
 	}
-	
+
 	models := openglRenderer.GetModels()
 	if len(models) == 0 {
 		imgui.Text("No models to configure")
 		return
 	}
-	
+
 	config := getAdvancedConfigFromModel(models[0])
 	changed := false
-	
+
 	if imgui.CollapsingHeaderV("Anti-Aliasing", imgui.TreeNodeFlagsDefaultOpen) {
 		imgui.Text("MSAA (Hardware):")
 		imgui.Indent()
-		
+
 		msaaEnabled := openglRenderer.EnableMSAAState
-		
+
 		if imgui.Checkbox("Enable MSAA", &msaaEnabled) {
 			openglRenderer.EnableMSAA(msaaEnabled)
 			if msaaEnabled {
@@ -1577,15 +1666,15 @@ func renderAdvancedRenderingPerformance() {
 				logToConsole("MSAA disabled", "info")
 			}
 		}
-		
+
 		imgui.Text(fmt.Sprintf("Samples: %dx (restart to change)", eng.MSAASamples))
 		imgui.Separator()
-		
+
 		imgui.Unindent()
-		
+
 		imgui.Text("Software FXAA (Fast Approximate AA):")
 		imgui.Indent()
-		
+
 		// Read FXAA state directly from renderer (not from model config)
 		// FXAA is a post-processing effect, not a per-model setting
 		fxaaEnabled := openglRenderer.EnableFXAA
@@ -1602,12 +1691,12 @@ func renderAdvancedRenderingPerformance() {
 		imgui.Text("Post-processing edge smoothing")
 		imgui.Text("(FXAA is OFF by default)")
 		imgui.Text("Good fallback if MSAA is disabled")
-		
+
 		imgui.Unindent()
 	}
-	
+
 	imgui.Separator()
-	
+
 	// Performance Info
 	if imgui.CollapsingHeaderV("Automatic LOD System", imgui.TreeNodeFlagsDefaultOpen) {
 		imgui.Text("Distance-based optimization enabled:")
@@ -1624,7 +1713,7 @@ func renderAdvancedRenderingPerformance() {
 		imgui.Text("Close voxels use minimal samples")
 		imgui.Text("for maximum performance.")
 	}
-	
+
 	if changed {
 		applyAdvancedConfigToAllModels(config)
 	}
@@ -1633,11 +1722,11 @@ func renderAdvancedRenderingPerformance() {
 func getAdvancedConfigFromModel(model *renderer.Model) renderer.AdvancedRenderingConfig {
 	// Try to extract config from model's custom uniforms
 	config := renderer.DefaultAdvancedRenderingConfig()
-	
+
 	if model.CustomUniforms == nil {
 		return config
 	}
-	
+
 	// Extract values from custom uniforms
 	if val, ok := model.CustomUniforms["enableClearcoat"].(bool); ok {
 		config.EnableClearcoat = val
@@ -1762,7 +1851,7 @@ func getAdvancedConfigFromModel(model *renderer.Model) renderer.AdvancedRenderin
 	if val, ok := model.CustomUniforms["filteringQuality"].(int32); ok {
 		config.FilteringQuality = int(val)
 	}
-	
+
 	return config
 }
 
@@ -1770,12 +1859,12 @@ func applyAdvancedConfigToAllModels(config renderer.AdvancedRenderingConfig) {
 	if eng == nil || eng.GetRenderer() == nil {
 		return
 	}
-	
+
 	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if !ok {
 		return
 	}
-	
+
 	models := openglRenderer.GetModels()
 	for _, model := range models {
 		// Skip water models as they have their own shader
@@ -1784,13 +1873,13 @@ func applyAdvancedConfigToAllModels(config renderer.AdvancedRenderingConfig) {
 		}
 		renderer.ApplyAdvancedRenderingConfig(model, config)
 	}
-	
+
 	logToConsole("Applied advanced rendering configuration to all models", "info")
 }
 
 func applyRenderingPreset(presetName string) {
 	var config renderer.AdvancedRenderingConfig
-	
+
 	switch presetName {
 	case "performance":
 		config = renderer.PerformanceRenderingConfig()
@@ -1807,8 +1896,7 @@ func applyRenderingPreset(presetName string) {
 	default:
 		config = renderer.DefaultAdvancedRenderingConfig()
 	}
-	
+
 	applyAdvancedConfigToAllModels(config)
 	globalAdvancedRenderingEnabled = true
 }
-

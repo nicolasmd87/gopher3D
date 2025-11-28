@@ -9,7 +9,6 @@
 *.dylib
 *.log
 
-
 # Test binary, built with `go test -c`
 *.test
 
@@ -21,3 +20,19 @@
 
 # Go workspace file
 go.work
+
+# Editor configuration (user-specific)
+editor_config.json
+
+# Build output
+bin/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

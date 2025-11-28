@@ -26,4 +26,3 @@ func (r *RotateScript) Update() {
 }
 
 func (r *RotateScript) FixedUpdate() {}
-

@@ -4,16 +4,16 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// Component is the base interface for all components 
+// Component is the base interface for all components
 // Components can be attached to models/game objects
 type Component interface {
 	// Lifecycle methods
-	Awake()        // Called when component is first created
-	Start()        // Called before first Update (after all Awakes)
-	Update()       // Called every frame
-	FixedUpdate()  // Called at fixed time intervals
-	OnDestroy()    // Called when component/object is destroyed
-	
+	Awake()       // Called when component is first created
+	Start()       // Called before first Update (after all Awakes)
+	Update()      // Called every frame
+	FixedUpdate() // Called at fixed time intervals
+	OnDestroy()   // Called when component/object is destroyed
+
 	// Component info
 	GetEnabled() bool
 	SetEnabled(bool)
@@ -29,11 +29,11 @@ type BaseComponent struct {
 	started    bool
 }
 
-func (c *BaseComponent) Awake()        {}
-func (c *BaseComponent) Start()        {}
-func (c *BaseComponent) Update()       {}
-func (c *BaseComponent) FixedUpdate()  {}
-func (c *BaseComponent) OnDestroy()    {}
+func (c *BaseComponent) Awake()       {}
+func (c *BaseComponent) Start()       {}
+func (c *BaseComponent) Update()      {}
+func (c *BaseComponent) FixedUpdate() {}
+func (c *BaseComponent) OnDestroy()   {}
 
 func (c *BaseComponent) GetEnabled() bool {
 	return c.enabled
@@ -51,7 +51,7 @@ func (c *BaseComponent) SetGameObject(obj *GameObject) {
 	c.gameObject = obj
 }
 
-// GameObject represents an object in the scene 
+// GameObject represents an object in the scene
 // This wraps around the renderer.Model to provide Unity-like functionality
 type GameObject struct {
 	Name       string
@@ -62,7 +62,7 @@ type GameObject struct {
 	model      interface{} // Reference to renderer.Model (using interface to avoid circular import)
 }
 
-// Transform component 
+// Transform component
 type Transform struct {
 	BaseComponent
 	Position mgl32.Vec3
@@ -180,7 +180,7 @@ func (obj *GameObject) internalUpdate() {
 	if !obj.Active {
 		return
 	}
-	
+
 	for _, comp := range obj.Components {
 		if comp.GetEnabled() {
 			comp.Update()
@@ -192,7 +192,7 @@ func (obj *GameObject) internalFixedUpdate() {
 	if !obj.Active {
 		return
 	}
-	
+
 	for _, comp := range obj.Components {
 		if comp.GetEnabled() {
 			comp.FixedUpdate()
@@ -204,7 +204,7 @@ func (obj *GameObject) internalStart() {
 	if !obj.Active {
 		return
 	}
-	
+
 	for _, comp := range obj.Components {
 		if comp.GetEnabled() {
 			comp.Start()
@@ -218,4 +218,3 @@ func (obj *GameObject) Destroy() {
 	}
 	obj.Active = false
 }
-

@@ -1,3 +1,4 @@
+//go:build sdl
 // +build sdl
 
 package platforms

@@ -16,10 +16,10 @@ import (
 )
 
 type SceneData struct {
-	Models        []SceneModel  `json:"models"`
-	Lights        []SceneLight  `json:"lights"`
-	Water         *SceneWater   `json:"water,omitempty"`  // Optional water configuration
-	Skybox        *SceneSkybox  `json:"skybox,omitempty"` // Optional skybox configuration
+	Models []SceneModel `json:"models"`
+	Lights []SceneLight `json:"lights"`
+	Water  *SceneWater  `json:"water,omitempty"`  // Optional water configuration
+	Skybox *SceneSkybox `json:"skybox,omitempty"` // Optional skybox configuration
 }
 
 type SceneModel struct {
@@ -38,10 +38,10 @@ type SceneModel struct {
 	Exposure      float32    `json:"exposure"`
 	Alpha         float32    `json:"alpha"`
 	TexturePath   string     `json:"texture_path"`
-	
+
 	// Voxel Specific Data
 	VoxelConfig *VoxelConfig `json:"voxel_config,omitempty"`
-	
+
 	// Components
 	Components []SceneComponent `json:"components,omitempty"`
 }
@@ -122,12 +122,11 @@ func newScene() {
 	// RE-FETCH lights to ensure we have the up-to-date list after removals
 	lights = openglRenderer.GetLights()
 
-	// Ensure we have at least one default light
 	if len(lights) == 0 {
 		defaultLight := renderer.CreateDirectionalLight(
-			mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(), // FROM surface TO sun (upward Y)
+			mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(),
 			mgl.Vec3{1.0, 0.95, 0.85},
-			4.5, // Much higher intensity for water reflections
+			1.0,
 		)
 		defaultLight.Name = "Sun"
 		defaultLight.AmbientStrength = 0.3
@@ -138,7 +137,7 @@ func newScene() {
 		// Ensure eng.Light points to the first light (should be Sun)
 		eng.Light = lights[0]
 	}
-	
+
 	// Reset Water
 	activeWaterSim = nil
 
@@ -199,28 +198,28 @@ func saveScene() {
 			sceneModel.Alpha = model.Material.Alpha
 			sceneModel.TexturePath = model.Material.TexturePath
 		}
-		
+
 		// Check for voxel configuration
 		if model.Metadata != nil {
-		if config, ok := model.Metadata["voxelConfig"].(VoxelConfig); ok {
-			sceneModel.VoxelConfig = &config
-		}
-	}
-	
-	// Save components
-	if obj := getGameObjectForModel(model); obj != nil {
-		sceneModel.Components = make([]SceneComponent, 0)
-		for _, comp := range obj.Components {
-			typeName := getComponentTypeName(comp)
-			if typeName != "" {
-				sceneModel.Components = append(sceneModel.Components, SceneComponent{
-					Type: typeName,
-				})
+			if config, ok := model.Metadata["voxelConfig"].(VoxelConfig); ok {
+				sceneModel.VoxelConfig = &config
 			}
 		}
-	}
-	
-	sceneData.Models = append(sceneData.Models, sceneModel)
+
+		// Save components
+		if obj := getGameObjectForModel(model); obj != nil {
+			sceneModel.Components = make([]SceneComponent, 0)
+			for _, comp := range obj.Components {
+				typeName := getComponentTypeName(comp)
+				if typeName != "" {
+					sceneModel.Components = append(sceneModel.Components, SceneComponent{
+						Type: typeName,
+					})
+				}
+			}
+		}
+
+		sceneData.Models = append(sceneData.Models, sceneModel)
 	}
 
 	// Save lights with complete properties
@@ -262,7 +261,7 @@ func saveScene() {
 			ShadowStrength:      activeWaterSim.ShadowStrength,
 		}
 	}
-	
+
 	// Save skybox if it exists
 	if skyboxColorMode {
 		sceneData.Skybox = &SceneSkybox{
@@ -347,7 +346,7 @@ func loadScene() {
 	// Load models
 	for _, sceneModel := range sceneData.Models {
 		var model *renderer.Model
-		
+
 		// Case 1: Voxel Terrain
 		if sceneModel.VoxelConfig != nil {
 			logToConsole(fmt.Sprintf("Regenerating voxel terrain: %s", sceneModel.Name), "info")
@@ -356,7 +355,7 @@ func loadScene() {
 				logToConsole(fmt.Sprintf("Failed to regenerate voxel terrain: %s", sceneModel.Name), "error")
 				continue
 			}
-			
+
 			// Restore texture path for voxels BEFORE adding model
 			if sceneModel.TexturePath != "" {
 				if model.Material == nil {
@@ -366,7 +365,7 @@ func loadScene() {
 				model.Material.TextureID = 0
 				logToConsole(fmt.Sprintf("Voxel texture will be loaded: %s", filepath.Base(sceneModel.TexturePath)), "info")
 			}
-			
+
 			// Manually add model here since regenerateVoxelTerrain no longer does it
 			eng.AddModel(model)
 		} else {
@@ -463,17 +462,17 @@ func loadScene() {
 		if model.Material != nil {
 			// Use saved values only if they seem valid (not default zero)
 			// This protects newly regenerated voxels (which have good defaults) from being overwritten by bad save data
-			if sceneModel.DiffuseColor != [3]float32{0,0,0} {
+			if sceneModel.DiffuseColor != [3]float32{0, 0, 0} {
 				model.Material.DiffuseColor = sceneModel.DiffuseColor
 			}
-			if sceneModel.SpecularColor != [3]float32{0,0,0} {
+			if sceneModel.SpecularColor != [3]float32{0, 0, 0} {
 				model.Material.SpecularColor = sceneModel.SpecularColor
 			}
-			
+
 			model.Material.Shininess = sceneModel.Shininess
 			model.Material.Metallic = sceneModel.Metallic
 			model.Material.Roughness = sceneModel.Roughness
-			
+
 			// Ensure Exposure is never 0 (which would make model completely black)
 			if sceneModel.Exposure > 0.01 {
 				model.Material.Exposure = sceneModel.Exposure
@@ -482,14 +481,14 @@ func loadScene() {
 				model.Material.Exposure = 1.0
 			}
 			// If saved is 0 but current is valid (from regenerate), keep current!
-			
+
 			// Ensure Alpha is never 0 (which would make model invisible)
 			if sceneModel.Alpha > 0.01 {
 				model.Material.Alpha = sceneModel.Alpha
 			} else if model.Material.Alpha < 0.01 {
-				model.Material.Alpha = 1.0 
+				model.Material.Alpha = 1.0
 			}
-			
+
 			restoredMaterials[model.Material] = true
 		}
 
@@ -539,13 +538,13 @@ func loadScene() {
 
 		// Mark model as dirty to ensure uniforms are updated on next render
 		model.IsDirty = true
-		
+
 		// Force texture loading if path is set (renderer will auto-load on next AddModel/render)
 		if model.Material != nil && model.Material.TexturePath != "" && model.Material.TextureID == 0 {
 			// Texture will be loaded automatically by renderer on next render
 			logToConsole(fmt.Sprintf("Texture queued for loading: %s", filepath.Base(model.Material.TexturePath)), "info")
 		}
-		
+
 		// Create GameObject and restore components
 		obj := createGameObjectForModel(model)
 		for _, sceneComp := range sceneModel.Components {
@@ -595,9 +594,9 @@ func loadScene() {
 	if eng.Light == nil {
 		logToConsole("No lights found in scene file, creating default Sun", "warning")
 		defaultLight := renderer.CreateDirectionalLight(
-			mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(), // FROM surface TO sun (upward Y)
+			mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(),
 			mgl.Vec3{1.0, 0.95, 0.85},
-			4.5, // Much higher intensity for water reflections
+			1.0,
 		)
 		defaultLight.Name = "Sun"
 		defaultLight.AmbientStrength = 0.3
@@ -621,13 +620,13 @@ func loadScene() {
 		ws.NormalStrength = sceneData.Water.NormalStrength
 		ws.DistortionStrength = sceneData.Water.DistortionStrength
 		ws.ShadowStrength = sceneData.Water.ShadowStrength
-		
+
 		activeWaterSim = ws
 		behaviour.GlobalBehaviourManager.Add(ws)
-		
+
 		logToConsole("Water loaded from scene", "info")
 	}
-	
+
 	// Load skybox if it exists in scene
 	if sceneData.Skybox != nil {
 		if sceneData.Skybox.Type == "color" {
@@ -702,10 +701,10 @@ func addModelToScene(path string, name string) *renderer.Model {
 			model.Material.Alpha = 1.0
 		}
 	}
-	
+
 	// Always ensure model has proper exposure set via method
 	model.SetExposure(1.0)
-	
+
 	// Apply default advanced rendering configuration to new models
 	if globalAdvancedRenderingEnabled {
 		defaultConfig := renderer.DefaultAdvancedRenderingConfig()
@@ -741,9 +740,9 @@ func addModelToScene(path string, name string) *renderer.Model {
 	}
 
 	eng.AddModel(model)
-	
+
 	createGameObjectForModel(model)
-	
+
 	return model
 }
 
@@ -753,10 +752,10 @@ func createGameObjectForModel(model *renderer.Model) *behaviour.GameObject {
 	obj.Transform.SetPosition(model.Position)
 	obj.Transform.SetRotation(model.Rotation)
 	obj.Transform.SetScale(model.Scale)
-	
+
 	modelToGameObject[model] = obj
 	behaviour.GlobalComponentManager.RegisterGameObject(obj)
-	
+
 	return obj
 }
 
@@ -796,15 +795,15 @@ func setupEditorScene() {
 
 	// Create default light
 	defaultLight := renderer.CreateDirectionalLight(
-		mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(), // FROM surface TO sun (upward Y)
+		mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(),
 		mgl.Vec3{1.0, 0.95, 0.85},
-		4.5, // Much higher intensity for water reflections
+		1.0,
 	)
 	defaultLight.Name = "Sun"
 	defaultLight.AmbientStrength = 0.3
 	defaultLight.Type = renderer.STATIC_LIGHT
 	eng.Light = defaultLight
-	
+
 	// Add light to renderer's lights array (so editor can manage it)
 	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if ok {
@@ -813,12 +812,12 @@ func setupEditorScene() {
 
 	// Note: Grid floor removed - it was interfering with the scene
 	// TODO: Implement proper debug grid lines if needed
-	
+
 	fmt.Println("✓ Editor scene ready!")
-	
+
 	// Load editor configuration
 	loadConfig()
-	
+
 	// Add initial console message
 	logToConsole("Editor initialized - Type 'help' for available commands", "info")
 }

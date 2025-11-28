@@ -14,19 +14,19 @@ import (
 
 // TextureStats provides debugging and profiling information
 type TextureStats struct {
-	TotalTextures   int
-	CacheHits       int
-	CacheMisses     int
-	TotalMemoryMB   float64
-	ActiveTextures  int
+	TotalTextures  int
+	CacheHits      int
+	CacheMisses    int
+	TotalMemoryMB  float64
+	ActiveTextures int
 }
 
 // TextureManager manages texture loading, caching, and lifecycle
 type TextureManager struct {
-	textureCache    map[string]uint32  // path -> OpenGL texture ID
-	textureRefCount map[uint32]int     // texture ID -> reference count
-	texturePaths    map[uint32]string  // texture ID -> path (for debugging)
-	mu              sync.RWMutex       // Thread-safe operations
+	textureCache    map[string]uint32 // path -> OpenGL texture ID
+	textureRefCount map[uint32]int    // texture ID -> reference count
+	texturePaths    map[uint32]string // texture ID -> path (for debugging)
+	mu              sync.RWMutex      // Thread-safe operations
 	stats           TextureStats
 }
 
@@ -50,18 +50,18 @@ func (tm *TextureManager) LoadTexture(filePath string) (uint32, error) {
 		// Increment reference count
 		tm.textureRefCount[textureID]++
 		tm.stats.CacheHits++
-		
+
 		logger.Log.Debug("Texture cache hit",
 			zap.String("path", filePath),
 			zap.Uint32("textureID", textureID),
 			zap.Int("refCount", tm.textureRefCount[textureID]))
-		
+
 		return textureID, nil
 	}
 
 	// Cache miss - load texture from disk
 	tm.stats.CacheMisses++
-	
+
 	imgFile, err := os.Open(filePath)
 	if err != nil {
 		return 0, err
@@ -160,7 +160,7 @@ func (tm *TextureManager) AddReference(textureID uint32) {
 	defer tm.mu.Unlock()
 
 	tm.textureRefCount[textureID]++
-	
+
 	logger.Log.Debug("Texture reference added",
 		zap.Uint32("textureID", textureID),
 		zap.Int("refCount", tm.textureRefCount[textureID]))
@@ -192,7 +192,7 @@ func (tm *TextureManager) ReleaseTexture(textureID uint32) {
 	if refCount <= 0 {
 		// Free the OpenGL texture
 		gl.DeleteTextures(1, &textureID)
-		
+
 		// Remove from all caches
 		path := tm.texturePaths[textureID]
 		delete(tm.textureCache, path)
@@ -243,4 +243,3 @@ func (tm *TextureManager) Clear() {
 
 	logger.Log.Info("Texture manager cleared")
 }
-

@@ -13,7 +13,7 @@ func GetAvailableScripts() []string {
 	for name := range scriptRegistry {
 		names = append(names, name)
 	}
-	
+
 	for i := 0; i < len(names)-1; i++ {
 		for j := i + 1; j < len(names); j++ {
 			if names[i] > names[j] {
@@ -21,7 +21,7 @@ func GetAvailableScripts() []string {
 			}
 		}
 	}
-	
+
 	return names
 }
 
@@ -31,4 +31,3 @@ func CreateScript(name string) Component {
 	}
 	return nil
 }
-

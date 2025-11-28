@@ -16,7 +16,7 @@ type Shader struct {
 	program        uint32
 	Name           string `default:"default"`
 	isCompiled     bool
-	skyColor       mgl32.Vec3 // For solid color skybox
+	skyColor       mgl32.Vec3    // For solid color skybox
 	uniformCache   *UniformCache // Cache for uniform locations
 }
 
@@ -37,10 +37,10 @@ func (shader *Shader) Compile() error {
 	fragmentShader := GenShader(shader.fragmentSource, gl.FRAGMENT_SHADER)
 	shader.program = GenShaderProgram(vertexShader, fragmentShader)
 	shader.isCompiled = true
-	
+
 	// Initialize uniform cache for this shader
 	shader.uniformCache = NewUniformCache(shader.program)
-	
+
 	return nil
 }
 

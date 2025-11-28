@@ -261,12 +261,12 @@ func (world *VoxelWorld) isVoxelSolid(x, y, z int) bool {
 	if z < 0 || z >= world.WorldSizeZ*world.ChunkSize {
 		return false
 	}
-	
+
 	chunkX := x / world.ChunkSize
 	chunkZ := z / world.ChunkSize
 	localX := x % world.ChunkSize
 	localZ := z % world.ChunkSize
-	
+
 	return world.Chunks[chunkX][chunkZ].Voxels[localX][y][localZ].Active
 }
 
@@ -374,18 +374,18 @@ func (world *VoxelWorld) CreateInstancedModel() (*renderer.Model, error) {
 								globalX := chunkX*world.ChunkSize + x
 								globalY := y
 								globalZ := chunkZ*world.ChunkSize + z
-								
+
 								hasExposedFace := false
 								// Check 6 neighbors
 								if !world.isVoxelSolid(globalX-1, globalY, globalZ) ||
-								   !world.isVoxelSolid(globalX+1, globalY, globalZ) ||
-								   !world.isVoxelSolid(globalX, globalY-1, globalZ) ||
-								   !world.isVoxelSolid(globalX, globalY+1, globalZ) ||
-								   !world.isVoxelSolid(globalX, globalY, globalZ-1) ||
-								   !world.isVoxelSolid(globalX, globalY, globalZ+1) {
+									!world.isVoxelSolid(globalX+1, globalY, globalZ) ||
+									!world.isVoxelSolid(globalX, globalY-1, globalZ) ||
+									!world.isVoxelSolid(globalX, globalY+1, globalZ) ||
+									!world.isVoxelSolid(globalX, globalY, globalZ-1) ||
+									!world.isVoxelSolid(globalX, globalY, globalZ+1) {
 									hasExposedFace = true
 								}
-								
+
 								if hasExposedFace {
 									visibleCount++
 								}
@@ -395,7 +395,7 @@ func (world *VoxelWorld) CreateInstancedModel() (*renderer.Model, error) {
 				}
 			}
 		}
-		
+
 		// Create model with only visible voxels
 		model, err := CreateInstancedVoxelModel(world.Geometry, visibleCount)
 		if err != nil {
@@ -416,27 +416,27 @@ func (world *VoxelWorld) CreateInstancedModel() (*renderer.Model, error) {
 								globalX := chunkX*world.ChunkSize + x
 								globalY := y
 								globalZ := chunkZ*world.ChunkSize + z
-								
+
 								hasExposedFace := false
 								if !world.isVoxelSolid(globalX-1, globalY, globalZ) ||
-								   !world.isVoxelSolid(globalX+1, globalY, globalZ) ||
-								   !world.isVoxelSolid(globalX, globalY-1, globalZ) ||
-								   !world.isVoxelSolid(globalX, globalY+1, globalZ) ||
-								   !world.isVoxelSolid(globalX, globalY, globalZ-1) ||
-								   !world.isVoxelSolid(globalX, globalY, globalZ+1) {
+									!world.isVoxelSolid(globalX+1, globalY, globalZ) ||
+									!world.isVoxelSolid(globalX, globalY-1, globalZ) ||
+									!world.isVoxelSolid(globalX, globalY+1, globalZ) ||
+									!world.isVoxelSolid(globalX, globalY, globalZ-1) ||
+									!world.isVoxelSolid(globalX, globalY, globalZ+1) {
 									hasExposedFace = true
 								}
-								
+
 								if hasExposedFace && instanceIndex < len(model.InstanceModelMatrices) {
 									model.InstanceModelMatrices[instanceIndex] = mgl32.Translate3D(
 										voxel.Position.X(),
 										voxel.Position.Y(),
 										voxel.Position.Z(),
 									)
-									
+
 									// Assign color based on VoxelID
 									model.InstanceColors[instanceIndex] = GetVoxelColor(voxel.ID)
-									
+
 									instanceIndex++
 								}
 							}
@@ -815,23 +815,36 @@ func CreateTetrahedronGeometry(size float32) *VoxelGeometry {
 	}
 }
 
-// GetVoxelColor returns the color for a given voxel type
+var CustomVoxelColors = map[VoxelID]mgl32.Vec3{}
+
+func SetVoxelColor(id VoxelID, color mgl32.Vec3) {
+	CustomVoxelColors[id] = color
+}
+
+func ClearCustomVoxelColors() {
+	CustomVoxelColors = map[VoxelID]mgl32.Vec3{}
+}
+
 func GetVoxelColor(voxelID VoxelID) mgl32.Vec3 {
+	if color, ok := CustomVoxelColors[voxelID]; ok {
+		return color
+	}
+
 	switch voxelID {
-	case 0: // Air
+	case 0:
 		return mgl32.Vec3{0, 0, 0}
-	case 1: // Grass
+	case 1:
 		return mgl32.Vec3{0.3, 0.7, 0.2}
-	case 2: // Dirt
+	case 2:
 		return mgl32.Vec3{0.6, 0.4, 0.2}
-	case 3: // Stone
+	case 3:
 		return mgl32.Vec3{0.5, 0.5, 0.5}
-	case 4: // Sand
+	case 4:
 		return mgl32.Vec3{0.9, 0.8, 0.5}
-	case 5: // Wood (trunk)
-		return mgl32.Vec3{0.4, 0.25, 0.1} // Brown
-	case 6: // Leaves
-		return mgl32.Vec3{0.2, 0.6, 0.2} // Green
+	case 5:
+		return mgl32.Vec3{0.4, 0.25, 0.1}
+	case 6:
+		return mgl32.Vec3{0.2, 0.6, 0.2}
 	default:
 		return mgl32.Vec3{0.8, 0.8, 0.8}
 	}

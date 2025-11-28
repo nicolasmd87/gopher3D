@@ -27,49 +27,49 @@ type OpenGLRenderer struct {
 	defaultShader        Shader
 	defaultUniformCache  *UniformCache // Cache for default shader uniforms
 	Models               []*Model
-	Lights               []*Light // Scene lights
-	instanceVBO          uint32  // Buffer for instance model matrices
-	currentShaderProgram uint32  // Track currently bound shader to avoid unnecessary switches
-	skybox               *Skybox // Optional skybox
+	Lights               []*Light                 // Scene lights
+	instanceVBO          uint32                   // Buffer for instance model matrices
+	currentShaderProgram uint32                   // Track currently bound shader to avoid unnecessary switches
+	skybox               *Skybox                  // Optional skybox
 	shaderCaches         map[uint32]*UniformCache // Cache per shader program
-	textureManager       *TextureManager // Central texture cache and lifecycle management
-	
+	textureManager       *TextureManager          // Central texture cache and lifecycle management
+
 	// GL state tracking to avoid redundant state changes
-	faceCullingState     bool   // Current face culling state
-	depthTestState       bool   // Current depth test state
-	
+	faceCullingState bool // Current face culling state
+	depthTestState   bool // Current depth test state
+
 	// Performance tracking for editor
-	lastDrawCalls        int    // Number of draw calls in last frame
-	
+	lastDrawCalls int // Number of draw calls in last frame
+
 	// Editor-controllable settings
-	ClearColorR          float32 // Background clear color - Red
-	ClearColorG          float32 // Background clear color - Green
-	ClearColorB          float32 // Background clear color - Blue
-	
+	ClearColorR float32 // Background clear color - Red
+	ClearColorG float32 // Background clear color - Green
+	ClearColorB float32 // Background clear color - Blue
+
 	// Anti-aliasing settings
-	EnableFXAA           bool    // Software FXAA post-processing
-	EnableMSAAState      bool    // Hardware MSAA enabled state
-	fxaaShader           Shader  // FXAA post-processing shader
-	postProcessFBO       uint32  // Framebuffer for post-processing
-	postProcessTexture   uint32  // Color texture for post-processing
-	postProcessDepth     uint32  // Depth renderbuffer
-	screenQuadVAO        uint32  // Full-screen quad for post-processing
-	screenQuadVBO        uint32  // VBO for screen quad
-	screenWidth          int32   // Window width for post-processing
-	screenHeight         int32   // Window height for post-processing
-	viewportWidth        int32   // Current viewport width
-	viewportHeight       int32   // Current viewport height
-	
+	EnableFXAA         bool   // Software FXAA post-processing
+	EnableMSAAState    bool   // Hardware MSAA enabled state
+	fxaaShader         Shader // FXAA post-processing shader
+	postProcessFBO     uint32 // Framebuffer for post-processing
+	postProcessTexture uint32 // Color texture for post-processing
+	postProcessDepth   uint32 // Depth renderbuffer
+	screenQuadVAO      uint32 // Full-screen quad for post-processing
+	screenQuadVBO      uint32 // VBO for screen quad
+	screenWidth        int32  // Window width for post-processing
+	screenHeight       int32  // Window height for post-processing
+	viewportWidth      int32  // Current viewport width
+	viewportHeight     int32  // Current viewport height
+
 	// Bloom settings
-	EnableBloom          bool    // Bloom post-processing
-	BloomThreshold       float32 // Brightness threshold for bloom
-	BloomIntensity       float32 // Bloom effect intensity
-	bloomShader          Shader  // Bloom extraction+blur shader
-	bloomFBO             uint32  // Framebuffer for bloom
-	bloomTexture         uint32  // Bloom texture
-	
+	EnableBloom    bool    // Bloom post-processing
+	BloomThreshold float32 // Brightness threshold for bloom
+	BloomIntensity float32 // Bloom effect intensity
+	bloomShader    Shader  // Bloom extraction+blur shader
+	bloomFBO       uint32  // Framebuffer for bloom
+	bloomTexture   uint32  // Bloom texture
+
 	// Passthrough shader for when no effects are enabled
-	passthroughShader    Shader
+	passthroughShader Shader
 }
 
 func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
@@ -86,38 +86,38 @@ func (rend *OpenGLRenderer) Init(width, height int32, _ *glfw.Window) {
 	gl.GenBuffers(1, &rend.instanceVBO)
 	FrustumCullingEnabled = false
 	FaceCullingEnabled = false
-	
+
 	// Initialize texture manager
 	rend.textureManager = NewTextureManager()
 	logger.Log.Info("TextureManager initialized")
-	
+
 	SetDefaultTexture(rend)
 	gl.Viewport(0, 0, width, height)
 	rend.screenWidth = width
 	rend.screenHeight = height
 	rend.InitShader()
-	
+
 	// Initialize GL state tracking - set initial states
 	gl.ClearDepth(1.0) // Ensure depth buffer clears to maximum depth
 	rend.setFaceCulling(false)
 	rend.setDepthTest(true)
-	
+
 	// Enable MSAA if available (set via glfw.WindowHint)
 	gl.Enable(gl.MULTISAMPLE)
-	
+
 	// Initialize shader cache map
 	rend.shaderCaches = make(map[uint32]*UniformCache)
-	
+
 	// Initialize viewport dimensions for post-processing
 	rend.viewportWidth = width
 	rend.viewportHeight = height
-	
+
 	// Initialize MSAA state (enabled by default)
 	rend.EnableMSAAState = true
-	
+
 	// Initialize post-processing pipeline (for FXAA)
 	rend.initPostProcessing(width, height)
-	
+
 	logger.Log.Info("OpenGL render initialized")
 }
 
@@ -186,11 +186,11 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 		var instanceVBO uint32
 		gl.GenBuffers(1, &instanceVBO)
 		gl.BindBuffer(gl.ARRAY_BUFFER, instanceVBO)
-		
+
 		// Calculate buffer size - allocate exact size first, growth handled by UpdateInstanceMatrices
 		matrixSize := int(unsafe.Sizeof(mgl32.Mat4{}))
 		initialSize := len(model.InstanceModelMatrices) * matrixSize
-		
+
 		// Upload actual data with exact size
 		gl.BufferData(gl.ARRAY_BUFFER, initialSize, gl.Ptr(model.InstanceModelMatrices), gl.DYNAMIC_DRAW)
 
@@ -200,25 +200,25 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 
 		for i := 0; i < 4; i++ {
 			gl.EnableVertexAttribArray(3 + uint32(i))
-			gl.VertexAttribPointer(3+uint32(i), 4, gl.FLOAT, false, int32(unsafe.Sizeof(mgl32.Mat4{})), unsafe.Pointer(uintptr(i*16)))
+			gl.VertexAttribPointerWithOffset(3+uint32(i), 4, gl.FLOAT, false, int32(unsafe.Sizeof(mgl32.Mat4{})), uintptr(i*16))
 			gl.VertexAttribDivisor(3+uint32(i), 1)
 		}
-		
+
 		// Create instance color VBO (location 7) if colors are provided
 		if len(model.InstanceColors) > 0 {
 			var instanceColorVBO uint32
 			gl.GenBuffers(1, &instanceColorVBO)
 			gl.BindBuffer(gl.ARRAY_BUFFER, instanceColorVBO)
-			
+
 			colorSize := int(unsafe.Sizeof(mgl32.Vec3{}))
 			colorBufferSize := len(model.InstanceColors) * colorSize
 			gl.BufferData(gl.ARRAY_BUFFER, colorBufferSize, gl.Ptr(model.InstanceColors), gl.STATIC_DRAW)
-			
+
 			// Attribute location 7 for instance colors
 			gl.EnableVertexAttribArray(7)
 			gl.VertexAttribPointer(7, 3, gl.FLOAT, false, int32(colorSize), nil)
 			gl.VertexAttribDivisor(7, 1) // One color per instance
-			
+
 			// Store the color VBO for potential updates
 			model.InstanceColorVBO = instanceColorVBO
 		}
@@ -233,10 +233,10 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 
 	// Load textures for materials (now that OpenGL is initialized)
 	rend.loadModelTextures(model)
-	
+
 	// Sort material groups by texture ID to minimize state changes
 	rend.sortMaterialGroupsByTexture(model)
-	
+
 	// Log texture manager stats after loading
 	rend.textureManager.LogStats()
 
@@ -248,7 +248,7 @@ func (rend *OpenGLRenderer) sortMaterialGroupsByTexture(model *Model) {
 	if len(model.MaterialGroups) <= 1 {
 		return // No need to sort if 0 or 1 group
 	}
-	
+
 	// Use stable sort to preserve order for groups with same texture
 	sort.SliceStable(model.MaterialGroups, func(i, j int) bool {
 		texI := uint32(0)
@@ -261,7 +261,7 @@ func (rend *OpenGLRenderer) sortMaterialGroupsByTexture(model *Model) {
 		}
 		return texI < texJ
 	})
-	
+
 	logger.Log.Debug("Material groups sorted by texture ID",
 		zap.Int("groupCount", len(model.MaterialGroups)))
 }
@@ -356,7 +356,7 @@ func (rend *OpenGLRenderer) RemoveModel(model *Model) {
 	if model.Material != nil && model.Material.TextureID != 0 {
 		rend.textureManager.ReleaseTexture(model.Material.TextureID)
 	}
-	
+
 	// Clean up OpenGL resources
 	if model.VAO != 0 {
 		gl.DeleteVertexArrays(1, &model.VAO)
@@ -375,7 +375,7 @@ func (rend *OpenGLRenderer) RemoveModel(model *Model) {
 		gl.DeleteBuffers(1, &model.InstanceColorVBO)
 		model.InstanceColorVBO = 0
 	}
-	
+
 	// Remove from models list
 	for i, m := range rend.Models {
 		if m == model {
@@ -383,7 +383,7 @@ func (rend *OpenGLRenderer) RemoveModel(model *Model) {
 			break
 		}
 	}
-	
+
 	logger.Log.Debug("Model removed and textures released",
 		zap.Int("materialGroups", len(model.MaterialGroups)))
 }
@@ -399,7 +399,7 @@ func (model *Model) RemoveModelInstance(index int) {
 func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	// Reset draw call counter
 	rend.lastDrawCalls = 0
-	
+
 	// Use lights from the Lights array if available, otherwise use passed light
 	var activeLight *Light
 	if len(rend.Lights) > 0 {
@@ -407,7 +407,7 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 	} else if light != nil {
 		activeLight = light // Fallback to passed light for backward compatibility
 	}
-	
+
 	// Post-processing: render scene to FBO if FXAA or Bloom is enabled
 	postProcessActive := false
 	if rend.EnableFXAA || rend.EnableBloom {
@@ -416,7 +416,7 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 			// Check if viewport changed
 			currentViewport := [4]int32{}
 			gl.GetIntegerv(gl.VIEWPORT, &currentViewport[0])
-			
+
 			if currentViewport[2] > 0 && currentViewport[3] > 0 {
 				// Resize FBOs if viewport changed
 				if currentViewport[2] != rend.viewportWidth || currentViewport[3] != rend.viewportHeight {
@@ -424,10 +424,10 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 					rend.viewportHeight = currentViewport[3]
 					rend.resizePostProcessing(currentViewport[2], currentViewport[3])
 				}
-				
+
 				// Bind scene FBO
 				gl.BindFramebuffer(gl.FRAMEBUFFER, rend.postProcessFBO)
-				
+
 				// Verify FBO is complete
 				status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 				if status == gl.FRAMEBUFFER_COMPLETE {
@@ -439,7 +439,7 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 			}
 		}
 	}
-	
+
 	// Apply wireframe mode if Debug is enabled
 	if Debug {
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
@@ -502,66 +502,66 @@ func (rend *OpenGLRenderer) Render(camera Camera, light *Light) {
 
 // renderModelInternal handles rendering a single model for a specific pass (opaque or transparent)
 func (rend *OpenGLRenderer) renderModelInternal(model *Model, viewProjection mgl32.Mat4, activeLight *Light, camera Camera, renderTransparent bool) {
-		// Skip rendering if the model is outside the frustum
-		if FrustumCullingEnabled && !frustum.IntersectsSphere(model.BoundingSphereCenter, model.BoundingSphereRadius) {
+	// Skip rendering if the model is outside the frustum
+	if FrustumCullingEnabled && !frustum.IntersectsSphere(model.BoundingSphereCenter, model.BoundingSphereRadius) {
 		return
-		}
+	}
 
-		if model.IsDirty {
-			model.calculateModelMatrix()
-			model.IsDirty = false
-		}
+	if model.IsDirty {
+		model.calculateModelMatrix()
+		model.IsDirty = false
+	}
 
-		// Determine which shader to use
-		var shader *Shader
-		var uniformCache *UniformCache
-		
-		if model.Shader.IsValid() {
-			shader = &model.Shader
-			// Ensure custom shader is compiled before using
-			if !shader.isCompiled {
-				shader.Compile()
-			}
-			// Verify shader compiled successfully (program > 0)
-			if shader.program == 0 {
-				shader = &rend.defaultShader
-				uniformCache = rend.defaultUniformCache
-			} else {
-				// Get or create cache for this shader
-				if cache, exists := rend.shaderCaches[shader.program]; exists {
-					uniformCache = cache
-				} else {
-					uniformCache = NewUniformCache(shader.program)
-					rend.shaderCaches[shader.program] = uniformCache
-				}
-			}
-		} else {
+	// Determine which shader to use
+	var shader *Shader
+	var uniformCache *UniformCache
+
+	if model.Shader.IsValid() {
+		shader = &model.Shader
+		// Ensure custom shader is compiled before using
+		if !shader.isCompiled {
+			shader.Compile()
+		}
+		// Verify shader compiled successfully (program > 0)
+		if shader.program == 0 {
 			shader = &rend.defaultShader
 			uniformCache = rend.defaultUniformCache
+		} else {
+			// Get or create cache for this shader
+			if cache, exists := rend.shaderCaches[shader.program]; exists {
+				uniformCache = cache
+			} else {
+				uniformCache = NewUniformCache(shader.program)
+				rend.shaderCaches[shader.program] = uniformCache
+			}
 		}
+	} else {
+		shader = &rend.defaultShader
+		uniformCache = rend.defaultUniformCache
+	}
 
-		// Switch shader if needed
-		if rend.currentShaderProgram != shader.program {
-			shader.Use()
-			rend.currentShaderProgram = shader.program
-		}
+	// Switch shader if needed
+	if rend.currentShaderProgram != shader.program {
+		shader.Use()
+		rend.currentShaderProgram = shader.program
+	}
 
-		// Set common uniforms for all shaders using cache
-		rend.setCommonUniformsCached(uniformCache, viewProjection, model, activeLight, camera)
+	// Set common uniforms for all shaders using cache
+	rend.setCommonUniformsCached(uniformCache, viewProjection, model, activeLight, camera)
 
-		// Set shader-specific uniforms (like water shader uniforms)
-		rend.setShaderSpecificUniforms(shader, uniformCache, model)
+	// Set shader-specific uniforms (like water shader uniforms)
+	rend.setShaderSpecificUniforms(shader, uniformCache, model)
 
-		// Bind vertex array
-		gl.BindVertexArray(model.VAO)
+	// Bind vertex array
+	gl.BindVertexArray(model.VAO)
 
-		// Check if model has multiple material groups
-		if len(model.MaterialGroups) > 0 {
+	// Check if model has multiple material groups
+	if len(model.MaterialGroups) > 0 {
 		// Multi-material rendering
-			currentTextureID := uint32(0)
-			textureSamplerLoc := uniformCache.GetLocation("textureSampler")
-			
-			for _, group := range model.MaterialGroups {
+		currentTextureID := uint32(0)
+		textureSamplerLoc := uniformCache.GetLocation("textureSampler")
+
+		for _, group := range model.MaterialGroups {
 			// Determine transparency
 			alpha := float32(1.0)
 			if group.Material != nil {
@@ -575,40 +575,40 @@ func (rend *OpenGLRenderer) renderModelInternal(model *Model, viewProjection mgl
 			}
 
 			// Set material uniforms
-				rend.setMaterialUniforms(shader, group.Material)
+			rend.setMaterialUniforms(shader, group.Material)
 
 			// Configure GL state for transparency
-				if isTransparent {
-					gl.DepthMask(false) // Disable depth writing for transparent objects
-					gl.Enable(gl.BLEND)
-					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+			if isTransparent {
+				gl.DepthMask(false) // Disable depth writing for transparent objects
+				gl.Enable(gl.BLEND)
+				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 				gl.Disable(gl.CULL_FACE) // Show both sides
-				} else {
-					gl.DepthMask(true) // Enable depth writing for opaque objects
+			} else {
+				gl.DepthMask(true)  // Enable depth writing for opaque objects
 				gl.Enable(gl.BLEND) // Keep blending on for smooth edges
-					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-					rend.setFaceCulling(FaceCullingEnabled)
-				}
+				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				rend.setFaceCulling(FaceCullingEnabled)
+			}
 
 			// Bind texture
-				if group.Material != nil && group.Material.TextureID != 0 {
-					if group.Material.TextureID != currentTextureID {
-						gl.BindTexture(gl.TEXTURE_2D, group.Material.TextureID)
-						gl.Uniform1i(textureSamplerLoc, 0)
-						currentTextureID = group.Material.TextureID
-					}
-				} else if group.Material != nil && group.Material.TextureID == 0 {
-					if DefaultMaterial.TextureID != 0 && DefaultMaterial.TextureID != currentTextureID {
-						gl.BindTexture(gl.TEXTURE_2D, DefaultMaterial.TextureID)
-						gl.Uniform1i(textureSamplerLoc, 0)
-						currentTextureID = DefaultMaterial.TextureID
-					}
+			if group.Material != nil && group.Material.TextureID != 0 {
+				if group.Material.TextureID != currentTextureID {
+					gl.BindTexture(gl.TEXTURE_2D, group.Material.TextureID)
+					gl.Uniform1i(textureSamplerLoc, 0)
+					currentTextureID = group.Material.TextureID
 				}
+			} else if group.Material != nil && group.Material.TextureID == 0 {
+				if DefaultMaterial.TextureID != 0 && DefaultMaterial.TextureID != currentTextureID {
+					gl.BindTexture(gl.TEXTURE_2D, DefaultMaterial.TextureID)
+					gl.Uniform1i(textureSamplerLoc, 0)
+					currentTextureID = DefaultMaterial.TextureID
+				}
+			}
 
 			// Draw
 			rend.drawElements(model, shader, group.IndexCount, int(group.IndexStart)*4)
 		}
-				} else {
+	} else {
 		// Single material rendering
 		alpha := float32(1.0)
 		if model.Material != nil {
@@ -622,16 +622,16 @@ func (rend *OpenGLRenderer) renderModelInternal(model *Model, viewProjection mgl
 				rend.setMaterialUniforms(shader, model.Material)
 			}
 
-				if isTransparent {
+			if isTransparent {
 				gl.DepthMask(false)
-					gl.Enable(gl.BLEND)
-					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				gl.Enable(gl.BLEND)
+				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 				gl.Disable(gl.CULL_FACE)
-				} else {
+			} else {
 				gl.DepthMask(true)
-					gl.Enable(gl.BLEND)
-					gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-					rend.setFaceCulling(FaceCullingEnabled)
+				gl.Enable(gl.BLEND)
+				gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+				rend.setFaceCulling(FaceCullingEnabled)
 			}
 
 			// Bind texture
@@ -655,19 +655,19 @@ func (rend *OpenGLRenderer) renderModelInternal(model *Model, viewProjection mgl
 
 // drawElements handles the actual draw call (instanced or regular)
 func (rend *OpenGLRenderer) drawElements(model *Model, shader *Shader, count int32, offset int) {
-			if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
-				if model.InstanceMatricesUpdated {
-					rend.UpdateInstanceMatrices(model)
-					model.InstanceMatricesUpdated = false
-				}
-				shader.SetInt("isInstanced", 1)
+	if model.IsInstanced && len(model.InstanceModelMatrices) > 0 {
+		if model.InstanceMatricesUpdated {
+			rend.UpdateInstanceMatrices(model)
+			model.InstanceMatricesUpdated = false
+		}
+		shader.SetInt("isInstanced", 1)
 		gl.DrawElementsInstanced(gl.TRIANGLES, count, gl.UNSIGNED_INT, gl.PtrOffset(offset), int32(model.InstanceCount))
-				rend.lastDrawCalls++
-			} else {
-				shader.SetInt("isInstanced", 0)
+		rend.lastDrawCalls++
+	} else {
+		shader.SetInt("isInstanced", 0)
 		gl.DrawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, gl.PtrOffset(offset))
-				rend.lastDrawCalls++
-			}
+		rend.lastDrawCalls++
+	}
 }
 
 // setCommonUniformsCached sets uniforms using cached locations for better performance
@@ -691,18 +691,18 @@ func (rend *OpenGLRenderer) setCommonUniformsCached(cache *UniformCache, viewPro
 		cache.SetFloat("light.intensity", light.Intensity)
 		cache.SetFloat("light.ambientStrength", light.AmbientStrength)
 		cache.SetFloat("light.temperature", light.Temperature)
-		
+
 		isDirectional := int32(0)
 		if light.Mode == "directional" {
 			isDirectional = 1
 		}
 		cache.SetInt("light.isDirectional", isDirectional)
-		
+
 		cache.SetVec3("light.direction", light.Direction[0], light.Direction[1], light.Direction[2])
 		cache.SetFloat("light.constantAtten", light.ConstantAtten)
 		cache.SetFloat("light.linearAtten", light.LinearAtten)
 		cache.SetFloat("light.quadraticAtten", light.QuadraticAtten)
-		
+
 		// Water shader specific light uniforms (backward compatibility)
 		cache.SetVec3("lightPos", light.Position[0], light.Position[1], light.Position[2])
 		cache.SetVec3("lightColor", light.Color[0], light.Color[1], light.Color[2])
@@ -791,7 +791,7 @@ func (rend *OpenGLRenderer) setShaderSpecificUniforms(shader *Shader, uc *Unifor
 				// Some drivers require explicit [0] for array base location
 				location = uc.GetLocation(name + "[0]")
 			}
-			
+
 			if location != -1 {
 				if name == "waveDirections" {
 					// Special handling for Vec3 arrays (3 floats per element)
@@ -964,12 +964,12 @@ func (rend *OpenGLRenderer) UpdateInstanceMatrices(model *Model) {
 	if len(model.InstanceModelMatrices) == 0 || model.InstanceVBO == 0 {
 		return
 	}
-	
+
 	gl.BindBuffer(gl.ARRAY_BUFFER, model.InstanceVBO)
-	
+
 	matrixSize := int(unsafe.Sizeof(mgl32.Mat4{}))
 	currentSize := len(model.InstanceModelMatrices) * matrixSize
-	
+
 	// Check if buffer needs to grow (reallocation required)
 	if currentSize > model.InstanceVBOCapacity {
 		// Buffer too small - need to reallocate with gl.BufferData
@@ -1033,10 +1033,18 @@ func (rend *OpenGLRenderer) EnableMSAA(enable bool) {
 // resizePostProcessing recreates framebuffer textures when viewport size changes
 func (rend *OpenGLRenderer) resizePostProcessing(width, height int32) {
 	// Safety limit to prevent GPU crashes
-	if width > 8192 { width = 8192 }
-	if height > 8192 { height = 8192 }
-	if width < 1 { width = 1 }
-	if height < 1 { height = 1 }
+	if width > 8192 {
+		width = 8192
+	}
+	if height > 8192 {
+		height = 8192
+	}
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
 
 	// Delete old textures and renderbuffers
 	if rend.postProcessTexture != 0 {
@@ -1048,36 +1056,40 @@ func (rend *OpenGLRenderer) resizePostProcessing(width, height int32) {
 	if rend.postProcessDepth != 0 {
 		gl.DeleteRenderbuffers(1, &rend.postProcessDepth)
 	}
-	
+
 	// Recreate post-process color texture
 	gl.GenTextures(1, &rend.postProcessTexture)
 	gl.BindTexture(gl.TEXTURE_2D, rend.postProcessTexture)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	
+
 	// Recreate depth renderbuffer
 	gl.GenRenderbuffers(1, &rend.postProcessDepth)
 	gl.BindRenderbuffer(gl.RENDERBUFFER, rend.postProcessDepth)
 	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, width, height)
-	
+
 	// Reattach to FBO
 	gl.BindFramebuffer(gl.FRAMEBUFFER, rend.postProcessFBO)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rend.postProcessTexture, 0)
 	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, rend.postProcessDepth)
-	
+
 	// Check framebuffer completeness
 	if status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER); status != gl.FRAMEBUFFER_COMPLETE {
 		logger.Log.Error(fmt.Sprintf("Post-process framebuffer incomplete after resize! Status: 0x%X", status))
 	}
-	
+
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-	
+
 	// Recreate bloom texture (HDR) - Downscaled
 	bloomWidth := width / 4
 	bloomHeight := height / 4
-	if bloomWidth < 1 { bloomWidth = 1 }
-	if bloomHeight < 1 { bloomHeight = 1 }
+	if bloomWidth < 1 {
+		bloomWidth = 1
+	}
+	if bloomHeight < 1 {
+		bloomHeight = 1
+	}
 
 	gl.GenTextures(1, &rend.bloomTexture)
 	gl.BindTexture(gl.TEXTURE_2D, rend.bloomTexture)
@@ -1086,12 +1098,12 @@ func (rend *OpenGLRenderer) resizePostProcessing(width, height int32) {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	
+
 	// Reattach to bloom FBO
 	gl.BindFramebuffer(gl.FRAMEBUFFER, rend.bloomFBO)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rend.bloomTexture, 0)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-	
+
 	logger.Log.Info(fmt.Sprintf("Resized post-processing framebuffers (Scene: %dx%d, Bloom: %dx%d)", width, height, bloomWidth, bloomHeight))
 }
 
@@ -1100,7 +1112,7 @@ func (rend *OpenGLRenderer) initPostProcessing(width, height int32) {
 	// Create framebuffer for rendering scene to texture
 	gl.GenFramebuffers(1, &rend.postProcessFBO)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, rend.postProcessFBO)
-	
+
 	// Create color texture attachment
 	gl.GenTextures(1, &rend.postProcessTexture)
 	gl.BindTexture(gl.TEXTURE_2D, rend.postProcessTexture)
@@ -1108,31 +1120,31 @@ func (rend *OpenGLRenderer) initPostProcessing(width, height int32) {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rend.postProcessTexture, 0)
-	
+
 	// Create depth renderbuffer
 	gl.GenRenderbuffers(1, &rend.postProcessDepth)
 	gl.BindRenderbuffer(gl.RENDERBUFFER, rend.postProcessDepth)
 	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, width, height)
 	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, rend.postProcessDepth)
-	
+
 	// Check framebuffer completeness
 	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
 		logger.Log.Error("Framebuffer is not complete!")
 	}
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-	
+
 	// Create screen quad for post-processing
 	quadVertices := []float32{
 		// positions   // texCoords
-		-1.0,  1.0,  0.0, 1.0,
-		-1.0, -1.0,  0.0, 0.0,
-		 1.0, -1.0,  1.0, 0.0,
-		
-		-1.0,  1.0,  0.0, 1.0,
-		 1.0, -1.0,  1.0, 0.0,
-		 1.0,  1.0,  1.0, 1.0,
+		-1.0, 1.0, 0.0, 1.0,
+		-1.0, -1.0, 0.0, 0.0,
+		1.0, -1.0, 1.0, 0.0,
+
+		-1.0, 1.0, 0.0, 1.0,
+		1.0, -1.0, 1.0, 0.0,
+		1.0, 1.0, 1.0, 1.0,
 	}
-	
+
 	gl.GenVertexArrays(1, &rend.screenQuadVAO)
 	gl.GenBuffers(1, &rend.screenQuadVBO)
 	gl.BindVertexArray(rend.screenQuadVAO)
@@ -1143,28 +1155,32 @@ func (rend *OpenGLRenderer) initPostProcessing(width, height int32) {
 	gl.EnableVertexAttribArray(1)
 	gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 4*4, gl.PtrOffset(2*4))
 	gl.BindVertexArray(0)
-	
+
 	// Initialize FXAA shader
 	rend.fxaaShader = InitFXAAShader()
 	rend.fxaaShader.Compile()
-	
+
 	// Initialize Bloom shader and framebuffer
 	rend.bloomShader = InitBloomShader()
 	rend.bloomShader.Compile()
-	
+
 	// Initialize passthrough shader for simple texture copy
 	rend.passthroughShader = InitPassthroughShader()
 	rend.passthroughShader.Compile()
-	
+
 	// Create bloom framebuffer (downscaled for performance)
 	bloomWidth := width / 4
 	bloomHeight := height / 4
-	if bloomWidth < 1 { bloomWidth = 1 }
-	if bloomHeight < 1 { bloomHeight = 1 }
-	
+	if bloomWidth < 1 {
+		bloomWidth = 1
+	}
+	if bloomHeight < 1 {
+		bloomHeight = 1
+	}
+
 	gl.GenFramebuffers(1, &rend.bloomFBO)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, rend.bloomFBO)
-	
+
 	gl.GenTextures(1, &rend.bloomTexture)
 	gl.BindTexture(gl.TEXTURE_2D, rend.bloomTexture)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, bloomWidth, bloomHeight, 0, gl.RGBA, gl.FLOAT, nil) // HDR texture
@@ -1173,16 +1189,16 @@ func (rend *OpenGLRenderer) initPostProcessing(width, height int32) {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rend.bloomTexture, 0)
-	
+
 	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
 		logger.Log.Error("Bloom framebuffer is not complete!")
 	}
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-	
+
 	// Initialize bloom defaults
 	rend.BloomThreshold = 1.0
 	rend.BloomIntensity = 0.3
-	
+
 	logger.Log.Info(fmt.Sprintf("Post-processing initialized (Bloom: %dx%d)", bloomWidth, bloomHeight))
 }
 
@@ -1191,7 +1207,7 @@ func (rend *OpenGLRenderer) renderPostProcess() {
 		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 		return
 	}
-	
+
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	gl.Disable(gl.DEPTH_TEST)
 	gl.DepthMask(false)
@@ -1200,7 +1216,7 @@ func (rend *OpenGLRenderer) renderPostProcess() {
 	gl.BindVertexArray(rend.screenQuadVAO)
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, rend.postProcessTexture)
-	
+
 	if rend.EnableFXAA && rend.fxaaShader.program != 0 {
 		rend.fxaaShader.Use()
 		texelSize := mgl32.Vec2{1.0 / float32(rend.viewportWidth), 1.0 / float32(rend.viewportHeight)}
@@ -1211,7 +1227,7 @@ func (rend *OpenGLRenderer) renderPostProcess() {
 		loc := gl.GetUniformLocation(rend.passthroughShader.program, gl.Str("screenTexture\x00"))
 		gl.Uniform1i(loc, 0)
 	}
-	
+
 	gl.DrawArrays(gl.TRIANGLES, 0, 6)
 	gl.BindVertexArray(0)
 	gl.Enable(gl.DEPTH_TEST)

@@ -42,7 +42,7 @@ func renderAddModelDialog() {
 		imgui.Text("Initial Transform:")
 		imgui.DragFloat3("Position", &addModelPos)
 		imgui.DragFloat3("Scale", &addModelScale)
-		
+
 		imgui.Spacing()
 		imgui.Separator()
 		imgui.Text("Select Model:")
@@ -86,26 +86,26 @@ func renderAddLightDialog() {
 	if imgui.BeginPopupModalV("Add Light", nil, imgui.WindowFlagsNoResize) {
 		imgui.Text("Configure Light:")
 		imgui.Separator()
-		
+
 		imgui.RadioButtonInt("Directional Light", &addLightType, 0)
 		imgui.SameLine()
 		imgui.RadioButtonInt("Point Light", &addLightType, 1)
-		
+
 		imgui.Spacing()
 		imgui.ColorEdit3("Color", &addLightColor)
 		imgui.DragFloatV("Intensity", &addLightIntensity, 0.1, 0.0, 100.0, "%.1f", 1.0)
-		
+
 		if addLightType == 1 {
 			imgui.DragFloatV("Range", &addLightRange, 1.0, 0.0, 10000.0, "%.1f", 1.0)
 		}
 
 		imgui.Separator()
 		imgui.Spacing()
-		
+
 		if imgui.Button("Add Light") {
 			var light *renderer.Light
 			colorVec := mgl.Vec3{addLightColor[0], addLightColor[1], addLightColor[2]}
-			
+
 			if addLightType == 0 {
 				// Directional
 				light = renderer.CreateDirectionalLight(
@@ -124,19 +124,19 @@ func renderAddLightDialog() {
 				)
 				light.Name = fmt.Sprintf("Point Light %d", len(eng.GetRenderer().(*renderer.OpenGLRenderer).GetLights())+1)
 			}
-			
+
 			eng.GetRenderer().(*renderer.OpenGLRenderer).AddLight(light)
 			lights := eng.GetRenderer().(*renderer.OpenGLRenderer).GetLights()
 			if len(lights) > 0 {
 				eng.Light = lights[0] // Always use the first light as the main scene light
 			}
-			
+
 			logToConsole(fmt.Sprintf("Added %s", light.Name), "info")
-			
+
 			showAddLight = false
 			imgui.CloseCurrentPopup()
 		}
-		
+
 		imgui.SameLine()
 		if imgui.Button("Cancel") {
 			showAddLight = false
@@ -147,9 +147,11 @@ func renderAddLightDialog() {
 }
 
 func renderAddWaterDialog() {
-	if eng == nil { return }
+	if eng == nil {
+		return
+	}
 	imgui.OpenPopup("Add Water")
-	
+
 	centerX := float32(eng.Width) / 2
 	centerY := float32(eng.Height) / 2
 	imgui.SetNextWindowPosV(imgui.Vec2{X: centerX - 200, Y: centerY - 150}, imgui.ConditionAppearing, imgui.Vec2{})
@@ -158,13 +160,13 @@ func renderAddWaterDialog() {
 	if imgui.BeginPopupModalV("Add Water", nil, imgui.WindowFlagsNoResize) {
 		imgui.Text("Configure Ocean Simulation:")
 		imgui.Separator()
-		
+
 		imgui.DragFloatV("Size (Units)", &addWaterSize, 1000.0, 1000.0, 10000000.0, "%.0f", 1.0)
 		imgui.DragFloatV("Wave Amplitude", &addWaterAmplitude, 10.0, 0.0, 5000.0, "%.1f", 1.0)
-		
+
 		imgui.Separator()
 		imgui.Spacing()
-		
+
 		if imgui.Button("Create Ocean") {
 			if activeWaterSim == nil {
 				// Pass configuration to NewWaterSimulation

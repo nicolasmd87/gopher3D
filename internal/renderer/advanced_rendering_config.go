@@ -68,7 +68,7 @@ type AdvancedRenderingConfig struct {
 	// High-Quality Filtering
 	EnableHighQualityFiltering bool `json:"enableHighQualityFiltering"`
 	FilteringQuality           int  `json:"filteringQuality"`
-	
+
 	// Anti-Aliasing (AA) - Not part of custom uniforms, controlled at renderer level
 	// These are stored here for persistence but applied via engine/renderer, not shader uniforms
 	MSAASamples int  `json:"msaaSamples"` // 0, 2, 4, 8, 16 (hardware MSAA, requires restart)
@@ -141,9 +141,9 @@ func DefaultAdvancedRenderingConfig() AdvancedRenderingConfig {
 		// High-Quality Filtering - enabled for smooth results
 		EnableHighQualityFiltering: true,
 		FilteringQuality:           2,
-		
+
 		// Anti-Aliasing - good defaults
-		MSAASamples: 4,    // 4x MSAA (hardware)
+		MSAASamples: 4,     // 4x MSAA (hardware)
 		EnableFXAA:  false, // FXAA disabled (use MSAA instead)
 	}
 }
@@ -172,7 +172,7 @@ func HighQualityRenderingConfig() AdvancedRenderingConfig {
 	config.BloomIntensity = 0.5
 	config.FilteringQuality = 3
 	config.SSAOSampleCount = 32
-	
+
 	// High quality AA
 	config.MSAASamples = 8 // 8x MSAA for high quality
 	config.EnableFXAA = false
@@ -197,7 +197,7 @@ func PerformanceRenderingConfig() AdvancedRenderingConfig {
 
 	// Lower quality settings for performance
 	config.FilteringQuality = 1
-	
+
 	// Performance AA
 	config.MSAASamples = 2 // 2x MSAA for performance
 	config.EnableFXAA = false
@@ -218,7 +218,7 @@ func VoxelAdvancedRenderingConfig() AdvancedRenderingConfig {
 	config.NoiseIntensity = 0.1
 	config.ShadowIntensity = 0.4
 	config.SSAOIntensity = 0.3
-	
+
 	// Balanced AA for voxels
 	config.MSAASamples = 4
 	config.EnableFXAA = false

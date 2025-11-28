@@ -12,14 +12,14 @@ import (
 
 type Camera struct {
 	// HOT DATA - Accessed every frame for view/projection calculations
-	Position    mgl32.Vec3 // Camera position in world space
-	Front       mgl32.Vec3 // Forward direction vector
-	Up          mgl32.Vec3 // Up direction vector
-	Right       mgl32.Vec3 // Right direction vector
-	Projection  mgl32.Mat4 // Projection matrix
-	Pitch       float32    // Pitch angle (vertical rotation)
-	Yaw         float32    // Yaw angle (horizontal rotation)
-	
+	Position   mgl32.Vec3 // Camera position in world space
+	Front      mgl32.Vec3 // Forward direction vector
+	Up         mgl32.Vec3 // Up direction vector
+	Right      mgl32.Vec3 // Right direction vector
+	Projection mgl32.Mat4 // Projection matrix
+	Pitch      float32    // Pitch angle (vertical rotation)
+	Yaw        float32    // Yaw angle (horizontal rotation)
+
 	// COLD DATA - Configuration and input handling, accessed less frequently
 	WorldUp      mgl32.Vec3 // World up vector (usually (0,1,0))
 	Speed        float32    // Movement speed
@@ -156,7 +156,7 @@ func (c *Camera) ProcessKeyboard(window *glfw.Window, deltaTime float32) {
 		c.Position = c.Position.Add(c.Right.Mul(baseVelocity))
 		cameraMoved = true
 	}
-	
+
 	if cameraMoved {
 		MarkFrustumDirty()
 	}

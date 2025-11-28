@@ -1,9 +1,9 @@
 package main
 
 import (
-	"Gopher3D/internal/engine"
 	"Gopher3D/editor/platforms"
 	"Gopher3D/editor/renderers"
+	"Gopher3D/internal/engine"
 	_ "Gopher3D/scripts"
 	"fmt"
 	"runtime"
@@ -23,10 +23,10 @@ func main() {
 	defer context.Destroy()
 	defer saveConfig() // Save editor settings on exit
 
-	// Create engine
 	eng = engine.NewGopher(engine.OPENGL)
-	eng.Width = 1920
-	eng.Height = 1080
+	eng.Width = 1280
+	eng.Height = 720
+	eng.WindowDecorated = true
 
 	// Set render callback to handle ImGui initialization and rendering on main thread
 	eng.SetOnRenderCallback(func(deltaTime float64) {
@@ -56,7 +56,7 @@ func main() {
 
 			// Additional check: disable camera if any text input is active
 			anyItemActive := imgui.IsAnyItemActive()
-			
+
 			// Disable camera if any input field is active or any UI element wants input
 			eng.EnableCameraInput = !wantsKeyboard && !wantsMouse && !anyItemActive
 
@@ -73,8 +73,8 @@ func main() {
 	})
 
 	fmt.Println("Starting engine...")
-	// Start engine (creates window inside Render())
-	eng.Render(50, 50)
+	// Start engine with centered window (-1, -1 means center)
+	eng.Render(-1, -1)
 }
 
 func initializeImGui() {
@@ -98,11 +98,14 @@ func initializeImGui() {
 		return
 	}
 
-	// Apply dark theme (defined in helpers.go)
 	applyDarkTheme()
-	
-	// Load editor config (includes recent projects)
 	loadConfig()
+
+	// Apply saved style colors if available
+	if !styleColorsApplied {
+		applyStyleColors(savedStyleColors)
+		styleColorsApplied = true
+	}
 
 	imguiInitialized = true
 	fmt.Println("✓ ImGui initialized successfully!")
@@ -122,8 +125,8 @@ func renderImGuiFrame() {
 		renderProjectManager()
 	} else {
 		// Render Editor UI
-	renderEditorUI()
-		
+		renderEditorUI()
+
 		// Render Gizmos on top
 		if showGizmos {
 			renderGizmos()

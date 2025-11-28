@@ -267,10 +267,7 @@ func (vb *VoxelWorldBehaviour) Start() {
 	vb.renderingConfig.ShadowIntensity = 0.4 // Natural shadows
 	vb.renderingConfig.ShadowSoftness = 0.2  // Softer shadow edges
 	vb.renderingConfig.EnableHighQualityFiltering = true
-	vb.renderingConfig.FilteringQuality = 3        // MAXIMUM quality
-	vb.renderingConfig.AntiAliasing = true         // Smooth edges
-	vb.renderingConfig.EnableMeshSmoothing = false // Keep voxels crisp and blocky
-	vb.renderingConfig.TessellationQuality = 1     // Low tessellation for blocks
+	vb.renderingConfig.FilteringQuality = 3
 
 	// Enable advanced lighting features from the lighting demo
 	vb.renderingConfig.EnableBloom = true

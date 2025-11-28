@@ -38,47 +38,47 @@ type MaterialGroup struct {
 
 type Model struct {
 	// HOT DATA - Accessed every frame in render loop (keep in first cache lines)
-	ModelMatrix             mgl32.Mat4     // Transformation matrix - used every frame
-	Position                mgl32.Vec3     // Position in world space
-	Scale                   mgl32.Vec3     // Scale factors
-	Rotation                mgl32.Quat     // Rotation quaternion
-	Material                *Material      // Material properties pointer
-	VAO                     uint32         // Vertex Array Object
-	VBO                     uint32         // Vertex Buffer Object
-	EBO                     uint32         // Element Buffer Object
-	InstanceVBO             uint32         // Instance Vertex Buffer Object (for instanced rendering)
-	InstanceVBOCapacity     int            // GPU buffer capacity in bytes for buffer reuse optimization
-	InstanceColorVBO        uint32         // Instance Color VBO (for per-instance colors)
-	InstanceCount           int            // Number of instances
-	IsDirty                 bool           // Needs recalculation flag
-	IsInstanced             bool           // Instanced rendering flag
-	InstanceMatricesUpdated bool           // Flag to track if matrices need GPU upload
-	
+	ModelMatrix             mgl32.Mat4 // Transformation matrix - used every frame
+	Position                mgl32.Vec3 // Position in world space
+	Scale                   mgl32.Vec3 // Scale factors
+	Rotation                mgl32.Quat // Rotation quaternion
+	Material                *Material  // Material properties pointer
+	VAO                     uint32     // Vertex Array Object
+	VBO                     uint32     // Vertex Buffer Object
+	EBO                     uint32     // Element Buffer Object
+	InstanceVBO             uint32     // Instance Vertex Buffer Object (for instanced rendering)
+	InstanceVBOCapacity     int        // GPU buffer capacity in bytes for buffer reuse optimization
+	InstanceColorVBO        uint32     // Instance Color VBO (for per-instance colors)
+	InstanceCount           int        // Number of instances
+	IsDirty                 bool       // Needs recalculation flag
+	IsInstanced             bool       // Instanced rendering flag
+	InstanceMatricesUpdated bool       // Flag to track if matrices need GPU upload
+
 	// MEDIUM DATA - Conditional/periodic access
-	BoundingSphereCenter    mgl32.Vec3     // For frustum culling
-	BoundingSphereRadius    float32        // For frustum culling
-	IsBatched               bool           // Batching flag
-	Shader                  Shader         // Custom shader for this model
-	CustomUniforms          map[string]interface{} // Custom uniforms for this model
-	Metadata                map[string]interface{} // General metadata for editor/game logic
-	InstanceModelMatrices   []mgl32.Mat4   // Instance model matrices (bulk data)
-	InstanceColors          []mgl32.Vec3   // Per-instance colors (optional, for voxels)
-	
+	BoundingSphereCenter  mgl32.Vec3             // For frustum culling
+	BoundingSphereRadius  float32                // For frustum culling
+	IsBatched             bool                   // Batching flag
+	Shader                Shader                 // Custom shader for this model
+	CustomUniforms        map[string]interface{} // Custom uniforms for this model
+	Metadata              map[string]interface{} // General metadata for editor/game logic
+	InstanceModelMatrices []mgl32.Mat4           // Instance model matrices (bulk data)
+	InstanceColors        []mgl32.Vec3           // Per-instance colors (optional, for voxels)
+
 	// COLD DATA - Initialization only or rarely accessed
-	Id                      int            // Model identifier
-	Name                    string         // Model name
-	SourcePath              string         // Original file path (for scene serialization)
-	Vertices                []float32      // Vertex position data
-	Indices                 []uint32       // Index data (Vulkan)
-	Normals                 []float32      // Normal vectors
-	Faces                   []int32        // Face indices (OpenGL)
-	TextureCoords           []float32      // Texture coordinates
-	InterleavedData         []float32      // Combined vertex data
-	MaterialGroups          []MaterialGroup // For multi-material models
-	vertexBuffer            vk.Buffer      // Vulkan vertex buffer
-	vertexMemory            vk.DeviceMemory // Vulkan vertex memory
-	indexBuffer             vk.Buffer      // Vulkan index buffer
-	indexMemory             vk.DeviceMemory // Vulkan index memory
+	Id              int             // Model identifier
+	Name            string          // Model name
+	SourcePath      string          // Original file path (for scene serialization)
+	Vertices        []float32       // Vertex position data
+	Indices         []uint32        // Index data (Vulkan)
+	Normals         []float32       // Normal vectors
+	Faces           []int32         // Face indices (OpenGL)
+	TextureCoords   []float32       // Texture coordinates
+	InterleavedData []float32       // Combined vertex data
+	MaterialGroups  []MaterialGroup // For multi-material models
+	vertexBuffer    vk.Buffer       // Vulkan vertex buffer
+	vertexMemory    vk.DeviceMemory // Vulkan vertex memory
+	indexBuffer     vk.Buffer       // Vulkan index buffer
+	indexMemory     vk.DeviceMemory // Vulkan index memory
 	// InstanceBoundingBox     [2]mgl32.Vec3 // Cached bounding box for instances [min, max]
 }
 
@@ -92,10 +92,10 @@ type Material struct {
 	Exposure      float32    // HDR exposure control
 	Alpha         float32    // Transparency (0.0 = transparent, 1.0 = opaque)
 	TextureID     uint32     // OpenGL texture ID
-	
+
 	// COLD DATA - Rarely accessed (identification only)
-	Name          string     // Material name for debugging
-	TexturePath   string     // Path to texture file (loaded lazily when OpenGL is ready)
+	Name        string // Material name for debugging
+	TexturePath string // Path to texture file (loaded lazily when OpenGL is ready)
 }
 
 func (m *Model) X() float32 {
@@ -196,11 +196,11 @@ func (m *Model) updateModelMatrix() {
 	translationMatrix := mgl32.Translate3D(m.Position[0], m.Position[1], m.Position[2])
 	// Combine the transformations: ModelMatrix = translation * rotation * scale (TRS order)
 	m.ModelMatrix = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
-	
+
 	// For instanced models, we do NOT update instance matrices here.
 	// The shader now handles hierarchical transformation (model * instance).
 	// This allows moving the entire group of instances by changing the Model's position/scale/rotation.
-	
+
 	if FrustumCullingEnabled {
 		m.CalculateBoundingSphere()
 	}
@@ -212,7 +212,7 @@ func (m *Model) calculateModelMatrix() {
 	scaleMatrix := mgl32.Scale3D(m.Scale.X(), m.Scale.Y(), m.Scale.Z())
 	rotationMatrix := m.Rotation.Mat4()
 	translationMatrix := mgl32.Translate3D(m.Position.X(), m.Position.Y(), m.Position.Z())
-	
+
 	// Apply transformations in correct order: TRS
 	m.ModelMatrix = translationMatrix.Mul4(rotationMatrix).Mul4(scaleMatrix)
 }

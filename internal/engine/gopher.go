@@ -32,21 +32,21 @@ const (
 
 // TODO: Separate window into an abstract class with width and height as fields
 type Gopher struct {
-	Width            int32
-	Height           int32
-	ModelChan        chan *renderer.Model
-	ModelBatchChan   chan []*renderer.Model
-	Light            *renderer.Light
-	rendererAPI      renderer.Render
-	window           *glfw.Window
-	skybox           *renderer.Skybox
-	skyboxPath       string // Store path until OpenGL is ready
-	Camera           *renderer.Camera
-	frameTrackId     int
-	onRenderCallback func(deltaTime float64) // Optional callback for custom rendering (e.g., editor UI)
-	EnableCameraInput bool // Control whether camera processes keyboard/mouse input (for editor)
-	MSAASamples      int  // MSAA samples (0=off, 2, 4, 8, 16)
-	WindowDecorated  bool // Window decoration (border/title bar)
+	Width             int32
+	Height            int32
+	ModelChan         chan *renderer.Model
+	ModelBatchChan    chan []*renderer.Model
+	Light             *renderer.Light
+	rendererAPI       renderer.Render
+	window            *glfw.Window
+	skybox            *renderer.Skybox
+	skyboxPath        string // Store path until OpenGL is ready
+	Camera            *renderer.Camera
+	frameTrackId      int
+	onRenderCallback  func(deltaTime float64) // Optional callback for custom rendering (e.g., editor UI)
+	EnableCameraInput bool                    // Control whether camera processes keyboard/mouse input (for editor)
+	MSAASamples       int                     // MSAA samples (0=off, 2, 4, 8, 16)
+	WindowDecorated   bool                    // Window decoration (border/title bar)
 }
 
 func NewGopher(rendererAPI rendAPI) *Gopher {
@@ -85,13 +85,13 @@ func (gopher *Gopher) Render(x, y int) {
 
 	// Set GLFW window hints here
 	if gopher.WindowDecorated {
-	glfw.WindowHint(glfw.Decorated, glfw.True)
+		glfw.WindowHint(glfw.Decorated, glfw.True)
 	} else {
 		glfw.WindowHint(glfw.Decorated, glfw.False)
 	}
 	glfw.WindowHint(glfw.Resizable, glfw.True)
 	glfw.WindowHint(glfw.DepthBits, 32) // Request 32-bit depth buffer for better precision
-	
+
 	// MSAA (Multisample Anti-Aliasing) - Hardware-based, high quality
 	if gopher.MSAASamples > 0 {
 		glfw.WindowHint(glfw.Samples, gopher.MSAASamples)
@@ -128,7 +128,22 @@ func (gopher *Gopher) Render(x, y int) {
 		gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 	}
 
-	gopher.window.SetPos(x, y)
+	SetDarkTitleBar(gopher.window)
+
+	// Position window: -1,-1 means center on screen
+	if x == -1 || y == -1 {
+		monitor := glfw.GetPrimaryMonitor()
+		if monitor != nil {
+			mode := monitor.GetVideoMode()
+			if mode != nil {
+				centerX := (mode.Width - int(gopher.Width)) / 2
+				centerY := (mode.Height - int(gopher.Height)) / 2
+				gopher.window.SetPos(centerX, centerY)
+			}
+		}
+	} else {
+		gopher.window.SetPos(x, y)
+	}
 
 	gopher.rendererAPI.Init(gopher.Width, gopher.Height, gopher.window)
 
@@ -170,7 +185,7 @@ func (gopher *Gopher) RenderLoop() {
 		// Only process camera input if enabled (can be disabled by editor when UI wants keyboard)
 		if gopher.EnableCameraInput {
 			gopher.Camera.ProcessKeyboard(gopher.window, float32(deltaTime))
-			
+
 			// Process mouse movement for camera (polling instead of callback to avoid ImGui conflicts)
 			if gopher.window.GetMouseButton(glfw.MouseButtonRight) == glfw.Press {
 				xpos, ypos := gopher.window.GetCursorPos()
@@ -298,18 +313,17 @@ func (gopher *Gopher) GetRenderer() renderer.Render {
 // Mouse callback function
 // processCameraMouseMovement handles camera rotation via mouse (called from polling, not callback)
 func (gopher *Gopher) processCameraMouseMovement(xpos, ypos float64) {
-		if firstMouse {
-			lastX = xpos
-			lastY = ypos
-			firstMouse = false
-			return
-		}
-
-		xoffset := xpos - lastX
-		yoffset := lastY - ypos // Reversed since y-coordinates go from bottom to top
+	if firstMouse {
 		lastX = xpos
 		lastY = ypos
-
-		gopher.Camera.ProcessMouseMovement(float32(xoffset), float32(yoffset), true)
+		firstMouse = false
+		return
 	}
 
+	xoffset := xpos - lastX
+	yoffset := lastY - ypos // Reversed since y-coordinates go from bottom to top
+	lastX = xpos
+	lastY = ypos
+
+	gopher.Camera.ProcessMouseMovement(float32(xoffset), float32(yoffset), true)
+}

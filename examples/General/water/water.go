@@ -124,7 +124,7 @@ func (ws *WaterSimulation) Start() {
 	// Camera ABOVE wave peaks - waves go up to ~600, so camera at 800 is safely above
 	ws.engine.Camera.Position = mgl32.Vec3{oceanCenter, 800, oceanCenter + 3000}
 
-	ws.engine.Camera.SetNear(10.0)     // Increased for better depth precision
+	ws.engine.Camera.SetNear(10.0) // Increased for better depth precision
 	ws.engine.Camera.SetFar(2000000.0)
 	ws.engine.Camera.Speed = 8000
 
@@ -132,7 +132,7 @@ func (ws *WaterSimulation) Start() {
 	sunDirection := mgl32.Vec3{0.2, 0.9, 0.3}.Normalize()
 
 	ws.engine.Light = renderer.CreateDirectionalLight(sunDirection, mgl32.Vec3{1.0, 0.98, 0.9}, 4.5)
-	ws.engine.Light.AmbientStrength = 0.25                                                           // Higher ambient for natural ocean lighting
+	ws.engine.Light.AmbientStrength = 0.25 // Higher ambient for natural ocean lighting
 	ws.engine.Light.Type = renderer.STATIC_LIGHT
 
 	// Skybox - follow the same API used in other examples
@@ -149,7 +149,6 @@ func (ws *WaterSimulation) Start() {
 	if err != nil {
 		panic("Failed to load water surface: " + err.Error())
 	}
-
 
 	// Enhanced water material for realistic appearance - natural ocean water
 	model.SetDiffuseColor(0.06, 0.22, 0.45) // Natural ocean blue matching shader

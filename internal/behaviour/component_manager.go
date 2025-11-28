@@ -62,7 +62,7 @@ func (cm *ComponentManager) UpdateAll() {
 		}
 		cm.toDestroy = cm.toDestroy[:0]
 	}
-	
+
 	for _, obj := range cm.gameObjects {
 		if obj.Active {
 			if obj.GetModel() != nil {
@@ -70,26 +70,26 @@ func (cm *ComponentManager) UpdateAll() {
 					modelPos := model.GetPosition()
 					modelRot := model.GetRotation()
 					modelScale := model.GetScale()
-					
-					if !obj.Transform.Position.ApproxEqual(modelPos) || 
-					   !obj.Transform.Rotation.ApproxEqual(modelRot) || 
-					   !obj.Transform.Scale.ApproxEqual(modelScale) {
+
+					if !obj.Transform.Position.ApproxEqual(modelPos) ||
+						!obj.Transform.Rotation.ApproxEqual(modelRot) ||
+						!obj.Transform.Scale.ApproxEqual(modelScale) {
 						obj.Transform.Position = modelPos
 						obj.Transform.Rotation = modelRot
 						obj.Transform.Scale = modelScale
 					}
 				}
 			}
-			
+
 			obj.internalUpdate()
-			
+
 			if obj.GetModel() != nil {
 				if model, ok := obj.GetModel().(ModelInterface); ok {
 					modelPos := model.GetPosition()
-					
-					if !obj.Transform.Position.ApproxEqual(modelPos) || 
-					   !obj.Transform.Rotation.ApproxEqual(model.GetRotation()) || 
-					   !obj.Transform.Scale.ApproxEqual(model.GetScale()) {
+
+					if !obj.Transform.Position.ApproxEqual(modelPos) ||
+						!obj.Transform.Rotation.ApproxEqual(model.GetRotation()) ||
+						!obj.Transform.Scale.ApproxEqual(model.GetScale()) {
 						model.SetPositionVec(obj.Transform.Position)
 						model.SetRotationQuat(obj.Transform.Rotation)
 						model.SetScaleVec(obj.Transform.Scale)
@@ -127,4 +127,3 @@ func (cm *ComponentManager) Clear() {
 	cm.gameObjects = cm.gameObjects[:0]
 	cm.toDestroy = cm.toDestroy[:0]
 }
-

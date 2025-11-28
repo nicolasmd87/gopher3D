@@ -31,37 +31,37 @@ type WaterSimulation struct {
 	waveSteepness   []float32
 	currentTime     float32
 	lastSkyColor    mgl32.Vec3
-	
+
 	// Config
-	oceanSize       float32
-	baseAmplitude   float32
-	
+	oceanSize     float32
+	baseAmplitude float32
+
 	// Editable properties
 	WaterColor          mgl32.Vec3
 	Transparency        float32
 	WaveSpeedMultiplier float32
 	WaveHeight          float32 // NEW: Control wave amplitude
 	WaveRandomness      float32 // NEW: Add randomness to waves
-	
+
 	// Advanced Appearance
-	FoamEnabled         bool
-	FoamIntensity       float32
-	
+	FoamEnabled   bool
+	FoamIntensity float32
+
 	// Caustics
-	CausticsEnabled     bool
-	CausticsIntensity   float32
-	CausticsScale       float32
-	
+	CausticsEnabled   bool
+	CausticsIntensity float32
+	CausticsScale     float32
+
 	// Lighting & Shadows
-	SpecularIntensity   float32
-	ShadowStrength      float32
-	
+	SpecularIntensity float32
+	ShadowStrength    float32
+
 	// Distortions
-	DistortionStrength  float32
-	NormalStrength      float32
-	
+	DistortionStrength float32
+	NormalStrength     float32
+
 	// Texture
-	TexturePath         string
+	TexturePath string
 }
 
 // Exportable config for saving/loading
@@ -95,10 +95,10 @@ func NewWaterSimulation(engine *engine.Gopher, size float32, amplitude float32) 
 		oceanSize:           size,
 		baseAmplitude:       amplitude,
 		WaterColor:          mgl32.Vec3{0.06, 0.22, 0.45}, // Natural ocean blue (from working example)
-		Transparency:        0.85, // Visual transparency in shader (not alpha blending)
+		Transparency:        0.85,                         // Visual transparency in shader (not alpha blending)
 		WaveSpeedMultiplier: 1.0,
-		WaveHeight:          1.0,  // Default wave amplitude multiplier
-		WaveRandomness:      0.0,  // Default: no randomness (smooth waves)
+		WaveHeight:          1.0, // Default wave amplitude multiplier
+		WaveRandomness:      0.0, // Default: no randomness (smooth waves)
 		FoamEnabled:         true,
 		FoamIntensity:       0.5,
 		CausticsEnabled:     false, // Disabled by default (performance)
@@ -152,7 +152,7 @@ func (ws *WaterSimulation) Start() {
 
 	// Center water at (0,0,0) for the editor
 	oceanCenter := float32(0)
-	
+
 	// Load water surface
 	model, err := loader.LoadWaterSurface(ws.oceanSize, oceanCenter, oceanCenter, WaterResolution)
 	if err != nil {
@@ -169,7 +169,7 @@ func (ws *WaterSimulation) Start() {
 	model.SetExposure(1.0)
 	model.SetAlpha(1.0) // CRITICAL: Water must be OPAQUE (like the working example)
 	model.Shader = ws.shader
-	
+
 	// Tag as water for Inspector
 	if model.Metadata == nil {
 		model.Metadata = make(map[string]interface{})
@@ -180,14 +180,14 @@ func (ws *WaterSimulation) Start() {
 	ws.setupWaterUniforms()
 	ws.engine.AddModel(model)
 	createGameObjectForModel(model)
-	
+
 	// Set initial sky color
 	ws.lastSkyColor = mgl32.Vec3{skyboxSolidColor[0], skyboxSolidColor[1], skyboxSolidColor[2]}
 }
 
 func (ws *WaterSimulation) Update() {
 	ws.currentTime = float32(time.Since(ws.startTime).Seconds())
-	
+
 	if ws.model == nil || ws.model.CustomUniforms == nil {
 		return
 	}
@@ -196,22 +196,22 @@ func (ws *WaterSimulation) Update() {
 	ws.lastSkyColor = mgl32.Vec3{skyboxSolidColor[0], skyboxSolidColor[1], skyboxSolidColor[2]}
 
 	ws.model.CustomUniforms["time"] = ws.currentTime
-	
+
 	// Update editable uniforms
 	ws.model.CustomUniforms["waterBaseColor"] = ws.WaterColor
 	ws.model.CustomUniforms["waterTransparency"] = ws.Transparency
 	ws.model.CustomUniforms["waveSpeedMultiplier"] = ws.WaveSpeedMultiplier
-	
+
 	// Keep water opaque for depth testing (shader handles visual transparency)
 	// The waterTransparency uniform controls the shader's appearance, not actual alpha blending
 	if ws.model.Material != nil {
 		ws.model.Material.Alpha = 1.0 // Always opaque
 	}
-	
+
 	// Update water plane height dynamic to model position
 	// This fixes the issue where water visual effects (fog/caustics) don't move with the model
 	ws.model.CustomUniforms["waterPlaneHeight"] = ws.model.Position.Y() + 5.0
-	
+
 	// Send advanced uniforms
 	ws.model.CustomUniforms["enableFog"] = ws.FoamEnabled
 	ws.model.CustomUniforms["fogIntensity"] = ws.FoamIntensity
@@ -222,7 +222,7 @@ func (ws *WaterSimulation) Update() {
 	ws.model.CustomUniforms["shadowIntensity"] = ws.ShadowStrength
 	ws.model.CustomUniforms["waterDistortionIntensity"] = ws.DistortionStrength
 	ws.model.CustomUniforms["waterNormalIntensity"] = ws.NormalStrength
-	
+
 	// Get the active light - prefer renderer's lights array as source of truth
 	var activeLight *renderer.Light
 	if openglRenderer, ok := ws.engine.GetRenderer().(*renderer.OpenGLRenderer); ok {
@@ -231,18 +231,18 @@ func (ws *WaterSimulation) Update() {
 			activeLight = lights[0]
 		}
 	}
-	
+
 	// Fallback to engine.Light if no lights in renderer
 	if activeLight == nil && ws.engine.Light != nil {
 		activeLight = ws.engine.Light
 	}
-	
+
 	// Set light uniforms for water shader (uses different names than default shader)
 	if activeLight != nil {
 		ws.model.CustomUniforms["lightPos"] = activeLight.Position
-		ws.model.CustomUniforms["lightColor"] = activeLight.Color  
+		ws.model.CustomUniforms["lightColor"] = activeLight.Color
 		ws.model.CustomUniforms["lightIntensity"] = activeLight.Intensity
-		
+
 		// Debug once per second
 		if int(ws.currentTime)%5 == 0 && ws.currentTime-float32(int(ws.currentTime)) < 0.016 {
 			fmt.Printf("[WATER] Light: I=%.2f, C=(%.2f,%.2f,%.2f), Mode=%s, Dir=(%.3f,%.3f,%.3f)\n",
@@ -251,7 +251,7 @@ func (ws *WaterSimulation) Update() {
 				activeLight.Mode,
 				activeLight.Direction.X(), activeLight.Direction.Y(), activeLight.Direction.Z())
 		}
-		
+
 		// Light direction handling - CRITICAL for reflections
 		if activeLight.Mode == "directional" {
 			dir := activeLight.Direction
@@ -314,7 +314,7 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 	ws.model.CustomUniforms["waveSpeeds"] = speeds
 	ws.model.CustomUniforms["wavePhases"] = phases
 	ws.model.CustomUniforms["waveSteepness"] = steepness
-	
+
 	// CRITICAL: Set wave height multiplier (default 1.0) - without this, waves have zero amplitude!
 	ws.model.CustomUniforms["waveHeightMultiplier"] = ws.WaveHeight
 	ws.model.CustomUniforms["waveRandomness"] = ws.WaveRandomness
@@ -329,9 +329,9 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 	waterRenderConfig.NormalSmoothingRadius = 1.2
 	waterRenderConfig.EnableCaustics = ws.CausticsEnabled
 	waterRenderConfig.NoiseIntensity = 0.0
-	
+
 	renderer.ApplyWaterRenderingConfig(ws.model, waterRenderConfig)
-	
+
 	// Water-specific uniforms
 	ws.model.CustomUniforms["waterPlaneHeight"] = float32(5.0)
 
@@ -339,7 +339,7 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 	ws.model.CustomUniforms["waterBaseColor"] = ws.WaterColor
 	ws.model.CustomUniforms["waterTransparency"] = ws.Transparency
 	ws.model.CustomUniforms["waveSpeedMultiplier"] = ws.WaveSpeedMultiplier
-	
+
 	// Fog config
 	waterConfig := renderer.WaterConfig{
 		EnableFog:    true,
@@ -361,7 +361,7 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 func RestoreWaterSimulation(eng *engine.Gopher, model *renderer.Model, config WaterSimulationConfig) {
 	// Create sim instance
 	ws := NewWaterSimulation(eng, config.OceanSize, config.BaseAmplitude)
-	
+
 	// Apply config
 	ws.WaterColor = mgl32.Vec3{config.WaterColor[0], config.WaterColor[1], config.WaterColor[2]}
 	ws.Transparency = config.Transparency
@@ -373,24 +373,24 @@ func RestoreWaterSimulation(eng *engine.Gopher, model *renderer.Model, config Wa
 	ws.DistortionStrength = config.DistortionStrength
 	ws.NormalStrength = config.NormalStrength
 	ws.TexturePath = config.TexturePath
-	
+
 	// Link model
 	ws.model = model
 	model.Shader = ws.shader
 	model.Name = "Water Surface"
-	
+
 	// Ensure metadata is set
 	if model.Metadata == nil {
 		model.Metadata = make(map[string]interface{})
 	}
 	model.Metadata["type"] = "water"
-	
+
 	// Re-setup uniforms
 	ws.setupWaterUniforms()
-	
+
 	// Set as active
 	activeWaterSim = ws
-	
+
 	// Register behavior (Start() will be called by manager)
 	behaviour.GlobalBehaviourManager.Add(ws)
 }
@@ -400,7 +400,7 @@ func (ws *WaterSimulation) ApplyChanges() {
 	if ws.model == nil || ws.model.CustomUniforms == nil {
 		return
 	}
-	
+
 	// Update editable properties directly (same as Update() but without time/light)
 	ws.model.CustomUniforms["waterBaseColor"] = ws.WaterColor
 	ws.model.CustomUniforms["waterTransparency"] = ws.Transparency
@@ -416,7 +416,7 @@ func (ws *WaterSimulation) ApplyChanges() {
 	ws.model.CustomUniforms["shadowIntensity"] = ws.ShadowStrength
 	ws.model.CustomUniforms["waterDistortionIntensity"] = ws.DistortionStrength
 	ws.model.CustomUniforms["waterNormalIntensity"] = ws.NormalStrength
-	
+
 	// Update material alpha if needed
 	if ws.model.Material != nil {
 		ws.model.Material.Alpha = 1.0

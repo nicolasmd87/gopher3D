@@ -104,6 +104,10 @@ var (
 	
 	// Model to GameObject mapping
 	modelToGameObject = make(map[*renderer.Model]*behaviour.GameObject)
+	
+	// Saved style colors (loaded from config)
+	savedStyleColors   StyleColors
+	styleColorsApplied = false
 )
 
 type ConsoleEntry struct {

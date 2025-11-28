@@ -32,4 +32,3 @@ func (b *BounceScript) Update() {
 }
 
 func (b *BounceScript) FixedUpdate() {}
-

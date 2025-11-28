@@ -76,7 +76,7 @@ func (bhb *BlackHoleBehaviour) Start() {
 	bhb.engine.Light = renderer.CreateDirectionalLight(
 		mgl.Vec3{0, 6000000, 500}, // Same position as sun
 		mgl.Vec3{1.0, 0.95, 0.8},  // Warm star color
-		4.0,              
+		4.0,
 	)
 	bhb.engine.Light.AmbientStrength = 0.2 // Lower ambient
 	bhb.engine.Light.Temperature = 5800    // Sun-like star temperature
@@ -120,7 +120,6 @@ func (bhb *BlackHoleBehaviour) Start() {
 
 	// NO SUN - just particles and lighting
 	fmt.Printf("Black hole scene initialized - particles only!\n")
-
 
 	// Initialize red particles
 	for i := 0; i < instances; i++ {

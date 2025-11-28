@@ -37,8 +37,6 @@ func (ms *MaterialsShowcase) Start() {
 	ms.engine.Camera.Position = mgl.Vec3{0, 200, 800} // Far back to see the giant plane
 	ms.engine.Camera.Speed = 500
 
-
-
 	// Add VERY BRIGHT directional light with high ambient
 	ms.engine.Light = renderer.CreateSunlight(mgl.Vec3{0.4, 0.8, 0.3})
 	ms.engine.Light.Intensity = 5.0       // Much brighter
@@ -61,10 +59,9 @@ func (ms *MaterialsShowcase) Start() {
 
 	ms.f104 = f104
 	ms.engine.AddModel(f104)
-	
+
 	// Add orange skybox
 	ms.engine.UpdateSkyboxColor(1.0, 0.5, 0.2)
-
 
 }
 

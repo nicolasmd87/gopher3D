@@ -49,7 +49,7 @@ func (m *BehaviourManager) UpdateAll() {
 
 	// Update new component system
 	GlobalComponentManager.UpdateAll()
-	}
+}
 
 func (m *BehaviourManager) UpdateAllFixed() {
 	// Update old behaviour system

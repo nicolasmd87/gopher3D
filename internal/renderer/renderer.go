@@ -33,7 +33,7 @@ type Light struct {
 	ConstantAtten   float32    // Constant attenuation factor (usually 1.0)
 	LinearAtten     float32    // Linear attenuation factor
 	QuadraticAtten  float32    // Quadratic attenuation factor
-	
+
 	// COLD DATA - Configuration, rarely changes during runtime
 	Name       string    // Light name for editor identification
 	Type       LightType // "static", "dynamic"
