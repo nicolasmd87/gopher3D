@@ -108,6 +108,11 @@ var (
 	// Saved style colors (loaded from config)
 	savedStyleColors   StyleColors
 	styleColorsApplied = false
+	
+	// Window border color (OS level)
+	windowBorderR = float32(0.0)
+	windowBorderG = float32(0.0)
+	windowBorderB = float32(0.0)
 )
 
 type ConsoleEntry struct {
