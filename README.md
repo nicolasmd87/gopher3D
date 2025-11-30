@@ -122,17 +122,33 @@ go run water.go
 
 ```
 Gopher3D/
-├── editor/           # Editor application
+├── editor/                    # Editor application
+│   ├── main.go               # Main entry point
+│   ├── ui_panels.go          # UI panel rendering
+│   ├── ui_dialogs.go         # Modal dialogs
+│   ├── scene_management.go   # Scene save/load
+│   ├── water_feature.go      # Water simulation
+│   ├── voxel_feature.go      # Voxel terrain
+│   ├── export_game.go        # Game export
+│   ├── gizmos.go             # Transform gizmos
+│   ├── internal/             # Refactored packages (modular)
+│   │   ├── state/            # Global state
+│   │   ├── config/           # Configuration
+│   │   ├── console/          # Console logging
+│   │   ├── theme/            # UI theming
+│   │   ├── project/          # Project management
+│   │   └── scene/            # Scene operations
+│   └── cmd/editor/           # Alternative entry point
 ├── internal/
-│   ├── engine/       # Core engine loop
-│   ├── renderer/     # OpenGL rendering
-│   ├── loader/       # Model and voxel loading
-│   ├── behaviour/    # Component system
-│   └── logger/       # Logging
-├── examples/         # Demo programs
-├── scripts/          # User scripts (Rotate, Orbit, Bounce)
-├── .github/workflows # CI/CD pipelines
-└── resources/        # Assets
+│   ├── engine/               # Core engine loop
+│   ├── renderer/             # OpenGL rendering
+│   ├── loader/               # Model and voxel loading
+│   ├── behaviour/            # Component system
+│   └── logger/               # Logging
+├── examples/                 # Demo programs
+├── scripts/                  # User scripts (Rotate, Orbit, Bounce)
+├── .github/workflows         # CI/CD pipelines
+└── resources/                # Assets
 ```
 
 ## Controls

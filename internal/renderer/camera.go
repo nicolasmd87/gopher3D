@@ -31,6 +31,10 @@ type Camera struct {
 	LastX, LastY float32    // Last mouse position
 	InvertMouse  bool       // Invert mouse Y axis
 	firstMouse   bool       // First mouse movement flag
+
+	// Identification
+	Name     string // Camera name for editor identification
+	IsActive bool   // Whether this is the active camera
 }
 
 type Plane struct {

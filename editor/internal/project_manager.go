@@ -1,4 +1,4 @@
-package main
+package editor
 
 import (
 	"fmt"
@@ -15,12 +15,12 @@ type Project struct {
 }
 
 var (
-	showProjectManager = true
-	currentProject     *Project
+	ShowProjectManager = true
+	CurrentProject     *Project
 	recentProjects     []Project
 )
 
-func renderProjectManager() {
+func RenderProjectManager() {
 	viewport := imgui.MainViewport()
 	center := viewport.Center()
 
@@ -61,10 +61,10 @@ func renderProjectManager() {
 			directory, err := dialog.Directory().Title("Select Project Directory").Browse()
 			if err == nil && directory != "" {
 				createProjectStructure(directory)
-				currentProject = &Project{Name: filepath.Base(directory), Path: directory}
-				showProjectManager = false
+				CurrentProject = &Project{Name: filepath.Base(directory), Path: directory}
+				ShowProjectManager = false
 				currentDirectory = filepath.Join(directory, "resources")
-				addRecentProject(*currentProject)
+				addRecentProject(*CurrentProject)
 				saveRecentProjects()
 			}
 		}
@@ -118,7 +118,7 @@ func renderProjectManager() {
 
 					if imgui.SelectableV("##item", false, 0, imgui.Vec2{X: 0, Y: 44}) {
 						openProject(proj.Path)
-						showProjectManager = false
+						ShowProjectManager = false
 					}
 
 					imgui.PopStyleColorV(3)
@@ -149,11 +149,11 @@ func renderProjectManager() {
 }
 
 func openProject(directory string) {
-	currentProject = &Project{
+	CurrentProject = &Project{
 		Name: filepath.Base(directory),
 		Path: directory,
 	}
-	showProjectManager = false
+	ShowProjectManager = false
 	// Set file explorer to project root or resources
 	resPath := filepath.Join(directory, "resources")
 	if _, err := os.Stat(resPath); !os.IsNotExist(err) {
@@ -162,7 +162,7 @@ func openProject(directory string) {
 		currentDirectory = directory
 	}
 	// Add to recent projects
-	addRecentProject(*currentProject)
+	addRecentProject(*CurrentProject)
 	saveRecentProjects()
 }
 
@@ -185,13 +185,11 @@ func addRecentProject(proj Project) {
 }
 
 func saveRecentProjects() {
-	// Projects are saved via config system
-	saveConfig()
+	SaveConfig()
 }
 
 func loadRecentProjects() {
-	// Projects are loaded via config system
-	loadConfig()
+	LoadConfig()
 }
 
 func createProjectStructure(path string) {
@@ -200,6 +198,7 @@ func createProjectStructure(path string) {
 		"resources",
 		"resources/models",
 		"resources/textures",
+		"resources/scripts",
 		"scenes",
 	}
 

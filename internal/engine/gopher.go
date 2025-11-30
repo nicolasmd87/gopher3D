@@ -256,8 +256,18 @@ func (gopher *Gopher) SetFaceCulling(enabled bool) {
 
 // SetSkybox sets a skybox for the engine
 func (g *Gopher) SetSkybox(texturePath string) error {
-	// Store the path - skybox will be created after OpenGL initialization
 	g.skyboxPath = texturePath
+	// Try to load immediately if renderer is available
+	if openglRenderer, ok := g.rendererAPI.(*renderer.OpenGLRenderer); ok {
+		textureID, err := openglRenderer.LoadTexture(texturePath)
+		if err != nil {
+			logger.Log.Error("Failed to load skybox texture", zap.Error(err))
+			return err
+		}
+		openglRenderer.SkyboxTextureID = textureID
+		openglRenderer.UseSkyboxImage = true
+		logger.Log.Info("Skybox loaded", zap.String("path", texturePath))
+	}
 	return nil
 }
 
@@ -265,6 +275,13 @@ func (g *Gopher) SetSkybox(texturePath string) error {
 func (gopher *Gopher) UpdateSkyboxColor(r, g, b float32) {
 	if gopher.skybox != nil {
 		gopher.skybox.UpdateColor(r, g, b)
+	}
+	// Also update the renderer clear color
+	if openglRenderer, ok := gopher.rendererAPI.(*renderer.OpenGLRenderer); ok {
+		openglRenderer.ClearColorR = r
+		openglRenderer.ClearColorG = g
+		openglRenderer.ClearColorB = b
+		openglRenderer.UseSkyboxImage = false
 	}
 }
 

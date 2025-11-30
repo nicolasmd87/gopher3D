@@ -1,4 +1,4 @@
-package main
+package editor
 
 import (
 	"Gopher3D/internal/behaviour"
@@ -358,9 +358,9 @@ func (ws *WaterSimulation) setupWaterUniforms() {
 }
 
 // RestoreWaterSimulation restores a water simulation from a saved configuration
-func RestoreWaterSimulation(eng *engine.Gopher, model *renderer.Model, config WaterSimulationConfig) {
+func RestoreWaterSimulation(Eng *engine.Gopher, model *renderer.Model, config WaterSimulationConfig) {
 	// Create sim instance
-	ws := NewWaterSimulation(eng, config.OceanSize, config.BaseAmplitude)
+	ws := NewWaterSimulation(Eng, config.OceanSize, config.BaseAmplitude)
 
 	// Apply config
 	ws.WaterColor = mgl32.Vec3{config.WaterColor[0], config.WaterColor[1], config.WaterColor[2]}
@@ -421,4 +421,74 @@ func (ws *WaterSimulation) ApplyChanges() {
 	if ws.model.Material != nil {
 		ws.model.Material.Alpha = 1.0
 	}
+}
+
+// createWaterGameObject creates a GameObject with a WaterComponent
+func createWaterGameObject() *behaviour.GameObject {
+	// Create the component with default settings
+	waterComp := behaviour.NewWaterComponent()
+
+	// Create GameObject
+	obj := behaviour.NewGameObject("Water")
+	obj.AddComponent(waterComp)
+
+	// Create the water simulation
+	ws := NewWaterSimulation(Eng, waterComp.OceanSize, waterComp.BaseAmplitude)
+
+	// Apply component settings to simulation
+	ws.WaterColor = mgl32.Vec3{waterComp.WaterColor[0], waterComp.WaterColor[1], waterComp.WaterColor[2]}
+	ws.Transparency = waterComp.Transparency
+	ws.WaveSpeedMultiplier = waterComp.WaveSpeedMultiplier
+	ws.FoamEnabled = waterComp.FoamEnabled
+	ws.FoamIntensity = waterComp.FoamIntensity
+	ws.CausticsEnabled = waterComp.CausticsEnabled
+	ws.CausticsIntensity = waterComp.CausticsIntensity
+	ws.CausticsScale = waterComp.CausticsScale
+	ws.SpecularIntensity = waterComp.SpecularIntensity
+	ws.NormalStrength = waterComp.NormalStrength
+	ws.DistortionStrength = waterComp.DistortionStrength
+	ws.ShadowStrength = waterComp.ShadowStrength
+
+	// Store references
+	waterComp.Simulation = ws
+	waterComp.Model = ws.model
+	waterComp.Generated = true
+	obj.SetModel(ws.model)
+
+	// Add to scene
+	Eng.AddModel(ws.model)
+	behaviour.GlobalBehaviourManager.Add(ws)
+	activeWaterSim = ws
+
+	// Register the GameObject
+	behaviour.GlobalComponentManager.RegisterGameObject(obj)
+
+	logToConsole("Water GameObject created", "info")
+	return obj
+}
+
+// SyncWaterComponentToSimulation updates the water simulation from component values
+func SyncWaterComponentToSimulation(comp *behaviour.WaterComponent) {
+	if comp.Simulation == nil {
+		return
+	}
+	ws, ok := comp.Simulation.(*WaterSimulation)
+	if !ok {
+		return
+	}
+
+	ws.oceanSize = comp.OceanSize
+	ws.baseAmplitude = comp.BaseAmplitude
+	ws.WaterColor = mgl32.Vec3{comp.WaterColor[0], comp.WaterColor[1], comp.WaterColor[2]}
+	ws.Transparency = comp.Transparency
+	ws.WaveSpeedMultiplier = comp.WaveSpeedMultiplier
+	ws.FoamEnabled = comp.FoamEnabled
+	ws.FoamIntensity = comp.FoamIntensity
+	ws.CausticsEnabled = comp.CausticsEnabled
+	ws.CausticsIntensity = comp.CausticsIntensity
+	ws.CausticsScale = comp.CausticsScale
+	ws.SpecularIntensity = comp.SpecularIntensity
+	ws.NormalStrength = comp.NormalStrength
+	ws.DistortionStrength = comp.DistortionStrength
+	ws.ShadowStrength = comp.ShadowStrength
 }

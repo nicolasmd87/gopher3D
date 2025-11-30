@@ -1,4 +1,4 @@
-package main
+package editor
 
 import (
 	"Gopher3D/internal/renderer"
@@ -65,12 +65,11 @@ type EditorConfig struct {
 	WindowMaximized bool  `json:"window_maximized"`
 }
 
-// Load editor configuration from file
-func loadConfig() {
+// LoadConfig loads editor configuration from file
+func LoadConfig() {
 	data, err := ioutil.ReadFile(configPath)
 	if err != nil {
 		fmt.Println("No config file found, using defaults")
-		saveConfig() // Create default config file
 		return
 	}
 
@@ -80,16 +79,15 @@ func loadConfig() {
 		return
 	}
 
-	// Apply config to editor state
-	showHierarchy = config.ShowHierarchy
-	showInspector = config.ShowInspector
-	showFileExplorer = config.ShowFileExplorer
-	showConsole = config.ShowConsole
-	showAdvancedRender = config.ShowAdvancedRender
-	showSceneSettings = config.ShowSceneSettings
+	ShowHierarchy = config.ShowHierarchy
+	ShowInspector = config.ShowInspector
+	ShowFileExplorer = config.ShowFileExplorer
+	ShowConsole = config.ShowConsole
+	ShowAdvancedRender = config.ShowAdvancedRender
+	ShowSceneSettings = config.ShowSceneSettings
 
-	if eng != nil && eng.GetRenderer() != nil {
-		if openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer); ok {
+	if Eng != nil && Eng.GetRenderer() != nil {
+		if openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer); ok {
 			openglRenderer.ClearColorR = config.ClearColorR
 			openglRenderer.ClearColorG = config.ClearColorG
 			openglRenderer.ClearColorB = config.ClearColorB
@@ -112,19 +110,31 @@ func loadConfig() {
 		instanceCount = config.DefaultInstanceCount
 	}
 
-	// Load recent projects
 	if len(config.RecentProjects) > 0 {
 		recentProjects = config.RecentProjects
 	}
 
-	hierarchyLayout = config.HierarchyLayout
-	inspectorLayout = config.InspectorLayout
-	fileExplorerLayout = config.FileExplorerLayout
-	consoleLayout = config.ConsoleLayout
-	sceneSettingsLayout = config.SceneSettingsLayout
-	advancedRenderLayout = config.AdvancedRenderLayout
+	// Only apply layout if it has non-zero size (valid saved layout)
+	if config.HierarchyLayout.SizeX > 0 && config.HierarchyLayout.SizeY > 0 {
+		hierarchyLayout = config.HierarchyLayout
+	}
+	if config.InspectorLayout.SizeX > 0 && config.InspectorLayout.SizeY > 0 {
+		inspectorLayout = config.InspectorLayout
+	}
+	if config.FileExplorerLayout.SizeX > 0 && config.FileExplorerLayout.SizeY > 0 {
+		fileExplorerLayout = config.FileExplorerLayout
+	}
+	if config.ConsoleLayout.SizeX > 0 && config.ConsoleLayout.SizeY > 0 {
+		consoleLayout = config.ConsoleLayout
+	}
+	if config.SceneSettingsLayout.SizeX > 0 && config.SceneSettingsLayout.SizeY > 0 {
+		sceneSettingsLayout = config.SceneSettingsLayout
+	}
+	if config.AdvancedRenderLayout.SizeX > 0 && config.AdvancedRenderLayout.SizeY > 0 {
+		advancedRenderLayout = config.AdvancedRenderLayout
+	}
 
-	savedStyleColors = config.StyleColors
+	SavedStyleColors = config.StyleColors
 
 	windowBorderR = config.StyleColors.WindowBorderR
 	windowBorderG = config.StyleColors.WindowBorderG
@@ -133,15 +143,15 @@ func loadConfig() {
 	fmt.Println("✓ Editor config loaded")
 }
 
-// Save editor configuration to file
-func saveConfig() {
+// SaveConfig saves editor configuration to file
+func SaveConfig() {
 	config := EditorConfig{
-		ShowHierarchy:      showHierarchy,
-		ShowInspector:      showInspector,
-		ShowFileExplorer:   showFileExplorer,
-		ShowConsole:        showConsole,
-		ShowAdvancedRender: showAdvancedRender,
-		ShowSceneSettings:  showSceneSettings,
+		ShowHierarchy:      ShowHierarchy,
+		ShowInspector:      ShowInspector,
+		ShowFileExplorer:   ShowFileExplorer,
+		ShowConsole:        ShowConsole,
+		ShowAdvancedRender: ShowAdvancedRender,
+		ShowSceneSettings:  ShowSceneSettings,
 
 		HierarchyLayout:      hierarchyLayout,
 		InspectorLayout:      inspectorLayout,
@@ -167,8 +177,8 @@ func saveConfig() {
 		StyleColors:          getCurrentStyleColors(),
 	}
 
-	if eng != nil && eng.GetRenderer() != nil {
-		if openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer); ok {
+	if Eng != nil && Eng.GetRenderer() != nil {
+		if openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer); ok {
 			config.ClearColorR = openglRenderer.ClearColorR
 			config.ClearColorG = openglRenderer.ClearColorG
 			config.ClearColorB = openglRenderer.ClearColorB

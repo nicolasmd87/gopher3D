@@ -46,6 +46,10 @@ type OpenGLRenderer struct {
 	ClearColorG float32 // Background clear color - Green
 	ClearColorB float32 // Background clear color - Blue
 
+	// Skybox settings
+	SkyboxTextureID uint32 // Texture ID for skybox image
+	UseSkyboxImage  bool   // Whether to use skybox image instead of solid color
+
 	// Anti-aliasing settings
 	EnableFXAA         bool   // Software FXAA post-processing
 	EnableMSAAState    bool   // Hardware MSAA enabled state
@@ -370,6 +374,12 @@ func (rend *OpenGLRenderer) RemoveModel(model *Model) {
 		gl.DeleteBuffers(1, &model.EBO)
 		model.EBO = 0
 	}
+	// Clean up instance VBO if present (for instanced model matrices)
+	if model.InstanceVBO != 0 {
+		gl.DeleteBuffers(1, &model.InstanceVBO)
+		model.InstanceVBO = 0
+		model.InstanceVBOCapacity = 0
+	}
 	// Clean up instance color VBO if present
 	if model.InstanceColorVBO != 0 {
 		gl.DeleteBuffers(1, &model.InstanceColorVBO)
@@ -618,9 +628,8 @@ func (rend *OpenGLRenderer) renderModelInternal(model *Model, viewProjection mgl
 
 		// Only render if it matches the current pass
 		if renderTransparent == isTransparent {
-			if model.Material != nil {
-				rend.setMaterialUniforms(shader, model.Material)
-			}
+			// Always set material uniforms - setMaterialUniforms handles nil by using DefaultMaterial
+			rend.setMaterialUniforms(shader, model.Material)
 
 			if isTransparent {
 				gl.DepthMask(false)
@@ -1212,17 +1221,32 @@ func (rend *OpenGLRenderer) renderPostProcess() {
 	gl.Disable(gl.DEPTH_TEST)
 	gl.DepthMask(false)
 	gl.Disable(gl.BLEND)
+
+	// Force fill mode for post-processing quad (wireframe should only affect 3D scene)
+	gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
+
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 	gl.BindVertexArray(rend.screenQuadVAO)
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, rend.postProcessTexture)
 
-	if rend.EnableFXAA && rend.fxaaShader.program != 0 {
+	texelSize := mgl32.Vec2{1.0 / float32(rend.viewportWidth), 1.0 / float32(rend.viewportHeight)}
+
+	// Determine which shader to use based on enabled effects
+	if rend.EnableBloom && rend.bloomShader.program != 0 {
+		// Use bloom shader
+		rend.bloomShader.Use()
+		rend.bloomShader.SetInt("screenTexture", 0)
+		rend.bloomShader.SetVec2("texelSize", texelSize)
+		rend.bloomShader.SetFloat("bloomThreshold", rend.BloomThreshold)
+		rend.bloomShader.SetFloat("bloomIntensity", rend.BloomIntensity)
+	} else if rend.EnableFXAA && rend.fxaaShader.program != 0 {
+		// Use FXAA shader
 		rend.fxaaShader.Use()
-		texelSize := mgl32.Vec2{1.0 / float32(rend.viewportWidth), 1.0 / float32(rend.viewportHeight)}
 		rend.fxaaShader.SetVec2("texelSize", texelSize)
 		rend.fxaaShader.SetInt("screenTexture", 0)
 	} else {
+		// Use passthrough shader
 		rend.passthroughShader.Use()
 		loc := gl.GetUniformLocation(rend.passthroughShader.program, gl.Str("screenTexture\x00"))
 		gl.Uniform1i(loc, 0)

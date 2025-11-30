@@ -12,14 +12,9 @@ function Write-Header($text) {
 
 function Build {
     Write-Header "Building editor"
-    Push-Location editor
-    try {
-        go build -o ../bin/editor.exe .
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "Build complete: bin/editor.exe" -ForegroundColor Green
-        }
-    } finally {
-        Pop-Location
+    go build -o bin/editor.exe ./editor/cmd/...
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Build complete: bin/editor.exe" -ForegroundColor Green
     }
 }
 
@@ -38,6 +33,8 @@ function Vet {
     go vet ./internal/renderer/...
     go vet ./internal/logger/...
     go vet ./scripts/...
+    go vet ./editor/internal/...
+    go vet ./editor/cmd/...
     Write-Host "Vet complete" -ForegroundColor Green
 }
 
@@ -96,7 +93,7 @@ function Tools {
 function Clean {
     Write-Header "Cleaning"
     if (Test-Path bin) { Remove-Item -Recurse -Force bin }
-    if (Test-Path editor/editor.exe) { Remove-Item editor/editor.exe }
+    if (Test-Path editor/cmd/cmd.exe) { Remove-Item editor/cmd/cmd.exe }
 }
 
 function Run {

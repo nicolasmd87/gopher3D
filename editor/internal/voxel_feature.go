@@ -1,6 +1,7 @@
-package main
+package editor
 
 import (
+	"Gopher3D/internal/behaviour"
 	"Gopher3D/internal/loader"
 	"Gopher3D/internal/renderer"
 	"fmt"
@@ -29,6 +30,7 @@ var (
 )
 
 type VoxelConfig struct {
+	// Legacy fields
 	Scale       float32    `json:"scale"`
 	Amplitude   float32    `json:"amplitude"`
 	Seed        int32      `json:"seed"`
@@ -44,15 +46,24 @@ type VoxelConfig struct {
 	ColorSand   [3]float32 `json:"color_sand,omitempty"`
 	ColorWood   [3]float32 `json:"color_wood,omitempty"`
 	ColorLeaves [3]float32 `json:"color_leaves,omitempty"`
+
+	// New component-based fields
+	WorldSizeX  int     `json:"world_size_x,omitempty"`
+	WorldSizeY  int     `json:"world_size_y,omitempty"`
+	WorldSizeZ  int     `json:"world_size_z,omitempty"`
+	VoxelSize   float32 `json:"voxel_size,omitempty"`
+	NoiseScale  float32 `json:"noise_scale,omitempty"`
+	HeightScale float32 `json:"height_scale,omitempty"`
+	TerrainType string  `json:"terrain_type,omitempty"`
 }
 
 func renderAddVoxelDialog() {
-	if eng == nil {
+	if Eng == nil {
 		return
 	}
 	imgui.OpenPopup("Add Voxel Terrain")
-	centerX := float32(eng.Width) / 2
-	centerY := float32(eng.Height) / 2
+	centerX := float32(Eng.Width) / 2
+	centerY := float32(Eng.Height) / 2
 	imgui.SetNextWindowPosV(imgui.Vec2{X: centerX - 250, Y: centerY - 280}, imgui.ConditionAppearing, imgui.Vec2{})
 	imgui.SetNextWindowSizeV(imgui.Vec2{X: 500, Y: 560}, imgui.ConditionAppearing)
 
@@ -129,27 +140,261 @@ func renderAddVoxelDialog() {
 				voxelColorWood = [3]float32{0.4, 0.25, 0.1}
 				voxelColorLeaves = [3]float32{0.2, 0.6, 0.2}
 			}
+
+			imgui.Spacing()
+			imgui.PushStyleColor(imgui.StyleColorText, imgui.Vec4{X: 0.6, Y: 0.6, Z: 0.6, W: 1})
+			imgui.Text("Note: Texture support planned.")
+			imgui.Text("Currently only solid colors.")
+			imgui.PopStyleColor()
 		}
 
 		imgui.Spacing()
 		imgui.Separator()
 
 		if imgui.Button("Generate Terrain") {
-			model := generateVoxelTerrain()
-			if model != nil {
-				eng.AddModel(model)
-				createGameObjectForModel(model)
-				logToConsole("Voxel terrain added to scene", "info")
+			// Create GameObject with VoxelTerrainComponent
+			obj := createVoxelTerrainGameObject()
+			if obj != nil {
+				logToConsole("Voxel terrain GameObject created", "info")
 			}
-			showAddVoxel = false
+			ShowAddVoxel = false
 			imgui.CloseCurrentPopup()
 		}
 		imgui.SameLine()
 		if imgui.Button("Cancel") {
-			showAddVoxel = false
+			ShowAddVoxel = false
 			imgui.CloseCurrentPopup()
 		}
 		imgui.EndPopup()
+	}
+}
+
+// createVoxelTerrainGameObject creates a GameObject with a VoxelTerrainComponent
+// using the current editor settings
+func createVoxelTerrainGameObject() *behaviour.GameObject {
+	// Create the component with current editor settings
+	voxelComp := behaviour.NewVoxelTerrainComponent()
+	voxelComp.Scale = voxelScale
+	voxelComp.Amplitude = voxelAmplitude
+	voxelComp.Seed = voxelSeed
+	voxelComp.Threshold = voxelThreshold
+	voxelComp.Octaves = voxelOctaves
+	voxelComp.ChunkSize = voxelChunkSize
+	voxelComp.WorldSize = voxelWorldSize
+	voxelComp.Biome = voxelBiome
+	voxelComp.TreeDensity = voxelTreeDensity
+	voxelComp.GrassColor = voxelColorGrass
+	voxelComp.DirtColor = voxelColorDirt
+	voxelComp.StoneColor = voxelColorStone
+	voxelComp.SandColor = voxelColorSand
+	voxelComp.WoodColor = voxelColorWood
+	voxelComp.LeavesColor = voxelColorLeaves
+
+	// Create GameObject
+	obj := behaviour.NewGameObject(fmt.Sprintf("Voxel Terrain (%dx%d)", voxelWorldSize, voxelWorldSize))
+	obj.AddComponent(voxelComp)
+
+	// Generate the terrain mesh
+	model := generateVoxelTerrainFromComponent(voxelComp)
+	if model != nil {
+		voxelComp.Model = model
+		voxelComp.Generated = true
+		obj.SetModel(model)
+		Eng.AddModel(model)
+	}
+
+	// Register the GameObject
+	behaviour.GlobalComponentManager.RegisterGameObject(obj)
+
+	return obj
+}
+
+// generateVoxelTerrainFromComponent generates voxel terrain from a component's settings
+func generateVoxelTerrainFromComponent(comp *behaviour.VoxelTerrainComponent) *renderer.Model {
+	chunkSize := int(comp.ChunkSize)
+	worldSize := int(comp.WorldSize)
+	voxelSizeVal := float32(1.0)
+
+	// Set voxel colors from component
+	loader.ClearCustomVoxelColors()
+	loader.SetVoxelColor(1, mgl32.Vec3{comp.GrassColor[0], comp.GrassColor[1], comp.GrassColor[2]})
+	loader.SetVoxelColor(2, mgl32.Vec3{comp.DirtColor[0], comp.DirtColor[1], comp.DirtColor[2]})
+	loader.SetVoxelColor(3, mgl32.Vec3{comp.StoneColor[0], comp.StoneColor[1], comp.StoneColor[2]})
+	loader.SetVoxelColor(4, mgl32.Vec3{comp.SandColor[0], comp.SandColor[1], comp.SandColor[2]})
+	loader.SetVoxelColor(5, mgl32.Vec3{comp.WoodColor[0], comp.WoodColor[1], comp.WoodColor[2]})
+	loader.SetVoxelColor(6, mgl32.Vec3{comp.LeavesColor[0], comp.LeavesColor[1], comp.LeavesColor[2]})
+
+	noise := renderer.NewImprovedPerlinNoise(int64(comp.Seed))
+	world := loader.NewVoxelWorld(chunkSize, worldSize, worldSize, 64, voxelSizeVal, loader.CreateCubeGeometry(voxelSizeVal), loader.InstancedMode)
+
+	// Use component settings for generation
+	scale := float64(comp.Scale)
+	amplitude := comp.Amplitude
+	threshold := float64(comp.Threshold)
+	octaves := int(comp.Octaves)
+	biome := comp.Biome
+	treeDensity := comp.TreeDensity
+
+	world.GenerateVoxelsParallel(func(x, y, z int) (loader.VoxelID, bool) {
+		fx, fy, fz := float64(x)*scale, float64(y)*scale, float64(z)*scale
+		n3d := noise.Turbulence(fx, fy, fz, octaves, 0.5)
+
+		switch biome {
+		case 0: // Plains
+			h := noise.Turbulence2D(fx, fz, octaves, 0.5)
+			height := int(float32(h)*amplitude) + 15
+			if y <= height {
+				if n3d > threshold {
+					return 0, false
+				}
+				if y == height {
+					return 1, true
+				} else if y > height-3 {
+					return 2, true
+				}
+				return 3, true
+			}
+		case 1: // Mountains
+			h := noise.Turbulence2D(fx, fz, octaves, 0.6)
+			height := int(float32(h)*amplitude) + 20
+			peakNoise := noise.Turbulence(fx, fy*0.3, fz, octaves, 0.5)
+			if peakNoise > 0.3 {
+				height += int(float32(peakNoise-0.3) * 15.0)
+			}
+			if y <= height {
+				if n3d > threshold && y < height-5 {
+					return 0, false
+				}
+				if y == height && y < 35 {
+					return 1, true
+				} else if y == height {
+					return 3, true
+				} else if y > height-2 {
+					return 2, true
+				}
+				return 3, true
+			}
+		case 2: // Desert
+			h := noise.Turbulence2D(fx*2.0, fz*2.0, octaves-1, 0.4)
+			height := int(float32(h)*amplitude) + 12
+			if y <= height {
+				return 4, true
+			}
+		case 3: // Islands
+			h := noise.Turbulence2D(fx, fz, octaves, 0.5)
+			islandNoise := noise.Turbulence2D(fx*0.5, fz*0.5, 2, 0.5)
+			waterLevel := 18
+			height := int(float32(h)*amplitude) + 10
+			if islandNoise > 0.2 {
+				height += int((float32(islandNoise) - 0.2) * 20.0)
+			}
+			if y <= height {
+				if n3d > threshold && y > waterLevel {
+					return 0, false
+				}
+				if y == height && y > waterLevel {
+					return 1, true
+				} else if y > height-2 && y > waterLevel {
+					return 2, true
+				} else if y <= waterLevel {
+					return 3, true
+				}
+				return 3, true
+			}
+		case 4: // Caves
+			h := noise.Turbulence2D(fx, fz, octaves, 0.5)
+			height := int(float32(h)*amplitude) + 15
+			cave1 := noise.Turbulence(fx, fy, fz, octaves, 0.5)
+			cave2 := noise.Turbulence(fx*2.0, fy*2.0, fz*2.0, octaves-1, 0.5)
+			cave3 := noise.Turbulence(fx*0.5, fy*0.5, fz*0.5, 2, 0.5)
+			combinedCave := (cave1 + cave2*0.5 + cave3*0.3) / 1.8
+			if y <= height {
+				if combinedCave > threshold {
+					return 0, false
+				}
+				if y == height {
+					return 1, true
+				} else if y > height-3 {
+					return 2, true
+				}
+				return 3, true
+			}
+		}
+		return 0, false
+	})
+
+	// Generate trees if enabled
+	if treeDensity > 0.001 {
+		generateVoxelTrees(world, noise, int(comp.Seed))
+	}
+
+	model, err := world.CreateInstancedModel()
+	if err != nil {
+		logToConsole(fmt.Sprintf("Failed to create voxel mesh: %v", err), "error")
+		return nil
+	}
+
+	model.Name = fmt.Sprintf("Voxel Terrain (%dx%d)", worldSize, worldSize)
+	model.SetPosition(0, 0, 0)
+	model.SetDiffuseColor(0.8, 0.8, 0.8)
+	model.SetMaterialPBR(0.0, 0.9)
+	model.SetExposure(1.0)
+	model.SetAlpha(1.0)
+
+	// Ensure material is properly initialized
+	if model.Material == nil {
+		model.Material = &renderer.Material{
+			Name:         "VoxelMaterial",
+			DiffuseColor: [3]float32{0.8, 0.8, 0.8},
+			Metallic:     0.0,
+			Roughness:    0.9,
+			Alpha:        1.0,
+			Exposure:     1.0,
+		}
+	} else {
+		model.Material.Exposure = 1.0
+		model.Material.Alpha = 1.0
+	}
+
+	if model.Metadata == nil {
+		model.Metadata = make(map[string]interface{})
+	}
+	model.Metadata["isVoxel"] = true
+	model.Metadata["type"] = "voxel_terrain"
+
+	return model
+}
+
+// generateVoxelTerrainForGameObject generates terrain for a new GameObject
+func generateVoxelTerrainForGameObject(c *behaviour.VoxelTerrainComponent, obj *behaviour.GameObject) {
+	model := generateVoxelTerrainFromComponent(c)
+	if model != nil {
+		c.Model = model
+		c.Generated = true
+		obj.SetModel(model)
+		Eng.AddModel(model)
+		logToConsole(fmt.Sprintf("Generated voxel terrain: %s", obj.Name), "info")
+	}
+}
+
+// regenerateVoxelTerrainForComponent regenerates terrain for an existing component
+func regenerateVoxelTerrainForComponent(c *behaviour.VoxelTerrainComponent, obj *behaviour.GameObject) {
+	// Remove old model if exists
+	if oldModel, ok := c.Model.(*renderer.Model); ok && oldModel != nil {
+		openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
+		if ok {
+			openglRenderer.RemoveModel(oldModel)
+		}
+	}
+
+	// Generate new terrain
+	model := generateVoxelTerrainFromComponent(c)
+	if model != nil {
+		c.Model = model
+		c.Generated = true
+		obj.SetModel(model)
+		Eng.AddModel(model)
+		logToConsole(fmt.Sprintf("Regenerated voxel terrain: %s", obj.Name), "info")
 	}
 }
 
@@ -322,10 +567,18 @@ func generateVoxelTerrain() *renderer.Model {
 		TreeDensity: voxelTreeDensity,
 	}
 
-	// Ensure material has correct exposure (fixes dark voxels after deletion)
+	// Ensure material has correct exposure and lighting properties (fixes dark voxels after deletion)
 	if model.Material != nil {
 		model.Material.Exposure = 1.0
+		model.Material.Alpha = 1.0
+		// Ensure diffuse color is not black
+		if model.Material.DiffuseColor[0] == 0 && model.Material.DiffuseColor[1] == 0 && model.Material.DiffuseColor[2] == 0 {
+			model.Material.DiffuseColor = [3]float32{0.8, 0.8, 0.8}
+		}
 	}
+
+	// Force model matrix recalculation
+	model.IsDirty = true
 
 	// PERFORMANCE: Apply optimized rendering config for voxels (disables expensive effects)
 	voxelConfig := renderer.PerformanceRenderingConfig()
@@ -468,4 +721,110 @@ func regenerateVoxelTerrain(config VoxelConfig) *renderer.Model {
 	logToConsole(fmt.Sprintf("Regenerating %s voxel terrain: Seed=%d, Scale=%.3f, Amp=%.1f", biomeName, voxelSeed, voxelScale, voxelAmplitude), "info")
 
 	return generateVoxelTerrain()
+}
+
+// generateVoxelTerrainNew creates a voxel terrain from new-style config (for component system)
+func generateVoxelTerrainNew(config *VoxelConfig, name string) *renderer.Model {
+	if config == nil {
+		return nil
+	}
+
+	// Use new fields if available, otherwise fall back to legacy
+	chunkSize := int(config.ChunkSize)
+	if chunkSize == 0 {
+		chunkSize = 32
+	}
+
+	worldSizeX := config.WorldSizeX
+	worldSizeZ := config.WorldSizeZ
+	maxHeight := config.WorldSizeY
+
+	if worldSizeX == 0 {
+		worldSizeX = int(config.WorldSize)
+		if worldSizeX == 0 {
+			worldSizeX = 2
+		}
+	}
+	if worldSizeZ == 0 {
+		worldSizeZ = worldSizeX
+	}
+	if maxHeight == 0 {
+		maxHeight = 32
+	}
+
+	voxelSize := config.VoxelSize
+	if voxelSize == 0 {
+		voxelSize = 1.0
+	}
+
+	noiseScale := config.NoiseScale
+	if noiseScale == 0 {
+		noiseScale = float32(config.Scale)
+		if noiseScale == 0 {
+			noiseScale = 0.05
+		}
+	}
+
+	heightScale := config.HeightScale
+	if heightScale == 0 {
+		heightScale = float32(config.Amplitude)
+		if heightScale == 0 {
+			heightScale = 20.0
+		}
+	}
+
+	seed := config.Seed
+	if seed == 0 {
+		seed = voxelSeed
+	}
+
+	// Create voxel world using the existing API
+	geometry := loader.CreateCubeGeometry(voxelSize)
+	world := loader.NewVoxelWorld(chunkSize, worldSizeX, worldSizeZ, maxHeight, voxelSize, geometry, loader.InstancedMode)
+	noise := renderer.NewImprovedPerlinNoise(int64(seed))
+
+	// Generate terrain
+	world.GenerateVoxelsParallel(func(x, y, z int) (loader.VoxelID, bool) {
+		fx := float64(x) * float64(noiseScale)
+		fz := float64(z) * float64(noiseScale)
+
+		h := noise.Turbulence2D(fx, fz, 4, 0.5)
+		height := int(float32(h) * heightScale)
+
+		if y <= height {
+			if y == height {
+				return loader.VoxelID(1), true // Grass
+			} else if y > height-3 {
+				return loader.VoxelID(2), true // Dirt
+			}
+			return loader.VoxelID(3), true // Stone
+		}
+		return loader.VoxelID(0), false
+	})
+
+	model, err := world.CreateInstancedModel()
+	if err != nil {
+		logToConsole(fmt.Sprintf("Failed to create voxel mesh: %v", err), "error")
+		return nil
+	}
+
+	if name == "" {
+		name = fmt.Sprintf("Voxel Terrain (%dx%dx%d)", worldSizeX*chunkSize, maxHeight, worldSizeZ*chunkSize)
+	}
+	model.Name = name
+	model.SetPosition(0, 0, 0)
+	model.SetDiffuseColor(0.5, 0.5, 0.5)
+	model.SetMaterialPBR(0.0, 0.9)
+	model.SetExposure(1.0)
+	model.Material.Alpha = 1.0
+	model.IsDirty = true
+
+	// Store configuration in metadata
+	if model.Metadata == nil {
+		model.Metadata = make(map[string]interface{})
+	}
+	model.Metadata["isVoxel"] = true
+	model.Metadata["voxelConfig"] = config
+
+	return model
 }

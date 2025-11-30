@@ -1,4 +1,4 @@
-package main
+package editor
 
 import (
 	"Gopher3D/internal/behaviour"
@@ -16,15 +16,43 @@ import (
 )
 
 type SceneData struct {
-	Models []SceneModel `json:"models"`
-	Lights []SceneLight `json:"lights"`
-	Water  *SceneWater  `json:"water,omitempty"`  // Optional water configuration
-	Skybox *SceneSkybox `json:"skybox,omitempty"` // Optional skybox configuration
+	// New unified GameObject system
+	GameObjects []SceneGameObject `json:"game_objects,omitempty"`
+
+	// Legacy data (for backward compatibility)
+	Models    []SceneModel          `json:"models,omitempty"`
+	Lights    []SceneLight          `json:"lights,omitempty"`
+	Camera    *SceneCamera          `json:"camera,omitempty"`
+	Cameras   []SceneCamera         `json:"cameras,omitempty"`
+	Water     *SceneWater           `json:"water,omitempty"`
+	Skybox    *SceneSkybox          `json:"skybox,omitempty"`
+	Rendering *SceneRenderingConfig `json:"rendering,omitempty"`
+}
+
+type SceneRenderingConfig struct {
+	Bloom       bool       `json:"bloom"`
+	FXAA        bool       `json:"fxaa"`
+	DepthTest   bool       `json:"depth_test"`
+	FaceCulling bool       `json:"face_culling"`
+	Wireframe   bool       `json:"wireframe"`
+	SkyboxColor [3]float32 `json:"skybox_color"`
+}
+
+type SceneCamera struct {
+	Name        string     `json:"name"`
+	Position    [3]float32 `json:"position"`
+	Rotation    [3]float32 `json:"rotation"`
+	Speed       float32    `json:"speed"`
+	FOV         float32    `json:"fov"`
+	Near        float32    `json:"near,omitempty"`
+	Far         float32    `json:"far,omitempty"`
+	InvertMouse bool       `json:"invert_mouse"`
+	IsActive    bool       `json:"is_active"`
 }
 
 type SceneModel struct {
 	Name     string     `json:"name"`
-	Path     string     `json:"path"`
+	Path     string     `json:"path,omitempty"`
 	Position [3]float32 `json:"position"`
 	Scale    [3]float32 `json:"scale"`
 	Rotation [3]float32 `json:"rotation"`
@@ -37,9 +65,12 @@ type SceneModel struct {
 	Roughness     float32    `json:"roughness"`
 	Exposure      float32    `json:"exposure"`
 	Alpha         float32    `json:"alpha"`
-	TexturePath   string     `json:"texture_path"`
+	TexturePath   string     `json:"texture_path,omitempty"`
 
-	// Voxel Specific Data
+	// Serialized mesh data (for procedural/voxel models)
+	MeshDataFile string `json:"mesh_data_file,omitempty"`
+
+	// Voxel Specific Data (for regeneration if needed)
 	VoxelConfig *VoxelConfig `json:"voxel_config,omitempty"`
 
 	// Components
@@ -47,7 +78,20 @@ type SceneModel struct {
 }
 
 type SceneComponent struct {
-	Type string `json:"type"`
+	Type       string                 `json:"type"`
+	Category   string                 `json:"category"` // "Script", "Mesh", "Water", "Voxel", etc.
+	Properties map[string]interface{} `json:"properties,omitempty"`
+}
+
+// SceneGameObject represents a GameObject in the scene (unified representation)
+type SceneGameObject struct {
+	Name       string           `json:"name"`
+	Tag        string           `json:"tag,omitempty"`
+	Active     bool             `json:"active"`
+	Position   [3]float32       `json:"position"`
+	Rotation   [3]float32       `json:"rotation"` // Euler angles
+	Scale      [3]float32       `json:"scale"`
+	Components []SceneComponent `json:"components,omitempty"`
 }
 
 type SceneLight struct {
@@ -80,6 +124,7 @@ type SceneWater struct {
 	NormalStrength      float32    `json:"normal_strength"`
 	DistortionStrength  float32    `json:"distortion_strength"`
 	ShadowStrength      float32    `json:"shadow_strength"`
+	MeshDataFile        string     `json:"mesh_data_file,omitempty"`
 }
 
 type SceneSkybox struct {
@@ -94,11 +139,15 @@ func newScene() {
 		logToConsole("Creating new scene (unsaved changes will be lost)", "warning")
 	}
 
-	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+	openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if !ok {
 		logToConsole("ERROR: Cannot access renderer", "error")
 		return
 	}
+
+	// Clear all GameObjects first (this also cleans up their models)
+	behaviour.GlobalComponentManager.Clear()
+	modelToGameObject = make(map[*renderer.Model]*behaviour.GameObject)
 
 	// Clear all models
 	models := openglRenderer.GetModels()
@@ -108,10 +157,9 @@ func newScene() {
 
 	// Clear all lights except default
 	lights := openglRenderer.GetLights()
-	// Create a separate slice for removal to avoid index issues or modifying the slice we are iterating
 	var lightsToRemove []*renderer.Light
 	for _, light := range lights {
-		if light.Name != "Sun" {
+		if light.Name != "DirectionalLight" {
 			lightsToRemove = append(lightsToRemove, light)
 		}
 	}
@@ -128,23 +176,31 @@ func newScene() {
 			mgl.Vec3{1.0, 0.95, 0.85},
 			1.0,
 		)
-		defaultLight.Name = "Sun"
+		defaultLight.Name = "DirectionalLight"
 		defaultLight.AmbientStrength = 0.3
 		defaultLight.Type = renderer.STATIC_LIGHT
 		openglRenderer.AddLight(defaultLight)
-		eng.Light = defaultLight
+		Eng.Light = defaultLight
 	} else {
-		// Ensure eng.Light points to the first light (should be Sun)
-		eng.Light = lights[0]
+		// Ensure Eng.Light points to the first light
+		Eng.Light = lights[0]
 	}
 
 	// Reset Water
+	if activeWaterSim != nil {
+		behaviour.GlobalBehaviourManager.Remove(activeWaterSim)
+	}
 	activeWaterSim = nil
+
+	// Reset Cameras
+	SceneCameras = nil
 
 	currentScenePath = ""
 	sceneModified = false
 	selectedModelIndex = -1
 	selectedLightIndex = -1
+	selectedGameObjectIndex = -1
+	selectedCameraIndex = -1
 	selectedType = ""
 
 	logToConsole("New scene created", "info")
@@ -166,7 +222,7 @@ func saveScene() {
 		filename += ".json"
 	}
 
-	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+	openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if !ok {
 		logToConsole("ERROR: Cannot access renderer", "error")
 		return
@@ -208,18 +264,30 @@ func saveScene() {
 
 		// Save components
 		if obj := getGameObjectForModel(model); obj != nil {
-			sceneModel.Components = make([]SceneComponent, 0)
-			for _, comp := range obj.Components {
-				typeName := getComponentTypeName(comp)
-				if typeName != "" {
-					sceneModel.Components = append(sceneModel.Components, SceneComponent{
-						Type: typeName,
-					})
-				}
-			}
+			sceneModel.Components = serializeComponents(obj.Components)
 		}
 
 		sceneData.Models = append(sceneData.Models, sceneModel)
+	}
+
+	// Save all GameObjects (new unified system)
+	allGameObjects := behaviour.GlobalComponentManager.GetAllGameObjects()
+	for _, obj := range allGameObjects {
+		// Skip GameObjects that are already saved as models
+		if obj.GetModel() != nil {
+			continue
+		}
+
+		sceneGO := SceneGameObject{
+			Name:       obj.Name,
+			Tag:        obj.Tag,
+			Active:     obj.Active,
+			Position:   [3]float32{obj.Transform.Position.X(), obj.Transform.Position.Y(), obj.Transform.Position.Z()},
+			Rotation:   quatToEulerArray(obj.Transform.Rotation),
+			Scale:      [3]float32{obj.Transform.Scale.X(), obj.Transform.Scale.Y(), obj.Transform.Scale.Z()},
+			Components: serializeComponents(obj.Components),
+		}
+		sceneData.GameObjects = append(sceneData.GameObjects, sceneGO)
 	}
 
 	// Save lights with complete properties
@@ -262,6 +330,40 @@ func saveScene() {
 		}
 	}
 
+	// Save camera settings (both legacy single camera and multiple cameras)
+	if Eng.Camera != nil {
+		// Save legacy camera for backward compatibility
+		sceneData.Camera = &SceneCamera{
+			Name:        "Main Camera",
+			Position:    [3]float32{Eng.Camera.Position.X(), Eng.Camera.Position.Y(), Eng.Camera.Position.Z()},
+			Rotation:    [3]float32{Eng.Camera.Yaw, Eng.Camera.Pitch, 0},
+			Speed:       Eng.Camera.Speed,
+			FOV:         Eng.Camera.Fov,
+			Near:        Eng.Camera.Near,
+			Far:         Eng.Camera.Far,
+			InvertMouse: false, // Default to non-inverted for exported games
+			IsActive:    true,
+		}
+	}
+
+	// Save all scene cameras
+	if len(SceneCameras) > 0 {
+		sceneData.Cameras = make([]SceneCamera, len(SceneCameras))
+		for i, cam := range SceneCameras {
+			sceneData.Cameras[i] = SceneCamera{
+				Name:        cam.Name,
+				Position:    [3]float32{cam.Position.X(), cam.Position.Y(), cam.Position.Z()},
+				Rotation:    [3]float32{cam.Yaw, cam.Pitch, 0},
+				Speed:       cam.Speed,
+				FOV:         cam.Fov,
+				Near:        cam.Near,
+				Far:         cam.Far,
+				InvertMouse: cam.InvertMouse,
+				IsActive:    cam.IsActive,
+			}
+		}
+	}
+
 	// Save skybox if it exists
 	if skyboxColorMode {
 		sceneData.Skybox = &SceneSkybox{
@@ -273,6 +375,16 @@ func saveScene() {
 			Type:      "image",
 			ImagePath: skyboxTexturePath,
 		}
+	}
+
+	// Save rendering configuration
+	sceneData.Rendering = &SceneRenderingConfig{
+		Bloom:       openglRenderer.EnableBloom,
+		FXAA:        openglRenderer.EnableFXAA,
+		DepthTest:   renderer.DepthTestEnabled,
+		FaceCulling: renderer.FaceCullingEnabled,
+		Wireframe:   renderer.Debug,
+		SkyboxColor: skyboxSolidColor,
 	}
 
 	// Write to file
@@ -323,7 +435,7 @@ func loadScene() {
 	// But save the selection reset for AFTER we load, so UI updates correctly
 	newScene()
 
-	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+	openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if !ok {
 		logToConsole("ERROR: Cannot access renderer", "error")
 		return
@@ -336,7 +448,7 @@ func loadScene() {
 		openglRenderer.RemoveLight(lights[i])
 	}
 	// Clear engine's main light reference to avoid dangling pointer
-	eng.Light = nil
+	Eng.Light = nil
 
 	// Clear selection before loading models to ensure indices stay valid
 	selectedModelIndex = -1
@@ -367,7 +479,7 @@ func loadScene() {
 			}
 
 			// Manually add model here since regenerateVoxelTerrain no longer does it
-			eng.AddModel(model)
+			Eng.AddModel(model)
 		} else {
 			// Case 2: Standard Model
 			if sceneModel.Path == "" {
@@ -383,7 +495,7 @@ func loadScene() {
 				logToConsole(fmt.Sprintf("Failed to load model: %v", err), "error")
 				continue
 			}
-			eng.AddModel(model)
+			Eng.AddModel(model)
 		}
 
 		// Common setup for both types
@@ -584,30 +696,30 @@ func loadScene() {
 			openglRenderer.AddLight(light)
 			// Always set the first light as the engine's main light (for backward compatibility)
 			if isFirstLight {
-				eng.Light = light
+				Eng.Light = light
 				isFirstLight = false
 			}
 		}
 	}
 
 	// Fallback: If no lights were loaded, create a default Sun to prevent black scene
-	if eng.Light == nil {
+	if Eng.Light == nil {
 		logToConsole("No lights found in scene file, creating default Sun", "warning")
 		defaultLight := renderer.CreateDirectionalLight(
 			mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(),
 			mgl.Vec3{1.0, 0.95, 0.85},
 			1.0,
 		)
-		defaultLight.Name = "Sun"
+		defaultLight.Name = "DirectionalLight"
 		defaultLight.AmbientStrength = 0.3
 		defaultLight.Type = renderer.STATIC_LIGHT
 		openglRenderer.AddLight(defaultLight)
-		eng.Light = defaultLight
+		Eng.Light = defaultLight
 	}
 
 	// Load water if it exists in scene
 	if sceneData.Water != nil {
-		ws := NewWaterSimulation(eng, sceneData.Water.OceanSize, sceneData.Water.BaseAmplitude)
+		ws := NewWaterSimulation(Eng, sceneData.Water.OceanSize, sceneData.Water.BaseAmplitude)
 		ws.WaterColor = mgl.Vec3{sceneData.Water.WaterColor[0], sceneData.Water.WaterColor[1], sceneData.Water.WaterColor[2]}
 		ws.Transparency = sceneData.Water.Transparency
 		ws.WaveSpeedMultiplier = sceneData.Water.WaveSpeedMultiplier
@@ -625,6 +737,65 @@ func loadScene() {
 		behaviour.GlobalBehaviourManager.Add(ws)
 
 		logToConsole("Water loaded from scene", "info")
+	}
+
+	// Load camera settings if present
+	if sceneData.Camera != nil && Eng.Camera != nil {
+		Eng.Camera.Position = mgl.Vec3{sceneData.Camera.Position[0], sceneData.Camera.Position[1], sceneData.Camera.Position[2]}
+		Eng.Camera.Yaw = sceneData.Camera.Rotation[0]
+		Eng.Camera.Pitch = sceneData.Camera.Rotation[1]
+		if sceneData.Camera.Speed > 0 {
+			Eng.Camera.Speed = sceneData.Camera.Speed
+		}
+		if sceneData.Camera.FOV > 0 {
+			Eng.Camera.Fov = sceneData.Camera.FOV
+		}
+		if sceneData.Camera.Near > 0 {
+			Eng.Camera.Near = sceneData.Camera.Near
+		}
+		if sceneData.Camera.Far > 0 {
+			Eng.Camera.Far = sceneData.Camera.Far
+		}
+		Eng.Camera.UpdateProjection()
+		logToConsole("Camera settings loaded from scene", "info")
+	}
+
+	// Load multiple cameras if present
+	if len(sceneData.Cameras) > 0 {
+		SceneCameras = make([]*renderer.Camera, len(sceneData.Cameras))
+		for i, camData := range sceneData.Cameras {
+			cam := &renderer.Camera{
+				Name:        camData.Name,
+				Position:    mgl.Vec3{camData.Position[0], camData.Position[1], camData.Position[2]},
+				Yaw:         camData.Rotation[0],
+				Pitch:       camData.Rotation[1],
+				Speed:       camData.Speed,
+				Fov:         camData.FOV,
+				Near:        camData.Near,
+				Far:         camData.Far,
+				InvertMouse: camData.InvertMouse,
+				IsActive:    camData.IsActive,
+				WorldUp:     mgl.Vec3{0, 1, 0},
+				Front:       mgl.Vec3{0, 0, -1},
+				Up:          mgl.Vec3{0, 1, 0},
+				Sensitivity: 0.1,
+			}
+			if cam.Near == 0 {
+				cam.Near = 0.1
+			}
+			if cam.Far == 0 {
+				cam.Far = 10000.0
+			}
+			if cam.Fov == 0 {
+				cam.Fov = 45.0
+			}
+			if cam.Speed == 0 {
+				cam.Speed = 70.0
+			}
+			cam.UpdateProjection()
+			SceneCameras[i] = cam
+		}
+		logToConsole(fmt.Sprintf("Loaded %d cameras from scene", len(SceneCameras)), "info")
 	}
 
 	// Load skybox if it exists in scene
@@ -658,6 +829,16 @@ func loadScene() {
 		logToConsole("Using default skybox color", "info")
 	}
 
+	// Load rendering configuration if present
+	if sceneData.Rendering != nil {
+		openglRenderer.EnableBloom = sceneData.Rendering.Bloom
+		openglRenderer.EnableFXAA = sceneData.Rendering.FXAA
+		renderer.DepthTestEnabled = sceneData.Rendering.DepthTest
+		renderer.FaceCullingEnabled = sceneData.Rendering.FaceCulling
+		renderer.Debug = sceneData.Rendering.Wireframe
+		logToConsole("Rendering configuration loaded from scene", "info")
+	}
+
 	currentScenePath = filename
 	sceneModified = false
 	logToConsole(fmt.Sprintf("Scene loaded: %s (%d models, %d lights)", filepath.Base(filename), len(sceneData.Models), len(sceneData.Lights)), "info")
@@ -677,7 +858,7 @@ func addModelToScene(path string, name string) *renderer.Model {
 	model.Name = name
 
 	// Position new models slightly offset so they don't overlap
-	models := eng.GetRenderer().(*renderer.OpenGLRenderer).GetModels()
+	models := Eng.GetRenderer().(*renderer.OpenGLRenderer).GetModels()
 	offset := float32(len(models)) * 5.0
 	model.SetPosition(offset, 10, 0)
 	model.SetScale(10, 10, 10)
@@ -739,7 +920,7 @@ func addModelToScene(path string, name string) *renderer.Model {
 		logToConsole(fmt.Sprintf("✓ Model '%s' added to scene", name), "info")
 	}
 
-	eng.AddModel(model)
+	Eng.AddModel(model)
 
 	createGameObjectForModel(model)
 
@@ -757,6 +938,35 @@ func createGameObjectForModel(model *renderer.Model) *behaviour.GameObject {
 	behaviour.GlobalComponentManager.RegisterGameObject(obj)
 
 	return obj
+}
+
+// addEmptyGameObject creates an empty GameObject with no model attached
+// Users can add components to it via the Inspector
+func addEmptyGameObject() {
+	// Find unique name
+	baseName := "GameObject"
+	name := baseName
+	counter := 1
+
+	// Check existing GameObjects for name conflicts
+	existingNames := make(map[string]bool)
+	for _, obj := range behaviour.GlobalComponentManager.GetAllGameObjects() {
+		existingNames[obj.Name] = true
+	}
+
+	for existingNames[name] {
+		name = fmt.Sprintf("%s (%d)", baseName, counter)
+		counter++
+	}
+
+	obj := behaviour.NewGameObject(name)
+	obj.Transform.SetPosition(mgl.Vec3{0, 0, 0})
+	obj.Transform.Rotation = mgl.QuatIdent()
+	obj.Transform.SetScale(mgl.Vec3{1, 1, 1})
+
+	behaviour.GlobalComponentManager.RegisterGameObject(obj)
+
+	logToConsole(fmt.Sprintf("Created empty GameObject: %s", name), "info")
 }
 
 func getGameObjectForModel(model *renderer.Model) *behaviour.GameObject {
@@ -779,19 +989,66 @@ func getComponentTypeName(comp behaviour.Component) string {
 	return typeName
 }
 
-func setupEditorScene() {
-	fmt.Println("Setting up editor scene...")
+// AddSceneCamera creates a new camera in the scene
+func AddSceneCamera(name string) *renderer.Camera {
+	if name == "" {
+		name = fmt.Sprintf("Camera %d", len(SceneCameras)+1)
+	}
 
-	// Check if camera is ready (should be by now, but be safe)
-	if eng.Camera == nil {
-		fmt.Println("Warning: Camera not ready yet, skipping scene setup")
-		sceneSetup = false // Allow retry next frame
+	cam := &renderer.Camera{
+		Name:        name,
+		Position:    mgl.Vec3{0, 10, 30},
+		Front:       mgl.Vec3{0, 0, -1},
+		Up:          mgl.Vec3{0, 1, 0},
+		WorldUp:     mgl.Vec3{0, 1, 0},
+		Pitch:       0,
+		Yaw:         -90,
+		Speed:       70,
+		Sensitivity: 0.1,
+		Fov:         45,
+		Near:        0.1,
+		Far:         10000,
+		InvertMouse: false,
+		IsActive:    len(SceneCameras) == 0, // First camera is active by default
+	}
+	cam.UpdateProjection()
+
+	SceneCameras = append(SceneCameras, cam)
+	logToConsole(fmt.Sprintf("Added camera: %s", name), "info")
+	return cam
+}
+
+// RemoveSceneCamera removes a camera from the scene
+func RemoveSceneCamera(index int) {
+	if index < 0 || index >= len(SceneCameras) {
 		return
 	}
 
-	eng.Camera.Position = mgl.Vec3{0, 50, 150}
-	eng.Camera.Speed = 100
-	eng.Camera.InvertMouse = false
+	name := SceneCameras[index].Name
+	SceneCameras = append(SceneCameras[:index], SceneCameras[index+1:]...)
+	logToConsole(fmt.Sprintf("Removed camera: %s", name), "info")
+}
+
+// SetActiveCamera sets which camera is the active one for the game
+func SetActiveCamera(index int) {
+	for i := range SceneCameras {
+		SceneCameras[i].IsActive = (i == index)
+	}
+}
+
+func SetupEditorScene() {
+	fmt.Println("Setting up editor scene...")
+
+	// Check if camera is ready (should be by now, but be safe)
+	if Eng.Camera == nil {
+		fmt.Println("Warning: Camera not ready yet, skipping scene setup")
+		SceneSetup = false
+		return
+	}
+
+	Eng.Camera.Position = mgl.Vec3{0, 50, 150}
+	Eng.Camera.Speed = 100
+	Eng.Camera.InvertMouse = false
 
 	// Create default light
 	defaultLight := renderer.CreateDirectionalLight(
@@ -799,13 +1056,13 @@ func setupEditorScene() {
 		mgl.Vec3{1.0, 0.95, 0.85},
 		1.0,
 	)
-	defaultLight.Name = "Sun"
+	defaultLight.Name = "DirectionalLight"
 	defaultLight.AmbientStrength = 0.3
 	defaultLight.Type = renderer.STATIC_LIGHT
-	eng.Light = defaultLight
+	Eng.Light = defaultLight
 
 	// Add light to renderer's lights array (so editor can manage it)
-	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+	openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if ok {
 		openglRenderer.AddLight(defaultLight)
 	}
@@ -815,9 +1072,225 @@ func setupEditorScene() {
 
 	fmt.Println("✓ Editor scene ready!")
 
-	// Load editor configuration
-	loadConfig()
+	LoadConfig()
 
 	// Add initial console message
 	logToConsole("Editor initialized - Type 'help' for available commands", "info")
+}
+
+// serializeComponents converts components to serializable format
+func serializeComponents(components []behaviour.Component) []SceneComponent {
+	result := make([]SceneComponent, 0)
+
+	for _, comp := range components {
+		sceneComp := SceneComponent{
+			Type:       behaviour.GetComponentTypeName(comp),
+			Category:   string(behaviour.GetComponentCategory(comp)),
+			Properties: make(map[string]interface{}),
+		}
+
+		// Serialize component-specific properties
+		switch c := comp.(type) {
+		case *behaviour.MeshComponent:
+			sceneComp.Properties["mesh_path"] = c.MeshPath
+			sceneComp.Properties["material_path"] = c.MaterialPath
+			sceneComp.Properties["diffuse_color"] = c.DiffuseColor
+			sceneComp.Properties["specular_color"] = c.SpecularColor
+			sceneComp.Properties["metallic"] = c.Metallic
+			sceneComp.Properties["roughness"] = c.Roughness
+			sceneComp.Properties["alpha"] = c.Alpha
+
+		case *behaviour.WaterComponent:
+			sceneComp.Properties["ocean_size"] = c.OceanSize
+			sceneComp.Properties["base_amplitude"] = c.BaseAmplitude
+			sceneComp.Properties["water_color"] = c.WaterColor
+			sceneComp.Properties["transparency"] = c.Transparency
+			sceneComp.Properties["wave_speed"] = c.WaveSpeedMultiplier
+			sceneComp.Properties["foam_enabled"] = c.FoamEnabled
+			sceneComp.Properties["foam_intensity"] = c.FoamIntensity
+			sceneComp.Properties["caustics_enabled"] = c.CausticsEnabled
+			sceneComp.Properties["caustics_intensity"] = c.CausticsIntensity
+
+		case *behaviour.VoxelTerrainComponent:
+			sceneComp.Properties["scale"] = c.Scale
+			sceneComp.Properties["amplitude"] = c.Amplitude
+			sceneComp.Properties["seed"] = c.Seed
+			sceneComp.Properties["threshold"] = c.Threshold
+			sceneComp.Properties["octaves"] = c.Octaves
+			sceneComp.Properties["chunk_size"] = c.ChunkSize
+			sceneComp.Properties["world_size"] = c.WorldSize
+			sceneComp.Properties["biome"] = c.Biome
+			sceneComp.Properties["tree_density"] = c.TreeDensity
+			sceneComp.Properties["grass_color"] = c.GrassColor
+			sceneComp.Properties["dirt_color"] = c.DirtColor
+			sceneComp.Properties["stone_color"] = c.StoneColor
+			sceneComp.Properties["sand_color"] = c.SandColor
+			sceneComp.Properties["wood_color"] = c.WoodColor
+			sceneComp.Properties["leaves_color"] = c.LeavesColor
+
+		case *behaviour.LightComponent:
+			sceneComp.Properties["light_mode"] = c.LightMode
+			sceneComp.Properties["color"] = c.Color
+			sceneComp.Properties["intensity"] = c.Intensity
+			sceneComp.Properties["range"] = c.Range
+			sceneComp.Properties["ambient_strength"] = c.AmbientStrength
+
+		case *behaviour.CameraComponent:
+			sceneComp.Properties["fov"] = c.FOV
+			sceneComp.Properties["near"] = c.Near
+			sceneComp.Properties["far"] = c.Far
+			sceneComp.Properties["is_main"] = c.IsMain
+
+		case *behaviour.ScriptComponent:
+			sceneComp.Properties["script_name"] = c.ScriptName
+		}
+
+		result = append(result, sceneComp)
+	}
+
+	return result
+}
+
+// deserializeComponents reconstructs components from serialized data
+func deserializeComponents(sceneComps []SceneComponent) []behaviour.Component {
+	result := make([]behaviour.Component, 0)
+
+	for _, sc := range sceneComps {
+		var comp behaviour.Component
+
+		switch sc.Category {
+		case string(behaviour.ComponentTypeMesh):
+			c := behaviour.NewMeshComponent()
+			if v, ok := sc.Properties["mesh_path"].(string); ok {
+				c.MeshPath = v
+			}
+			if v, ok := sc.Properties["material_path"].(string); ok {
+				c.MaterialPath = v
+			}
+			if v, ok := sc.Properties["metallic"].(float64); ok {
+				c.Metallic = float32(v)
+			}
+			if v, ok := sc.Properties["roughness"].(float64); ok {
+				c.Roughness = float32(v)
+			}
+			if v, ok := sc.Properties["alpha"].(float64); ok {
+				c.Alpha = float32(v)
+			}
+			comp = c
+
+		case string(behaviour.ComponentTypeWater):
+			c := behaviour.NewWaterComponent()
+			if v, ok := sc.Properties["ocean_size"].(float64); ok {
+				c.OceanSize = float32(v)
+			}
+			if v, ok := sc.Properties["base_amplitude"].(float64); ok {
+				c.BaseAmplitude = float32(v)
+			}
+			if v, ok := sc.Properties["transparency"].(float64); ok {
+				c.Transparency = float32(v)
+			}
+			if v, ok := sc.Properties["wave_speed"].(float64); ok {
+				c.WaveSpeedMultiplier = float32(v)
+			}
+			if v, ok := sc.Properties["foam_enabled"].(bool); ok {
+				c.FoamEnabled = v
+			}
+			if v, ok := sc.Properties["caustics_enabled"].(bool); ok {
+				c.CausticsEnabled = v
+			}
+			comp = c
+
+		case string(behaviour.ComponentTypeVoxel):
+			c := behaviour.NewVoxelTerrainComponent()
+			if v, ok := sc.Properties["scale"].(float64); ok {
+				c.Scale = float32(v)
+			}
+			if v, ok := sc.Properties["amplitude"].(float64); ok {
+				c.Amplitude = float32(v)
+			}
+			if v, ok := sc.Properties["seed"].(float64); ok {
+				c.Seed = int32(v)
+			}
+			if v, ok := sc.Properties["threshold"].(float64); ok {
+				c.Threshold = float32(v)
+			}
+			if v, ok := sc.Properties["octaves"].(float64); ok {
+				c.Octaves = int32(v)
+			}
+			if v, ok := sc.Properties["chunk_size"].(float64); ok {
+				c.ChunkSize = int32(v)
+			}
+			if v, ok := sc.Properties["world_size"].(float64); ok {
+				c.WorldSize = int32(v)
+			}
+			if v, ok := sc.Properties["biome"].(float64); ok {
+				c.Biome = int32(v)
+			}
+			if v, ok := sc.Properties["tree_density"].(float64); ok {
+				c.TreeDensity = float32(v)
+			}
+			comp = c
+
+		case string(behaviour.ComponentTypeLight):
+			c := behaviour.NewLightComponent()
+			if v, ok := sc.Properties["light_mode"].(string); ok {
+				c.LightMode = v
+			}
+			if v, ok := sc.Properties["intensity"].(float64); ok {
+				c.Intensity = float32(v)
+			}
+			if v, ok := sc.Properties["range"].(float64); ok {
+				c.Range = float32(v)
+			}
+			if v, ok := sc.Properties["ambient_strength"].(float64); ok {
+				c.AmbientStrength = float32(v)
+			}
+			comp = c
+
+		case string(behaviour.ComponentTypeCamera):
+			c := behaviour.NewCameraComponent()
+			if v, ok := sc.Properties["fov"].(float64); ok {
+				c.FOV = float32(v)
+			}
+			if v, ok := sc.Properties["near"].(float64); ok {
+				c.Near = float32(v)
+			}
+			if v, ok := sc.Properties["far"].(float64); ok {
+				c.Far = float32(v)
+			}
+			if v, ok := sc.Properties["is_main"].(bool); ok {
+				c.IsMain = v
+			}
+			comp = c
+
+		case string(behaviour.ComponentTypeScript):
+			if scriptName, ok := sc.Properties["script_name"].(string); ok {
+				script := behaviour.CreateScript(scriptName)
+				if script != nil {
+					comp = behaviour.NewScriptComponent(scriptName, script)
+				}
+			}
+
+		default:
+			// Try to create by type name for backward compatibility
+			if sc.Type != "" {
+				script := behaviour.CreateScript(sc.Type)
+				if script != nil {
+					comp = behaviour.NewScriptComponent(sc.Type, script)
+				}
+			}
+		}
+
+		if comp != nil {
+			result = append(result, comp)
+		}
+	}
+
+	return result
+}
+
+// quatToEulerArray converts quaternion to euler angles array
+func quatToEulerArray(q mgl.Quat) [3]float32 {
+	euler := quatToEuler(q)
+	return [3]float32{euler.X(), euler.Y(), euler.Z()}
 }

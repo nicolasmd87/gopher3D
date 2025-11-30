@@ -63,8 +63,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 1
         run: |
-          cd editor
-          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o ../bin/gopher3d-editor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} .
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o bin/gopher3d-editor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./editor/cmd/...
 
       - name: Create archive (Windows)
         if: matrix.goos == 'windows'

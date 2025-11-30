@@ -6,7 +6,7 @@ all: lint test build
 # Build the editor
 build:
 	@echo "Building editor..."
-	cd editor && go build -o ../bin/editor.exe .
+	go build -o bin/editor.exe ./editor/cmd/...
 	@echo "Build complete: bin/editor.exe"
 
 # Run the editor
@@ -57,8 +57,8 @@ tidy:
 clean:
 	@echo "Cleaning..."
 	rm -rf bin/
-	rm -f editor/editor.exe
-	rm -f editor/editor
+	rm -f editor/cmd/cmd
+	rm -f editor/cmd/cmd.exe
 
 # Install development tools
 tools:
@@ -78,12 +78,12 @@ alignment-report:
 # Performance profiling build
 profile-build:
 	@echo "Building with profiling..."
-	cd editor && go build -gcflags="-m -m" -o ../bin/editor_profile.exe . 2>&1 | head -100
+	go build -gcflags="-m -m" -o bin/editor_profile.exe ./editor/cmd/... 2>&1 | head -100
 
 # Check for race conditions
 race:
 	@echo "Building with race detector..."
-	cd editor && go build -race -o ../bin/editor_race.exe .
+	go build -race -o bin/editor_race.exe ./editor/cmd/...
 	@echo "Race detection build: bin/editor_race.exe"
 
 # Full CI check

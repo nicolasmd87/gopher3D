@@ -127,46 +127,56 @@ func (m *Model) SetPosition(x, y, z float32) {
 	m.Position = mgl32.Vec3{x, y, z}
 	m.updateModelMatrix()
 	m.IsDirty = true
+	m.CalculateBoundingSphere() // Update bounding sphere for frustum culling
 }
 
 func (m *Model) SetScale(x, y, z float32) {
 	m.Scale = mgl32.Vec3{x, y, z}
 	m.updateModelMatrix()
 	m.IsDirty = true
+	m.CalculateBoundingSphere() // Update bounding sphere for frustum culling
 }
 
 func (m *Model) CalculateBoundingSphere() {
-	if !FrustumCullingEnabled {
-		return
-	}
+	// Always calculate bounding sphere so frustum culling can be toggled at runtime
 
 	// Declare variables for both paths
 	var center mgl32.Vec3
 	var maxDistanceSq float32
 
-	// For instanced models, create a simple but effective bounding sphere
+	// For instanced models, calculate bounding sphere from all instance positions
 	if m.IsInstanced && len(m.InstanceModelMatrices) > 0 {
-		// Simple approach: use first and last instance to estimate bounds
-		// This is generic and works for any instanced model type
+		// Calculate center as average of all instance positions
+		for _, mat := range m.InstanceModelMatrices {
+			pos := mat.Col(3).Vec3()
+			center = center.Add(pos)
+		}
+		center = center.Mul(1.0 / float32(len(m.InstanceModelMatrices)))
 
-		firstPos := m.InstanceModelMatrices[0].Col(3).Vec3()
-		lastPos := m.InstanceModelMatrices[len(m.InstanceModelMatrices)-1].Col(3).Vec3()
+		// Calculate radius as max distance from center to any instance
+		for _, mat := range m.InstanceModelMatrices {
+			pos := mat.Col(3).Vec3()
+			distSq := pos.Sub(center).LenSqr()
+			if distSq > maxDistanceSq {
+				maxDistanceSq = distSq
+			}
+		}
 
-		// Calculate center between first and last instance
-		center = firstPos.Add(lastPos).Mul(0.5)
-
-		// Calculate radius to cover both instances plus some margin
-		distance := firstPos.Sub(lastPos).Len()
-		maxDistanceSq = (distance*0.5 + 100.0) * (distance*0.5 + 100.0) // Add margin
-
-		m.BoundingSphereCenter = center
-		m.BoundingSphereRadius = float32(math.Sqrt(float64(maxDistanceSq)))
+		// Add model position offset and margin for the voxel size
+		m.BoundingSphereCenter = center.Add(m.Position)
+		m.BoundingSphereRadius = float32(math.Sqrt(float64(maxDistanceSq))) + 10.0
 		return
 	}
 
 	// For non-instanced models, use the original calculation
-
 	numVertices := len(m.Vertices) / 3 // Assuming 3 float32s per vertex
+	if numVertices == 0 {
+		// No vertices - use model position as center with small radius
+		m.BoundingSphereCenter = m.Position
+		m.BoundingSphereRadius = 1.0
+		return
+	}
+
 	for i := 0; i < numVertices; i++ {
 		// Extracting vertex from the flat array
 		vertex := mgl32.Vec3{m.Vertices[i*3], m.Vertices[i*3+1], m.Vertices[i*3+2]}

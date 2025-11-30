@@ -1,11 +1,13 @@
-package main
+package editor
 
 import (
 	"Gopher3D/internal/engine"
 	"Gopher3D/internal/renderer"
 	"fmt"
 	"math"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -64,13 +66,15 @@ func executeConsoleCommand(cmd string) {
 		logToConsole("  delete <name> - Delete model by name", "info")
 		logToConsole("  grid [on/off] - Toggle reference grid visibility", "info")
 		logToConsole("  fix-materials - Reset all materials to defaults", "info")
+		logToConsole("  sh <cmd> - Execute shell command (PowerShell/bash)", "info")
+		logToConsole("  !<cmd> - Shortcut for shell command", "info")
 
 	case "clear":
 		consoleLines = []ConsoleEntry{}
 
 	case "grid":
 		if len(parts) > 1 {
-			openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+			openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
 			if ok {
 				models := openglRenderer.GetModels()
 				for _, model := range models {
@@ -91,7 +95,7 @@ func executeConsoleCommand(cmd string) {
 		}
 
 	case "models":
-		openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+		openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
 		if ok {
 			models := openglRenderer.GetModels()
 			logToConsole(fmt.Sprintf("Total models: %d", len(models)), "info")
@@ -111,7 +115,13 @@ func executeConsoleCommand(cmd string) {
 				logToConsole("Wireframe disabled", "info")
 			}
 		} else {
-			logToConsole("Usage: wireframe [on/off]", "warning")
+			// Toggle when no argument given
+			renderer.Debug = !renderer.Debug
+			if renderer.Debug {
+				logToConsole("Wireframe enabled", "info")
+			} else {
+				logToConsole("Wireframe disabled", "info")
+			}
 		}
 
 	case "culling":
@@ -124,13 +134,19 @@ func executeConsoleCommand(cmd string) {
 				logToConsole("Frustum culling disabled", "info")
 			}
 		} else {
-			logToConsole("Usage: culling [on/off]", "warning")
+			// Toggle when no argument given
+			renderer.FrustumCullingEnabled = !renderer.FrustumCullingEnabled
+			if renderer.FrustumCullingEnabled {
+				logToConsole("Frustum culling enabled", "info")
+			} else {
+				logToConsole("Frustum culling disabled", "info")
+			}
 		}
 
 	case "delete":
 		if len(parts) > 1 {
 			modelName := strings.Join(parts[1:], " ")
-			openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+			openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
 			if ok {
 				models := openglRenderer.GetModels()
 				found := false
@@ -153,7 +169,7 @@ func executeConsoleCommand(cmd string) {
 	case "inspect":
 		if len(parts) > 1 {
 			modelName := strings.Join(parts[1:], " ")
-			openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+			openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
 			if !ok {
 				logToConsole("ERROR: Cannot access renderer", "error")
 				return
@@ -192,7 +208,7 @@ func executeConsoleCommand(cmd string) {
 		}
 
 	case "fix-materials":
-		openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+		openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
 		if !ok {
 			logToConsole("ERROR: Cannot access renderer", "error")
 			return
@@ -218,8 +234,48 @@ func executeConsoleCommand(cmd string) {
 		}
 		logToConsole(fmt.Sprintf("Fixed %d models with incorrect material values", fixed), "info")
 
+	case "sh", "shell", "exec", "!":
+		// Execute shell command
+		if len(parts) > 1 {
+			shellCmd := strings.Join(parts[1:], " ")
+			executeShellCommand(shellCmd)
+		} else {
+			logToConsole("Usage: sh <command> or !<command>", "warning")
+		}
+
 	default:
-		logToConsole(fmt.Sprintf("Unknown command: %s (type 'help' for commands)", command), "error")
+		// Check if command starts with ! for shell execution
+		if strings.HasPrefix(cmd, "!") {
+			shellCmd := strings.TrimPrefix(cmd, "!")
+			executeShellCommand(shellCmd)
+		} else {
+			logToConsole(fmt.Sprintf("Unknown command: %s (type 'help' for commands)", command), "error")
+		}
+	}
+}
+
+func executeShellCommand(cmd string) {
+	logToConsole(fmt.Sprintf("Executing: %s", cmd), "info")
+
+	// Use PowerShell on Windows, sh on Unix
+	var shellCmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		shellCmd = exec.Command("powershell", "-Command", cmd)
+	} else {
+		shellCmd = exec.Command("sh", "-c", cmd)
+	}
+
+	output, err := shellCmd.CombinedOutput()
+	if err != nil {
+		logToConsole(fmt.Sprintf("Error: %v", err), "error")
+	}
+
+	// Log output line by line
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			logToConsole(line, "info")
+		}
 	}
 }
 
@@ -236,37 +292,46 @@ func focusCameraOnModel(model *renderer.Model) {
 		if model.Scale.Z() > maxScale {
 			maxScale = model.Scale.Z()
 		}
-		distance = maxScale * 3.0 // View from 3x the size
+		distance = maxScale * 5.0 // View from 5x the size for better overview
+		if distance < 10 {
+			distance = 10 // Minimum distance
+		}
 	} else {
-		distance *= 2.5 // View from 2.5x the bounding radius
+		distance *= 4.0 // View from 4x the bounding radius for better overview
+		if distance < 10 {
+			distance = 10
+		}
 	}
 
-	// Position camera to look at the model
-	// Place camera in front and slightly above the model
+	// Position camera to look at the model center
 	targetPos := model.Position
+
+	// Place camera in front and slightly above the model
 	cameraPos := mgl.Vec3{
 		targetPos.X(),
-		targetPos.Y() + distance*0.3, // Slightly above
+		targetPos.Y() + distance*0.4, // Slightly above
 		targetPos.Z() + distance,     // In front
 	}
 
 	// Set camera position
-	eng.Camera.Position = cameraPos
+	Eng.Camera.Position = cameraPos
 
 	// Calculate direction to look at target
 	direction := targetPos.Sub(cameraPos).Normalize()
 
 	// Calculate yaw and pitch from direction vector
-	eng.Camera.Yaw = float32(math.Atan2(float64(direction.X()), float64(direction.Z()))) * 180.0 / 3.14159
-	eng.Camera.Pitch = float32(math.Asin(float64(direction.Y()))) * 180.0 / 3.14159
+	// Yaw: rotation around Y axis (horizontal)
+	Eng.Camera.Yaw = float32(math.Atan2(float64(direction.X()), float64(direction.Z()))) * (180.0 / math.Pi)
+	// Pitch: rotation around X axis (vertical)
+	Eng.Camera.Pitch = float32(math.Asin(float64(direction.Y()))) * (180.0 / math.Pi)
 
-	// Camera vectors will update automatically on next frame
+	// Camera vectors will be updated on next frame through the engine's update loop
 
-	logToConsole(fmt.Sprintf("Focused camera on '%s'", model.Name), "info")
+	logToConsole(fmt.Sprintf("Focused camera on '%s' at distance %.1f", model.Name, distance), "info")
 }
 
 func loadTextureToSelected(path string) {
-	openglRenderer, ok := eng.GetRenderer().(*renderer.OpenGLRenderer)
+	openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
 	if !ok {
 		return
 	}
@@ -303,7 +368,7 @@ func loadTextureToSelected(path string) {
 	logToConsole(fmt.Sprintf("Successfully applied texture to %s (ID: %d)", model.Name, textureID), "info")
 }
 
-func applyDarkTheme() {
+func ApplyDarkTheme() {
 	style := imgui.CurrentStyle()
 
 	// Go Cyan color (#00ADD8)
@@ -401,7 +466,7 @@ func getCurrentStyleColors() StyleColors {
 	}
 }
 
-func applyStyleColors(colors StyleColors) {
+func ApplyStyleColors(colors StyleColors) {
 	if colors.BorderR == 0 && colors.BorderG == 0 && colors.BorderB == 0 &&
 		colors.TitleActiveR == 0 && colors.TitleActiveG == 0 && colors.TitleActiveB == 0 {
 		return
@@ -431,4 +496,61 @@ func applyStyleColors(colors StyleColors) {
 
 func updateWindowBorderColor() {
 	engine.SetWindowBorderColor(windowBorderR, windowBorderG, windowBorderB)
+}
+
+// quatToEuler converts a quaternion to Euler angles (degrees)
+func quatToEuler(q mgl.Quat) mgl.Vec3 {
+	// Convert quaternion to euler angles
+	w, x, y, z := q.W, q.V[0], q.V[1], q.V[2]
+
+	// Roll (x-axis rotation)
+	sinrCosp := 2 * (w*x + y*z)
+	cosrCosp := 1 - 2*(x*x+y*y)
+	roll := float32(math.Atan2(float64(sinrCosp), float64(cosrCosp)))
+
+	// Pitch (y-axis rotation)
+	sinp := 2 * (w*y - z*x)
+	var pitch float32
+	if math.Abs(float64(sinp)) >= 1 {
+		pitch = float32(math.Copysign(math.Pi/2, float64(sinp)))
+	} else {
+		pitch = float32(math.Asin(float64(sinp)))
+	}
+
+	// Yaw (z-axis rotation)
+	sinyCosp := 2 * (w*z + x*y)
+	cosyCosp := 1 - 2*(y*y+z*z)
+	yaw := float32(math.Atan2(float64(sinyCosp), float64(cosyCosp)))
+
+	// Convert to degrees
+	return mgl.Vec3{
+		roll * 180 / math.Pi,
+		pitch * 180 / math.Pi,
+		yaw * 180 / math.Pi,
+	}
+}
+
+// eulerToQuat converts Euler angles (degrees) to a quaternion
+func eulerToQuat(euler mgl.Vec3) mgl.Quat {
+	// Convert degrees to radians
+	roll := euler.X() * math.Pi / 180
+	pitch := euler.Y() * math.Pi / 180
+	yaw := euler.Z() * math.Pi / 180
+
+	// Create quaternion from euler angles
+	cy := float32(math.Cos(float64(yaw) * 0.5))
+	sy := float32(math.Sin(float64(yaw) * 0.5))
+	cp := float32(math.Cos(float64(pitch) * 0.5))
+	sp := float32(math.Sin(float64(pitch) * 0.5))
+	cr := float32(math.Cos(float64(roll) * 0.5))
+	sr := float32(math.Sin(float64(roll) * 0.5))
+
+	return mgl.Quat{
+		W: cr*cp*cy + sr*sp*sy,
+		V: mgl.Vec3{
+			sr*cp*cy - cr*sp*sy,
+			cr*sp*cy + sr*cp*sy,
+			cr*cp*sy - sr*sp*cy,
+		},
+	}
 }
