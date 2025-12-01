@@ -249,7 +249,7 @@ func executeConsoleCommand(cmd string) {
 			shellCmd := strings.TrimPrefix(cmd, "!")
 			executeShellCommand(shellCmd)
 		} else {
-			logToConsole(fmt.Sprintf("Unknown command: %s (type 'help' for commands)", command), "error")
+		logToConsole(fmt.Sprintf("Unknown command: %s (type 'help' for commands)", command), "error")
 		}
 	}
 }

@@ -2129,49 +2129,33 @@ in vec2 TexCoords;
 out vec4 FragColor;
 
 uniform sampler2D screenTexture;
-uniform float bloomThreshold;  // Brightness threshold (e.g., 1.0)
-uniform float bloomIntensity;  // Bloom strength (e.g., 0.5)
+uniform float bloomThreshold;  // Brightness threshold (e.g., 0.8)
+uniform float bloomIntensity;  // Bloom strength (e.g., 0.3)
 uniform vec2 texelSize;        // 1.0 / screenSize
 
-// Simple Gaussian blur weights (9-tap)
-const float weights[5] = float[](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
-
-vec3 extractBrightPixels(vec3 color) {
-    // Calculate luminance
-    float brightness = dot(color, vec3(0.2126, 0.7152, 0.0722));
-    
-    // Extract only bright pixels above threshold
-    if (brightness > bloomThreshold) {
-        return color * (brightness - bloomThreshold);
-    }
-    return vec3(0.0);
-}
-
-vec3 gaussianBlur(sampler2D tex, vec2 uv, vec2 dir) {
-    vec3 result = texture(tex, uv).rgb * weights[0];
-    
-    for (int i = 1; i < 5; i++) {
-        vec2 offset = dir * float(i);
-        result += texture(tex, uv + offset).rgb * weights[i];
-        result += texture(tex, uv - offset).rgb * weights[i];
-    }
-    
-    return result;
-}
-
 void main() {
-    vec3 originalColor = texture(screenTexture, TexCoords).rgb;
+    vec3 color = texture(screenTexture, TexCoords).rgb;
     
-    // Extract bright pixels
-    vec3 brightColor = extractBrightPixels(originalColor);
+    // Calculate luminance
+    float luma = dot(color, vec3(0.299, 0.587, 0.114));
     
-    // Apply Gaussian blur horizontally and vertically
-    vec3 bloomColor = gaussianBlur(screenTexture, TexCoords, vec2(texelSize.x, 0.0));
-    bloomColor += gaussianBlur(screenTexture, TexCoords, vec2(0.0, texelSize.y));
-    bloomColor *= 0.5; // Average horizontal and vertical
+    // Extract bright parts only
+    vec3 brightColor = vec3(0.0);
+    if (luma > bloomThreshold) {
+        brightColor = color * (luma - bloomThreshold) / (1.0 - bloomThreshold + 0.001);
+    }
     
-    // Combine original with bloom
-    vec3 finalColor = originalColor + bloomColor * bloomIntensity;
+    // Simple 4-tap box blur on bright areas only (very fast)
+    vec3 blur = brightColor;
+    float offset = 2.0;
+    blur += texture(screenTexture, TexCoords + vec2(texelSize.x * offset, 0.0)).rgb;
+    blur += texture(screenTexture, TexCoords - vec2(texelSize.x * offset, 0.0)).rgb;
+    blur += texture(screenTexture, TexCoords + vec2(0.0, texelSize.y * offset)).rgb;
+    blur += texture(screenTexture, TexCoords - vec2(0.0, texelSize.y * offset)).rgb;
+    blur *= 0.2; // Average of 5 samples
+    
+    // Combine: original + bloom glow
+    vec3 finalColor = color + blur * bloomIntensity;
     
     FragColor = vec4(finalColor, 1.0);
 }

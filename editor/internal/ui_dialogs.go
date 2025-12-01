@@ -207,12 +207,11 @@ func renderAddWaterDialog() {
 
 		if imgui.Button("Create Ocean") {
 			if activeWaterSim == nil {
-				// Pass configuration to NewWaterSimulation
-				activeWaterSim = NewWaterSimulation(Eng, addWaterSize, addWaterAmplitude)
-				// Register with behaviour manager - engine will call Start() automatically
-				// This prevents infinite recursion where Start() calls Add() which calls Start()
-				behaviour.GlobalBehaviourManager.Add(activeWaterSim)
-				logToConsole(fmt.Sprintf("Ocean created (Size: %.0f, Amp: %.1f)", addWaterSize, addWaterAmplitude), "info")
+				// Use createWaterGameObject to properly create a GameObject with WaterComponent
+				obj := createWaterGameObject()
+				if obj != nil {
+					logToConsole(fmt.Sprintf("Ocean created (Size: %.0f, Amp: %.1f)", addWaterSize, addWaterAmplitude), "info")
+				}
 			} else {
 				logToConsole("Ocean already exists!", "warning")
 			}

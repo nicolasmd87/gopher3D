@@ -1205,8 +1205,8 @@ func (rend *OpenGLRenderer) initPostProcessing(width, height int32) {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 
 	// Initialize bloom defaults
-	rend.BloomThreshold = 1.0
-	rend.BloomIntensity = 0.3
+	rend.BloomThreshold = 0.8 // Lower threshold to catch more bright areas
+	rend.BloomIntensity = 0.4 // Moderate bloom intensity
 
 	logger.Log.Info(fmt.Sprintf("Post-processing initialized (Bloom: %dx%d)", bloomWidth, bloomHeight))
 }

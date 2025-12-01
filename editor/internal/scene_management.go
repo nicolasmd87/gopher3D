@@ -155,36 +155,29 @@ func newScene() {
 		openglRenderer.RemoveModel(models[i])
 	}
 
-	// Clear all lights except default
+	// Clear ALL lights (we'll recreate the default one fresh)
 	lights := openglRenderer.GetLights()
-	var lightsToRemove []*renderer.Light
 	for _, light := range lights {
-		if light.Name != "DirectionalLight" {
-			lightsToRemove = append(lightsToRemove, light)
-		}
-	}
-	for _, light := range lightsToRemove {
 		openglRenderer.RemoveLight(light)
 	}
 
-	// RE-FETCH lights to ensure we have the up-to-date list after removals
-	lights = openglRenderer.GetLights()
+	// Always create a fresh default light with proper settings
+	// This ensures consistent lighting after creating a new scene
+	defaultLight := renderer.CreateDirectionalLight(
+		mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(),
+		mgl.Vec3{1.0, 0.95, 0.85}, // Warm white color
+		1.0,                       // Full intensity
+	)
+	defaultLight.Name = "DirectionalLight"
+	defaultLight.AmbientStrength = 0.3 // Good ambient for visibility
+	defaultLight.Type = renderer.STATIC_LIGHT
+	openglRenderer.AddLight(defaultLight)
+	Eng.Light = defaultLight
 
-	if len(lights) == 0 {
-		defaultLight := renderer.CreateDirectionalLight(
-			mgl.Vec3{-0.3, 0.8, -0.5}.Normalize(),
-			mgl.Vec3{1.0, 0.95, 0.85},
-			1.0,
-		)
-		defaultLight.Name = "DirectionalLight"
-		defaultLight.AmbientStrength = 0.3
-		defaultLight.Type = renderer.STATIC_LIGHT
-		openglRenderer.AddLight(defaultLight)
-		Eng.Light = defaultLight
-	} else {
-		// Ensure Eng.Light points to the first light
-		Eng.Light = lights[0]
-	}
+	// Reset skybox state
+	openglRenderer.ClearColorR = 0.1
+	openglRenderer.ClearColorG = 0.1
+	openglRenderer.ClearColorB = 0.15
 
 	// Reset Water
 	if activeWaterSim != nil {
@@ -364,11 +357,12 @@ func saveScene() {
 		}
 	}
 
-	// Save skybox if it exists
+	// Save skybox - use actual renderer clear color for consistency
+	actualSkyboxColor := [3]float32{openglRenderer.ClearColorR, openglRenderer.ClearColorG, openglRenderer.ClearColorB}
 	if skyboxColorMode {
 		sceneData.Skybox = &SceneSkybox{
 			Type:  "color",
-			Color: skyboxSolidColor,
+			Color: actualSkyboxColor,
 		}
 	} else if skyboxTexturePath != "" {
 		sceneData.Skybox = &SceneSkybox{
@@ -384,7 +378,7 @@ func saveScene() {
 		DepthTest:   renderer.DepthTestEnabled,
 		FaceCulling: renderer.FaceCullingEnabled,
 		Wireframe:   renderer.Debug,
-		SkyboxColor: skyboxSolidColor,
+		SkyboxColor: actualSkyboxColor,
 	}
 
 	// Write to file
@@ -462,11 +456,51 @@ func loadScene() {
 		// Case 1: Voxel Terrain
 		if sceneModel.VoxelConfig != nil {
 			logToConsole(fmt.Sprintf("Regenerating voxel terrain: %s", sceneModel.Name), "info")
-			model = regenerateVoxelTerrain(*sceneModel.VoxelConfig)
+
+			// Create VoxelTerrainComponent from saved config
+			// NewVoxelTerrainComponent() provides sensible defaults
+			voxelComp := behaviour.NewVoxelTerrainComponent()
+			voxelComp.Scale = sceneModel.VoxelConfig.Scale
+			voxelComp.Amplitude = sceneModel.VoxelConfig.Amplitude
+			voxelComp.Seed = sceneModel.VoxelConfig.Seed
+			voxelComp.Threshold = sceneModel.VoxelConfig.Threshold
+			voxelComp.Octaves = sceneModel.VoxelConfig.Octaves
+			voxelComp.ChunkSize = sceneModel.VoxelConfig.ChunkSize
+			voxelComp.WorldSize = sceneModel.VoxelConfig.WorldSize
+			voxelComp.Biome = sceneModel.VoxelConfig.Biome
+			voxelComp.TreeDensity = sceneModel.VoxelConfig.TreeDensity
+
+			// Only override colors if they were actually saved (not zero/black)
+			// This prevents black voxels when loading old saves that didn't have colors
+			if !isColorZero(sceneModel.VoxelConfig.ColorGrass) {
+				voxelComp.GrassColor = sceneModel.VoxelConfig.ColorGrass
+			}
+			if !isColorZero(sceneModel.VoxelConfig.ColorDirt) {
+				voxelComp.DirtColor = sceneModel.VoxelConfig.ColorDirt
+			}
+			if !isColorZero(sceneModel.VoxelConfig.ColorStone) {
+				voxelComp.StoneColor = sceneModel.VoxelConfig.ColorStone
+			}
+			if !isColorZero(sceneModel.VoxelConfig.ColorSand) {
+				voxelComp.SandColor = sceneModel.VoxelConfig.ColorSand
+			}
+			if !isColorZero(sceneModel.VoxelConfig.ColorWood) {
+				voxelComp.WoodColor = sceneModel.VoxelConfig.ColorWood
+			}
+			if !isColorZero(sceneModel.VoxelConfig.ColorLeaves) {
+				voxelComp.LeavesColor = sceneModel.VoxelConfig.ColorLeaves
+			}
+
+			// Generate terrain from component
+			model = generateVoxelTerrainFromComponent(voxelComp)
 			if model == nil {
 				logToConsole(fmt.Sprintf("Failed to regenerate voxel terrain: %s", sceneModel.Name), "error")
 				continue
 			}
+
+			// Link component to model
+			voxelComp.Model = model
+			voxelComp.Generated = true
 
 			// Restore texture path for voxels BEFORE adding model
 			if sceneModel.TexturePath != "" {
@@ -478,8 +512,29 @@ func loadScene() {
 				logToConsole(fmt.Sprintf("Voxel texture will be loaded: %s", filepath.Base(sceneModel.TexturePath)), "info")
 			}
 
-			// Manually add model here since regenerateVoxelTerrain no longer does it
+			// Add model to engine
 			Eng.AddModel(model)
+
+			// Create GameObject with the component
+			obj := behaviour.NewGameObject(sceneModel.Name)
+			obj.AddComponent(voxelComp)
+			obj.SetModel(model)
+			registerModelToGameObject(model, obj)
+			behaviour.GlobalComponentManager.RegisterGameObject(obj)
+
+			// Restore any additional components (like scripts)
+			restoredComponents := deserializeComponents(sceneModel.Components)
+			for _, comp := range restoredComponents {
+				// Skip voxel components since we already added one
+				if _, isVoxel := comp.(*behaviour.VoxelTerrainComponent); !isVoxel {
+					obj.AddComponent(comp)
+					typeName := behaviour.GetComponentTypeName(comp)
+					logToConsole(fmt.Sprintf("Restored component %s to %s", typeName, model.Name), "info")
+				}
+			}
+
+			logToConsole(fmt.Sprintf("Loaded voxel terrain: %s", sceneModel.Name), "info")
+			continue // Skip the normal model loading path
 		} else {
 			// Case 2: Standard Model
 			if sceneModel.Path == "" {
@@ -659,12 +714,12 @@ func loadScene() {
 
 		// Create GameObject and restore components
 		obj := createGameObjectForModel(model)
-		for _, sceneComp := range sceneModel.Components {
-			comp := behaviour.CreateScript(sceneComp.Type)
-			if comp != nil {
-				obj.AddComponent(comp)
-				logToConsole(fmt.Sprintf("Restored component %s to %s", sceneComp.Type, model.Name), "info")
-			}
+		// Use deserializeComponents to properly restore ALL component types (not just scripts)
+		restoredComponents := deserializeComponents(sceneModel.Components)
+		for _, comp := range restoredComponents {
+			obj.AddComponent(comp)
+			typeName := behaviour.GetComponentTypeName(comp)
+			logToConsole(fmt.Sprintf("Restored component %s to %s", typeName, model.Name), "info")
 		}
 	}
 
@@ -717,24 +772,59 @@ func loadScene() {
 		Eng.Light = defaultLight
 	}
 
-	// Load water if it exists in scene
+	// Load water if it exists in scene - create full GameObject with WaterComponent
 	if sceneData.Water != nil {
-		ws := NewWaterSimulation(Eng, sceneData.Water.OceanSize, sceneData.Water.BaseAmplitude)
-		ws.WaterColor = mgl.Vec3{sceneData.Water.WaterColor[0], sceneData.Water.WaterColor[1], sceneData.Water.WaterColor[2]}
-		ws.Transparency = sceneData.Water.Transparency
-		ws.WaveSpeedMultiplier = sceneData.Water.WaveSpeedMultiplier
-		ws.FoamEnabled = sceneData.Water.FoamEnabled
-		ws.FoamIntensity = sceneData.Water.FoamIntensity
-		ws.CausticsEnabled = sceneData.Water.CausticsEnabled
-		ws.CausticsIntensity = sceneData.Water.CausticsIntensity
-		ws.CausticsScale = sceneData.Water.CausticsScale
-		ws.SpecularIntensity = sceneData.Water.SpecularIntensity
-		ws.NormalStrength = sceneData.Water.NormalStrength
-		ws.DistortionStrength = sceneData.Water.DistortionStrength
-		ws.ShadowStrength = sceneData.Water.ShadowStrength
+		// Create WaterComponent with saved settings
+		waterComp := behaviour.NewWaterComponent()
+		waterComp.OceanSize = sceneData.Water.OceanSize
+		waterComp.BaseAmplitude = sceneData.Water.BaseAmplitude
+		waterComp.WaterColor = sceneData.Water.WaterColor
+		waterComp.Transparency = sceneData.Water.Transparency
+		waterComp.WaveSpeedMultiplier = sceneData.Water.WaveSpeedMultiplier
+		waterComp.FoamEnabled = sceneData.Water.FoamEnabled
+		waterComp.FoamIntensity = sceneData.Water.FoamIntensity
+		waterComp.CausticsEnabled = sceneData.Water.CausticsEnabled
+		waterComp.CausticsIntensity = sceneData.Water.CausticsIntensity
+		waterComp.CausticsScale = sceneData.Water.CausticsScale
+		waterComp.SpecularIntensity = sceneData.Water.SpecularIntensity
+		waterComp.NormalStrength = sceneData.Water.NormalStrength
+		waterComp.DistortionStrength = sceneData.Water.DistortionStrength
+		waterComp.ShadowStrength = sceneData.Water.ShadowStrength
+
+		// Create GameObject
+		obj := behaviour.NewGameObject("Water Surface")
+		obj.AddComponent(waterComp)
+
+		// Create WaterSimulation
+		ws := NewWaterSimulation(Eng, waterComp.OceanSize, waterComp.BaseAmplitude)
+		ws.WaterColor = mgl.Vec3{waterComp.WaterColor[0], waterComp.WaterColor[1], waterComp.WaterColor[2]}
+		ws.Transparency = waterComp.Transparency
+		ws.WaveSpeedMultiplier = waterComp.WaveSpeedMultiplier
+		ws.FoamEnabled = waterComp.FoamEnabled
+		ws.FoamIntensity = waterComp.FoamIntensity
+		ws.CausticsEnabled = waterComp.CausticsEnabled
+		ws.CausticsIntensity = waterComp.CausticsIntensity
+		ws.CausticsScale = waterComp.CausticsScale
+		ws.SpecularIntensity = waterComp.SpecularIntensity
+		ws.NormalStrength = waterComp.NormalStrength
+		ws.DistortionStrength = waterComp.DistortionStrength
+		ws.ShadowStrength = waterComp.ShadowStrength
+
+		// Initialize mesh and add to engine
+		model := ws.InitializeMesh()
+		if model != nil {
+			model.SetPosition(sceneData.Water.Position[0], sceneData.Water.Position[1], sceneData.Water.Position[2])
+			waterComp.Simulation = ws
+			waterComp.Model = model
+			waterComp.Generated = true
+			obj.SetModel(model)
+			Eng.AddModel(model)
+			registerModelToGameObject(model, obj)
+		}
 
 		activeWaterSim = ws
 		behaviour.GlobalBehaviourManager.Add(ws)
+		behaviour.GlobalComponentManager.RegisterGameObject(obj)
 
 		logToConsole("Water loaded from scene", "info")
 	}
@@ -971,6 +1061,11 @@ func addEmptyGameObject() {
 
 func getGameObjectForModel(model *renderer.Model) *behaviour.GameObject {
 	return modelToGameObject[model]
+}
+
+// registerModelToGameObject registers a model-to-GameObject mapping for scene saving
+func registerModelToGameObject(model *renderer.Model, obj *behaviour.GameObject) {
+	modelToGameObject[model] = obj
 }
 
 func removeGameObjectForModel(model *renderer.Model) {
@@ -1293,4 +1388,9 @@ func deserializeComponents(sceneComps []SceneComponent) []behaviour.Component {
 func quatToEulerArray(q mgl.Quat) [3]float32 {
 	euler := quatToEuler(q)
 	return [3]float32{euler.X(), euler.Y(), euler.Z()}
+}
+
+// isColorZero checks if a color is effectively zero/black
+func isColorZero(color [3]float32) bool {
+	return color[0] == 0 && color[1] == 0 && color[2] == 0
 }

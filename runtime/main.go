@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	mgl "github.com/go-gl/mathgl/mgl32"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,6 +31,10 @@ func main() {
 		if !sceneReady && gameEngine.Camera != nil {
 			loadGame()
 			sceneReady = true
+		}
+		if sceneReady {
+			// Update water animation
+			updateWater(deltaTime)
 		}
 	})
 
@@ -238,51 +243,70 @@ func loadSceneData(scene *SceneData, assetsDir string) {
 		r.AddLight(light)
 	}
 
-	// Load skybox
+	// Apply rendering configuration with safe defaults
+	// Always ensure depth testing is enabled for proper 3D rendering
+	renderer.DepthTestEnabled = true
+	renderer.FrustumCullingEnabled = false
+	renderer.FaceCullingEnabled = false
+	renderer.Debug = false
+
+	// Set skybox/background color - check both Skybox and Rendering config
 	if scene.Skybox != nil {
 		if scene.Skybox.Type == "color" {
 			r.ClearColorR = scene.Skybox.Color[0]
 			r.ClearColorG = scene.Skybox.Color[1]
 			r.ClearColorB = scene.Skybox.Color[2]
+			fmt.Printf("Skybox color set to: %.2f, %.2f, %.2f\n", scene.Skybox.Color[0], scene.Skybox.Color[1], scene.Skybox.Color[2])
 		} else if scene.Skybox.ImagePath != "" {
 			skyboxPath := resolveAssetPath(scene.Skybox.ImagePath, assetsDir)
 			if skyboxPath != "" {
 				gameEngine.SetSkybox(skyboxPath)
 			}
 		}
+	} else if scene.Rendering != nil {
+		// Fallback to rendering config skybox color
+		r.ClearColorR = scene.Rendering.SkyboxColor[0]
+		r.ClearColorG = scene.Rendering.SkyboxColor[1]
+		r.ClearColorB = scene.Rendering.SkyboxColor[2]
+		fmt.Printf("Background color set to: %.2f, %.2f, %.2f\n", scene.Rendering.SkyboxColor[0], scene.Rendering.SkyboxColor[1], scene.Rendering.SkyboxColor[2])
 	}
 
-	// Apply rendering configuration
 	if scene.Rendering != nil {
 		r.EnableBloom = scene.Rendering.Bloom
 		r.EnableFXAA = scene.Rendering.FXAA
-		renderer.DepthTestEnabled = scene.Rendering.DepthTest
+		if scene.Rendering.DepthTest {
+			renderer.DepthTestEnabled = true
+		}
 		renderer.FaceCullingEnabled = scene.Rendering.FaceCulling
 		renderer.Debug = scene.Rendering.Wireframe
 	}
 
-	// Ensure frustum culling is disabled for stability
-	renderer.FrustumCullingEnabled = false
-
-	// Load water if present
-	if scene.Water != nil && scene.Water.MeshDataFile != "" {
-		meshPath := filepath.Join(assetsDir, scene.Water.MeshDataFile)
-		meshData, err := os.ReadFile(meshPath)
-		if err != nil {
-			fmt.Printf("Warning: Could not read water mesh: %v\n", err)
-		} else {
-			mesh, err := renderer.DecodeMeshBinary(meshData)
-			if err != nil {
-				fmt.Printf("Warning: Could not decode water mesh: %v\n", err)
-			} else {
-				waterModel := renderer.DeserializeMesh(mesh)
-				waterModel.Name = "Water"
-				waterModel.SetPosition(scene.Water.Position[0], scene.Water.Position[1], scene.Water.Position[2])
-				waterModel.SetDiffuseColor(scene.Water.WaterColor[0], scene.Water.WaterColor[1], scene.Water.WaterColor[2])
-				waterModel.SetAlpha(scene.Water.Transparency)
-				r.AddModel(waterModel)
-				fmt.Println("Water loaded (static mesh - no animation)")
+	// Load water if present - create animated water plane
+	if scene.Water != nil {
+		waterModel := createWaterPlane(scene.Water.OceanSize)
+		if waterModel != nil {
+			waterModel.Name = "Water"
+			// Add small Y offset to prevent z-fighting with terrain at same level
+			waterY := scene.Water.Position[1]
+			if waterY == 0 {
+				waterY = 0.1 // Slight elevation to prevent z-fighting
 			}
+			waterModel.SetPosition(scene.Water.Position[0], waterY, scene.Water.Position[2])
+			waterModel.SetDiffuseColor(scene.Water.WaterColor[0], scene.Water.WaterColor[1], scene.Water.WaterColor[2])
+			waterModel.SetAlpha(scene.Water.Transparency)
+
+			// Store water settings for animation
+			waterSettings = &WaterSettings{
+				Model:         waterModel,
+				OceanSize:     scene.Water.OceanSize,
+				BaseAmplitude: scene.Water.BaseAmplitude,
+				WaterColor:    scene.Water.WaterColor,
+				Transparency:  scene.Water.Transparency,
+				WaveSpeed:     scene.Water.WaveSpeedMultiplier,
+			}
+
+			r.AddModel(waterModel)
+			fmt.Println("Water loaded with animation support")
 		}
 	}
 }
@@ -431,4 +455,109 @@ type SceneRenderingConfig struct {
 	FaceCulling bool       `json:"face_culling"`
 	Wireframe   bool       `json:"wireframe"`
 	SkyboxColor [3]float32 `json:"skybox_color"`
+}
+
+// Water animation support
+type WaterSettings struct {
+	Model         *renderer.Model
+	OceanSize     float32
+	BaseAmplitude float32
+	WaterColor    [3]float32
+	Transparency  float32
+	WaveSpeed     float32
+}
+
+var waterSettings *WaterSettings
+var gameTime float64 = 0
+
+// createWaterPlane creates a simple water plane mesh
+func createWaterPlane(size float32) *renderer.Model {
+	halfSize := size / 2
+	resolution := 64 // Grid resolution
+
+	vertices := make([]float32, 0)
+	normals := make([]float32, 0)
+	uvs := make([]float32, 0)
+	faces := make([]int32, 0)
+
+	// Generate grid vertices
+	for z := 0; z <= resolution; z++ {
+		for x := 0; x <= resolution; x++ {
+			// Position
+			px := -halfSize + (float32(x)/float32(resolution))*size
+			pz := -halfSize + (float32(z)/float32(resolution))*size
+			vertices = append(vertices, px, 0, pz)
+
+			// Normal (pointing up)
+			normals = append(normals, 0, 1, 0)
+
+			// UV
+			u := float32(x) / float32(resolution)
+			v := float32(z) / float32(resolution)
+			uvs = append(uvs, u, v)
+		}
+	}
+
+	// Generate faces (triangles)
+	for z := 0; z < resolution; z++ {
+		for x := 0; x < resolution; x++ {
+			topLeft := int32(z*(resolution+1) + x)
+			topRight := topLeft + 1
+			bottomLeft := topLeft + int32(resolution+1)
+			bottomRight := bottomLeft + 1
+
+			// First triangle
+			faces = append(faces, topLeft, bottomLeft, topRight)
+			// Second triangle
+			faces = append(faces, topRight, bottomLeft, bottomRight)
+		}
+	}
+
+	// Create interleaved data (position + normal + uv)
+	interleaved := make([]float32, 0)
+	vertCount := len(vertices) / 3
+	for i := 0; i < vertCount; i++ {
+		// Position
+		interleaved = append(interleaved, vertices[i*3], vertices[i*3+1], vertices[i*3+2])
+		// Normal
+		interleaved = append(interleaved, normals[i*3], normals[i*3+1], normals[i*3+2])
+		// UV
+		interleaved = append(interleaved, uvs[i*2], uvs[i*2+1])
+	}
+
+	model := &renderer.Model{
+		Vertices:        vertices,
+		InterleavedData: interleaved,
+		Faces:           faces,
+		Position:        mgl.Vec3{0, 0, 0},
+		Scale:           mgl.Vec3{1, 1, 1},
+		Rotation:        mgl.QuatIdent(),
+		Material:        renderer.DefaultMaterial,
+		IsDirty:         true,
+	}
+
+	// Create unique material for water
+	waterMat := *model.Material
+	waterMat.Alpha = 0.7
+	model.Material = &waterMat
+
+	model.CalculateBoundingSphere()
+	return model
+}
+
+// updateWater updates water animation each frame
+func updateWater(deltaTime float64) {
+	if waterSettings == nil || waterSettings.Model == nil {
+		return
+	}
+
+	gameTime += deltaTime
+
+	// Simple wave animation by modifying Y position slightly
+	// This creates a gentle bobbing effect
+	amplitude := waterSettings.BaseAmplitude * 0.1
+	waveOffset := float32(math.Sin(gameTime*float64(waterSettings.WaveSpeed))) * amplitude
+
+	pos := waterSettings.Model.Position
+	waterSettings.Model.SetPosition(pos.X(), waveOffset, pos.Z())
 }

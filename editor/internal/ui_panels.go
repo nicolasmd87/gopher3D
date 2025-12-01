@@ -398,6 +398,11 @@ func RenderEditorUI() {
 		renderScriptBrowserPanel()
 	}
 
+	// Rebuild Modal
+	if ShowRebuildModal() {
+		renderRebuildModal()
+	}
+
 	// File Explorer (Bottom Left)
 	if ShowFileExplorer {
 		posCondition := getPanelPosCondition("Project")
@@ -776,14 +781,14 @@ func RenderEditorUI() {
 					imgui.PopStyleColor()
 					for i, model := range orphanModels {
 						imgui.PushID(fmt.Sprintf("legacy_model_%d", i))
-						isSelected := selectedType == "model" && selectedModelIndex == i
-						if imgui.SelectableV("  "+model.Name, isSelected, 0, imgui.Vec2{}) {
-							selectedModelIndex = i
-							selectedLightIndex = -1
+					isSelected := selectedType == "model" && selectedModelIndex == i
+					if imgui.SelectableV("  "+model.Name, isSelected, 0, imgui.Vec2{}) {
+						selectedModelIndex = i
+						selectedLightIndex = -1
 							selectedGameObjectIndex = -1
-							selectedType = "model"
-						}
-						imgui.PopID()
+						selectedType = "model"
+					}
+					imgui.PopID()
 					}
 				}
 			}
@@ -1060,8 +1065,8 @@ func RenderEditorUI() {
 							ShowScriptBrowser = true
 							scriptBrowserTarget = obj
 							scriptBrowserModelTarget = model
-							scriptSearchText = ""
-						}
+								scriptSearchText = ""
+							}
 						imgui.SameLine()
 						imgui.Text("(?)")
 						if imgui.IsItemHovered() {
@@ -2045,41 +2050,7 @@ func renderAdvancedRenderingPostProcess() {
 		imgui.Unindent()
 	}
 
-	// Perlin Noise
-	imgui.Separator()
-	if imgui.Checkbox("Enable Perlin Noise", &config.EnablePerlinNoise) {
-		changed = true
-	}
-	if config.EnablePerlinNoise {
-		imgui.Indent()
-		if imgui.SliderFloatV("Scale##noise", &config.NoiseScale, 0.0001, 0.01, "%.4f", 1.0) {
-			changed = true
-		}
-		octaves := int32(config.NoiseOctaves)
-		if imgui.SliderIntV("Octaves##noise", &octaves, 1, 8, "%d", 1.0) {
-			config.NoiseOctaves = int(octaves)
-			changed = true
-		}
-		if imgui.SliderFloatV("Intensity##noise", &config.NoiseIntensity, 0.0, 0.5, "%.3f", 1.0) {
-			changed = true
-		}
-		imgui.Unindent()
-	}
-
-	// High Quality Filtering
-	imgui.Separator()
-	if imgui.Checkbox("High Quality Filtering", &config.EnableHighQualityFiltering) {
-		changed = true
-	}
-	if config.EnableHighQualityFiltering {
-		imgui.Indent()
-		quality := int32(config.FilteringQuality)
-		if imgui.SliderIntV("Quality Level", &quality, 1, 3, "%d", 1.0) {
-			config.FilteringQuality = int(quality)
-			changed = true
-		}
-		imgui.Unindent()
-	}
+	// Note: Perlin Noise and High Quality Filtering removed - not implemented in shaders
 
 	if changed {
 		applyAdvancedConfigToAllModels(config)
@@ -2426,42 +2397,77 @@ func applyMeshMaterial(c *behaviour.MeshComponent) {
 }
 
 func renderWaterComponentInspector(c *behaviour.WaterComponent) {
-	imgui.DragFloatV("Ocean Size", &c.OceanSize, 10, 100, 10000, "%.0f", 0)
-	imgui.DragFloatV("Wave Amplitude", &c.BaseAmplitude, 0.1, 0.1, 20, "%.1f", 0)
-	imgui.SliderFloatV("Wave Speed", &c.WaveSpeedMultiplier, 0.1, 5.0, "%.1f", 0)
+	changed := false
 
+	// Size and waves (these require regeneration, not real-time)
+	imgui.Text("Size & Waves:")
+	imgui.DragFloatV("Ocean Size", &c.OceanSize, 10, 100, 10000, "%.0f", 0)
+	if imgui.DragFloatV("Wave Amplitude", &c.BaseAmplitude, 0.1, 0.1, 20, "%.1f", 0) {
+		changed = true
+	}
+	if imgui.SliderFloatV("Wave Speed", &c.WaveSpeedMultiplier, 0.1, 5.0, "%.1f", 0) {
+		changed = true
+	}
+
+	imgui.Separator()
+	imgui.Text("Appearance:")
 	color := c.WaterColor
 	if imgui.ColorEdit3V("Water Color", &color, 0) {
 		c.WaterColor = color
+		changed = true
 	}
 
-	imgui.SliderFloatV("Transparency", &c.Transparency, 0, 1, "%.2f", 0)
+	if imgui.SliderFloatV("Transparency", &c.Transparency, 0, 1, "%.2f", 0) {
+		changed = true
+	}
 
 	imgui.Separator()
 	imgui.Text("Effects:")
-	imgui.Checkbox("Foam", &c.FoamEnabled)
-	if c.FoamEnabled {
-		imgui.SliderFloatV("Foam Intensity", &c.FoamIntensity, 0, 1, "%.2f", 0)
+	if imgui.Checkbox("Foam", &c.FoamEnabled) {
+		changed = true
 	}
-	imgui.Checkbox("Caustics", &c.CausticsEnabled)
+	if c.FoamEnabled {
+		if imgui.SliderFloatV("Foam Intensity", &c.FoamIntensity, 0, 1, "%.2f", 0) {
+			changed = true
+		}
+	}
+	if imgui.Checkbox("Caustics", &c.CausticsEnabled) {
+		changed = true
+	}
 	if c.CausticsEnabled {
-		imgui.SliderFloatV("Caustics Intensity", &c.CausticsIntensity, 0, 1, "%.2f", 0)
-		imgui.SliderFloatV("Caustics Scale", &c.CausticsScale, 0.1, 5, "%.1f", 0)
+		if imgui.SliderFloatV("Caustics Intensity", &c.CausticsIntensity, 0, 1, "%.2f", 0) {
+			changed = true
+		}
+		if imgui.SliderFloatV("Caustics Scale", &c.CausticsScale, 0.1, 5, "%.1f", 0) {
+			changed = true
+		}
 	}
 
 	imgui.Separator()
 	imgui.Text("Lighting:")
-	imgui.SliderFloatV("Specular Intensity", &c.SpecularIntensity, 0, 5, "%.1f", 0)
-	imgui.SliderFloatV("Normal Strength", &c.NormalStrength, 0, 2, "%.1f", 0)
-	imgui.SliderFloatV("Shadow Strength", &c.ShadowStrength, 0, 1, "%.2f", 0)
-	imgui.SliderFloatV("Distortion", &c.DistortionStrength, 0, 0.5, "%.2f", 0)
+	if imgui.SliderFloatV("Specular Intensity", &c.SpecularIntensity, 0, 5, "%.1f", 0) {
+		changed = true
+	}
+	if imgui.SliderFloatV("Normal Strength", &c.NormalStrength, 0, 2, "%.1f", 0) {
+		changed = true
+	}
+	if imgui.SliderFloatV("Shadow Strength", &c.ShadowStrength, 0, 1, "%.2f", 0) {
+		changed = true
+	}
+	if imgui.SliderFloatV("Distortion", &c.DistortionStrength, 0, 0.5, "%.2f", 0) {
+		changed = true
+	}
+
+	// Real-time sync to simulation
+	if changed && c.Generated {
+		SyncWaterComponentToSimulation(c)
+	}
 
 	imgui.Separator()
 	if c.Generated {
-		imgui.Text("Status: Active")
-		if imgui.Button("Apply Changes") {
-			SyncWaterComponentToSimulation(c)
-		}
+		imgui.PushStyleColor(imgui.StyleColorText, imgui.Vec4{X: 0.5, Y: 0.8, Z: 0.5, W: 1})
+		imgui.Text("Status: Active (real-time editing)")
+		imgui.PopStyleColor()
 	} else {
 		imgui.Text("Status: Not generated")
 	}
@@ -2678,27 +2684,21 @@ func renderScriptBrowserPanel() {
 		imgui.Spacing()
 		imgui.Separator()
 
-		// Show rebuild status banner if needed
-		if IsRebuildRequired() {
-			imgui.PushStyleColor(imgui.StyleColorChildBg, imgui.Vec4{X: 0.3, Y: 0.2, Z: 0, W: 1})
-			imgui.BeginChildV("RebuildBanner", imgui.Vec2{X: 0, Y: 50}, true, 0)
-			if IsRebuilding() {
-				imgui.PushStyleColor(imgui.StyleColorText, imgui.Vec4{X: 1, Y: 1, Z: 0, W: 1})
-				imgui.Text("Rebuilding editor...")
-				imgui.Text("Please wait...")
-				imgui.PopStyleColor()
-			} else {
-				imgui.PushStyleColor(imgui.StyleColorText, imgui.Vec4{X: 1, Y: 0.8, Z: 0, W: 1})
-				imgui.Text("New scripts added!")
-				imgui.PopStyleColor()
-				if imgui.Button("Apply & Restart") {
-					TriggerEditorRebuild()
-				}
-			}
-			imgui.EndChild()
-			imgui.PopStyleColor()
-			imgui.Spacing()
+		// Rebuild Editor button - always visible
+		imgui.PushStyleColor(imgui.StyleColorButton, imgui.Vec4{X: 0.2, Y: 0.4, Z: 0.2, W: 1})
+		imgui.PushStyleColor(imgui.StyleColorButtonHovered, imgui.Vec4{X: 0.3, Y: 0.6, Z: 0.3, W: 1})
+		if imgui.ButtonV("Rebuild Editor", imgui.Vec2{X: -1, Y: 30}) {
+			ClearRebuildState()
+			TriggerEditorRebuild()
 		}
+		imgui.PopStyleColorV(2)
+		if imgui.IsItemHovered() {
+			imgui.BeginTooltip()
+			imgui.Text("Recompile editor with new/modified scripts")
+			imgui.Text("Scene state will be preserved")
+			imgui.EndTooltip()
+		}
+		imgui.Spacing()
 
 		// Scripts list in a scrollable region
 		imgui.BeginChildV("ScriptList", imgui.Vec2{X: 0, Y: -60}, true, 0)
@@ -2802,19 +2802,22 @@ func addScriptToTarget(scriptName string) {
 		return
 	}
 
-	comp := behaviour.CreateScript(scriptName)
-	if comp == nil {
+	rawScript := behaviour.CreateScript(scriptName)
+	if rawScript == nil {
 		logToConsole(fmt.Sprintf("Failed to create script: %s", scriptName), "error")
 		return
 	}
 
+	// Wrap the raw script in a ScriptComponent so it has a proper name
+	scriptComp := behaviour.NewScriptComponent(scriptName, rawScript)
+
 	if scriptBrowserTarget != nil {
-		scriptBrowserTarget.AddComponent(comp)
+		scriptBrowserTarget.AddComponent(scriptComp)
 		logToConsole(fmt.Sprintf("Added %s to %s", scriptName, scriptBrowserTarget.Name), "info")
 	} else if scriptBrowserModelTarget != nil {
 		obj := getGameObjectForModel(scriptBrowserModelTarget)
 		if obj != nil {
-			obj.AddComponent(comp)
+			obj.AddComponent(scriptComp)
 			logToConsole(fmt.Sprintf("Added %s to %s", scriptName, scriptBrowserModelTarget.Name), "info")
 		}
 	}
@@ -2827,4 +2830,100 @@ func copyScriptFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0644)
+}
+
+// renderRebuildModal renders the editor rebuild progress modal
+func renderRebuildModal() {
+	// Center the modal
+	if Eng != nil {
+		imgui.SetNextWindowPosV(imgui.Vec2{X: float32(Eng.Width) / 2, Y: float32(Eng.Height) / 2}, imgui.ConditionAlways, imgui.Vec2{X: 0.5, Y: 0.5})
+	}
+	imgui.SetNextWindowSizeV(imgui.Vec2{X: 500, Y: 350}, imgui.ConditionAlways)
+
+	flags := imgui.WindowFlagsNoResize | imgui.WindowFlagsNoMove | imgui.WindowFlagsNoCollapse
+	if imgui.BeginV("Rebuild Editor", nil, flags) {
+		if IsRebuilding() {
+			// Show progress
+			imgui.Text("Building editor...")
+			imgui.Spacing()
+
+			// Progress indicator
+			imgui.PushStyleColor(imgui.StyleColorFrameBg, imgui.Vec4{X: 0.1, Y: 0.1, Z: 0.1, W: 1})
+			imgui.BeginChildV("BuildOutput", imgui.Vec2{X: -1, Y: 200}, true, 0)
+			output := GetRebuildOutput()
+			// Use Text with word wrapping via PushTextWrapPos
+			imgui.PushTextWrapPosV(imgui.ContentRegionAvail().X)
+			imgui.Text(output)
+			imgui.PopTextWrapPos()
+			imgui.EndChild()
+			imgui.PopStyleColor()
+
+			imgui.Spacing()
+			imgui.Text("Please wait...")
+		} else if WasRebuildSuccessful() {
+			// Success
+			imgui.PushStyleColor(imgui.StyleColorText, imgui.Vec4{X: 0.2, Y: 0.9, Z: 0.2, W: 1})
+			imgui.Text("Build Successful!")
+			imgui.PopStyleColor()
+			imgui.Spacing()
+
+			imgui.PushStyleColor(imgui.StyleColorFrameBg, imgui.Vec4{X: 0.1, Y: 0.1, Z: 0.1, W: 1})
+			imgui.BeginChildV("BuildOutput", imgui.Vec2{X: -1, Y: 180}, true, 0)
+			output := GetRebuildOutput()
+			imgui.PushTextWrapPosV(imgui.ContentRegionAvail().X)
+			imgui.Text(output)
+			imgui.PopTextWrapPos()
+			imgui.EndChild()
+			imgui.PopStyleColor()
+
+			imgui.Spacing()
+			imgui.Text("Click 'Restart' to apply the new scripts.")
+			imgui.Text("Your scene will be restored after restart.")
+			imgui.Spacing()
+
+			imgui.PushStyleColor(imgui.StyleColorButton, imgui.Vec4{X: 0.2, Y: 0.5, Z: 0.2, W: 1})
+			imgui.PushStyleColor(imgui.StyleColorButtonHovered, imgui.Vec4{X: 0.3, Y: 0.7, Z: 0.3, W: 1})
+			if imgui.ButtonV("Restart Editor", imgui.Vec2{X: 150, Y: 30}) {
+				SaveSceneAndRestart()
+			}
+			imgui.PopStyleColorV(2)
+
+			imgui.SameLine()
+			if imgui.ButtonV("Close", imgui.Vec2{X: 100, Y: 30}) {
+				SetShowRebuildModal(false)
+			}
+		} else if GetRebuildError() != "" {
+			// Error
+			imgui.PushStyleColor(imgui.StyleColorText, imgui.Vec4{X: 0.9, Y: 0.2, Z: 0.2, W: 1})
+			imgui.Text("Build Failed!")
+			imgui.PopStyleColor()
+			imgui.Spacing()
+
+			imgui.PushStyleColor(imgui.StyleColorFrameBg, imgui.Vec4{X: 0.15, Y: 0.05, Z: 0.05, W: 1})
+			imgui.BeginChildV("BuildOutput", imgui.Vec2{X: -1, Y: 200}, true, 0)
+			output := GetRebuildOutput()
+			imgui.PushTextWrapPosV(imgui.ContentRegionAvail().X)
+			imgui.Text(output)
+			imgui.PopTextWrapPos()
+			imgui.EndChild()
+			imgui.PopStyleColor()
+
+			imgui.Spacing()
+			imgui.Text("Fix the errors in your scripts and try again.")
+			imgui.Spacing()
+
+			if imgui.ButtonV("Retry", imgui.Vec2{X: 100, Y: 30}) {
+				ClearRebuildState()
+				TriggerEditorRebuild()
+			}
+			imgui.SameLine()
+			if imgui.ButtonV("Close", imgui.Vec2{X: 100, Y: 30}) {
+				SetShowRebuildModal(false)
+			}
+		} else {
+			// Initial state - shouldn't normally be visible
+			imgui.Text("Preparing build...")
+		}
+	}
+	imgui.End()
 }

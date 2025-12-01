@@ -40,12 +40,12 @@ type VoxelConfig struct {
 	WorldSize   int32      `json:"world_size"`
 	Biome       int32      `json:"biome"`
 	TreeDensity float32    `json:"tree_density"`
-	ColorGrass  [3]float32 `json:"color_grass,omitempty"`
-	ColorDirt   [3]float32 `json:"color_dirt,omitempty"`
-	ColorStone  [3]float32 `json:"color_stone,omitempty"`
-	ColorSand   [3]float32 `json:"color_sand,omitempty"`
-	ColorWood   [3]float32 `json:"color_wood,omitempty"`
-	ColorLeaves [3]float32 `json:"color_leaves,omitempty"`
+	ColorGrass  [3]float32 `json:"color_grass"`
+	ColorDirt   [3]float32 `json:"color_dirt"`
+	ColorStone  [3]float32 `json:"color_stone"`
+	ColorSand   [3]float32 `json:"color_sand"`
+	ColorWood   [3]float32 `json:"color_wood"`
+	ColorLeaves [3]float32 `json:"color_leaves"`
 
 	// New component-based fields
 	WorldSizeX  int     `json:"world_size_x,omitempty"`
@@ -201,6 +201,8 @@ func createVoxelTerrainGameObject() *behaviour.GameObject {
 		voxelComp.Generated = true
 		obj.SetModel(model)
 		Eng.AddModel(model)
+		// Register model-to-GameObject mapping for scene saving
+		registerModelToGameObject(model, obj)
 	}
 
 	// Register the GameObject
@@ -334,24 +336,29 @@ func generateVoxelTerrainFromComponent(comp *behaviour.VoxelTerrainComponent) *r
 		return nil
 	}
 
+	// Log the voxel count
+	totalChunks := worldSize * worldSize
+	logToConsole(fmt.Sprintf("Voxel terrain created: %d voxels, %d chunks (%dx%d)",
+		world.ActiveVoxels, totalChunks, worldSize, worldSize), "success")
+
 	model.Name = fmt.Sprintf("Voxel Terrain (%dx%d)", worldSize, worldSize)
 	model.SetPosition(0, 0, 0)
-	model.SetDiffuseColor(0.8, 0.8, 0.8)
-	model.SetMaterialPBR(0.0, 0.9)
-	model.SetExposure(1.0)
-	model.SetAlpha(1.0)
-
-	// Ensure material is properly initialized
+	
+	// Ensure material has proper values for lighting
 	if model.Material == nil {
 		model.Material = &renderer.Material{
 			Name:         "VoxelMaterial",
-			DiffuseColor: [3]float32{0.8, 0.8, 0.8},
+			DiffuseColor: [3]float32{1.0, 1.0, 1.0}, // White - instance colors provide the actual color
 			Metallic:     0.0,
 			Roughness:    0.9,
 			Alpha:        1.0,
 			Exposure:     1.0,
 		}
 	} else {
+		// CRITICAL: Set all material properties, not just exposure/alpha
+		model.Material.DiffuseColor = [3]float32{1.0, 1.0, 1.0} // White - instance colors provide the actual color
+		model.Material.Metallic = 0.0
+		model.Material.Roughness = 0.9
 		model.Material.Exposure = 1.0
 		model.Material.Alpha = 1.0
 	}
@@ -361,6 +368,24 @@ func generateVoxelTerrainFromComponent(comp *behaviour.VoxelTerrainComponent) *r
 	}
 	model.Metadata["isVoxel"] = true
 	model.Metadata["type"] = "voxel_terrain"
+	// Store voxel config for scene saving/loading
+	model.Metadata["voxelConfig"] = VoxelConfig{
+		Scale:       comp.Scale,
+		Amplitude:   comp.Amplitude,
+		Seed:        comp.Seed,
+		Threshold:   comp.Threshold,
+		Octaves:     comp.Octaves,
+		ChunkSize:   comp.ChunkSize,
+		WorldSize:   comp.WorldSize,
+		Biome:       comp.Biome,
+		TreeDensity: comp.TreeDensity,
+		ColorGrass:  comp.GrassColor,
+		ColorDirt:   comp.DirtColor,
+		ColorStone:  comp.StoneColor,
+		ColorSand:   comp.SandColor,
+		ColorWood:   comp.WoodColor,
+		ColorLeaves: comp.LeavesColor,
+	}
 
 	return model
 }

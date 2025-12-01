@@ -327,11 +327,26 @@ func generateAndBuildRuntime(platform, outputPath string, scene *SceneData) erro
 func copyProjectScriptsToRuntime(runtimeDir string) []string {
 	var copiedScripts []string
 
-	if CurrentProject == nil {
-		return copiedScripts
+	// First, copy engine-level scripts from the scripts/ folder
+	modulePath := getModulePath()
+	if modulePath != "" {
+		engineScriptsDir := filepath.Join(modulePath, "scripts")
+		copiedScripts = append(copiedScripts, copyScriptsFromDir(engineScriptsDir, runtimeDir)...)
 	}
 
-	scriptsDir := filepath.Join(CurrentProject.Path, "resources", "scripts")
+	// Then, copy project-specific scripts (these can override engine scripts)
+	if CurrentProject != nil {
+		projectScriptsDir := filepath.Join(CurrentProject.Path, "resources", "scripts")
+		copiedScripts = append(copiedScripts, copyScriptsFromDir(projectScriptsDir, runtimeDir)...)
+	}
+
+	return copiedScripts
+}
+
+// copyScriptsFromDir copies all .go scripts from a directory to the runtime folder
+func copyScriptsFromDir(scriptsDir, runtimeDir string) []string {
+	var copiedScripts []string
+
 	if _, err := os.Stat(scriptsDir); os.IsNotExist(err) {
 		return copiedScripts
 	}
@@ -377,17 +392,10 @@ func copyProjectScriptsToRuntime(runtimeDir string) []string {
 	return copiedScripts
 }
 
-// addScriptImportToRuntime modifies runtime code to include script initialization
+// addScriptImportToRuntime logs that scripts will be included
+// Note: Scripts are in separate .go files with their own imports, so main.go
+// doesn't need to import behaviour directly - the script files handle that
 func addScriptImportToRuntime(code string, scripts []string) string {
-	// Scripts are now in the same package (main), so they auto-register via init()
-	// We just need to ensure behaviour package is imported
-	if !strings.Contains(code, `"Gopher3D/internal/behaviour"`) {
-		code = strings.Replace(code,
-			`"Gopher3D/internal/renderer"`,
-			`"Gopher3D/internal/behaviour"
-	"Gopher3D/internal/renderer"`, 1)
-	}
-
 	logToConsole(fmt.Sprintf("Scripts will auto-register: %v", scripts), "info")
 	return code
 }
@@ -549,14 +557,34 @@ func copyAssociatedFiles(modelPath, assetsDir string) {
 
 func generateRuntimeCode(scene *SceneData) string {
 	// Determine what features are needed based on scene
-	hasSkybox := scene != nil && scene.Skybox != nil
-	hasComponents := false
+	hasScriptComponents := false
 
+	// Check specifically for script components that need the behaviour package
 	if scene != nil {
+		// Check Models for script components
 		for _, m := range scene.Models {
-			if len(m.Components) > 0 {
-				hasComponents = true
+			for _, comp := range m.Components {
+				if comp.Category == "Script" {
+					hasScriptComponents = true
+					break
+				}
+			}
+			if hasScriptComponents {
 				break
+			}
+		}
+		// Also check GameObjects for script components
+		if !hasScriptComponents {
+			for _, go_ := range scene.GameObjects {
+				for _, comp := range go_.Components {
+					if comp.Category == "Script" {
+						hasScriptComponents = true
+						break
+					}
+				}
+				if hasScriptComponents {
+					break
+				}
 			}
 		}
 	}
@@ -568,13 +596,14 @@ func generateRuntimeCode(scene *SceneData) string {
 		`"Gopher3D/internal/renderer"`,
 		`"encoding/json"`,
 		`"fmt"`,
+		`"math"`,
 		`"os"`,
 		`"path/filepath"`,
 		`"runtime"`,
 		`mgl "github.com/go-gl/mathgl/mgl32"`,
 	}
 
-	if hasComponents {
+	if hasScriptComponents {
 		imports = append(imports, `"Gopher3D/internal/behaviour"`)
 	}
 
@@ -603,14 +632,17 @@ func main() {
 			loadGame()
 			sceneReady = true
 		}
+		if sceneReady {
+			// Update water animation
+			updateWater(deltaTime)
 `
-	if hasComponents {
-		code += `		if sceneReady {
+	if hasScriptComponents {
+		code += `			// Update scripts
 			behaviour.GlobalBehaviourManager.UpdateAll()
-		}
 `
 	}
-	code += `	})
+	code += `		}
+	})
 
 	gameEngine.Render(-1, -1)
 }
@@ -734,18 +766,24 @@ func loadSceneData(scene *SceneData, assetsDir string) {
 			}
 		}
 `
-	if hasComponents {
+	if hasScriptComponents {
 		code += `
-		// Load components
-		if len(m.Components) > 0 {
-			gameObj := behaviour.NewGameObject(m.Name)
-			gameObj.SetModel(model)
-			for _, comp := range m.Components {
+		// Load script components
+		var gameObj *behaviour.GameObject
+		for _, comp := range m.Components {
+			if comp.Category == "Script" {
+				if gameObj == nil {
+					gameObj = behaviour.NewGameObject(m.Name)
+					gameObj.SetModel(model)
+				}
 				script := behaviour.CreateScript(comp.Type)
 				if script != nil {
-					gameObj.AddComponent(script)
+					scriptComp := behaviour.NewScriptComponent(comp.Type, script)
+					gameObj.AddComponent(scriptComp)
 				}
 			}
+		}
+		if gameObj != nil {
 			behaviour.GlobalComponentManager.RegisterGameObject(gameObj)
 		}
 `
@@ -834,23 +872,6 @@ func loadSceneData(scene *SceneData, assetsDir string) {
 		r.AddLight(light)
 	}
 `
-	if hasSkybox {
-		code += `
-	// Load skybox
-	if scene.Skybox != nil {
-		if scene.Skybox.Type == "color" {
-			r.ClearColorR = scene.Skybox.Color[0]
-			r.ClearColorG = scene.Skybox.Color[1]
-			r.ClearColorB = scene.Skybox.Color[2]
-		} else if scene.Skybox.ImagePath != "" {
-			skyboxPath := resolveAssetPath(scene.Skybox.ImagePath, assetsDir)
-			if skyboxPath != "" {
-				gameEngine.SetSkybox(skyboxPath)
-			}
-		}
-	}
-`
-	}
 	code += `
 	// Apply rendering configuration with safe defaults
 	// Always ensure depth testing is enabled for proper 3D rendering
@@ -859,10 +880,30 @@ func loadSceneData(scene *SceneData, assetsDir string) {
 	renderer.FaceCullingEnabled = false
 	renderer.Debug = false
 	
+	// Set skybox/background color - check both Skybox and Rendering config
+	if scene.Skybox != nil {
+		if scene.Skybox.Type == "color" {
+			r.ClearColorR = scene.Skybox.Color[0]
+			r.ClearColorG = scene.Skybox.Color[1]
+			r.ClearColorB = scene.Skybox.Color[2]
+			fmt.Printf("Skybox color set to: %.2f, %.2f, %.2f\n", scene.Skybox.Color[0], scene.Skybox.Color[1], scene.Skybox.Color[2])
+		} else if scene.Skybox.ImagePath != "" {
+			skyboxPath := resolveAssetPath(scene.Skybox.ImagePath, assetsDir)
+			if skyboxPath != "" {
+				gameEngine.SetSkybox(skyboxPath)
+			}
+		}
+	} else if scene.Rendering != nil {
+		// Fallback to rendering config skybox color
+		r.ClearColorR = scene.Rendering.SkyboxColor[0]
+		r.ClearColorG = scene.Rendering.SkyboxColor[1]
+		r.ClearColorB = scene.Rendering.SkyboxColor[2]
+		fmt.Printf("Background color set to: %.2f, %.2f, %.2f\n", scene.Rendering.SkyboxColor[0], scene.Rendering.SkyboxColor[1], scene.Rendering.SkyboxColor[2])
+	}
+	
 	if scene.Rendering != nil {
 		r.EnableBloom = scene.Rendering.Bloom
 		r.EnableFXAA = scene.Rendering.FXAA
-		// Only override depth test if explicitly set in scene
 		if scene.Rendering.DepthTest {
 			renderer.DepthTestEnabled = true
 		}
@@ -870,25 +911,34 @@ func loadSceneData(scene *SceneData, assetsDir string) {
 		renderer.Debug = scene.Rendering.Wireframe
 	}
 
-	// Load water if present
-	if scene.Water != nil && scene.Water.MeshDataFile != "" {
-		meshPath := filepath.Join(assetsDir, scene.Water.MeshDataFile)
-		meshData, err := os.ReadFile(meshPath)
-		if err != nil {
-			fmt.Printf("Warning: Could not read water mesh: %v\n", err)
-		} else {
-			mesh, err := renderer.DecodeMeshBinary(meshData)
-			if err != nil {
-				fmt.Printf("Warning: Could not decode water mesh: %v\n", err)
-			} else {
-				waterModel := renderer.DeserializeMesh(mesh)
-				waterModel.Name = "Water"
-				waterModel.SetPosition(scene.Water.Position[0], scene.Water.Position[1], scene.Water.Position[2])
-				waterModel.SetDiffuseColor(scene.Water.WaterColor[0], scene.Water.WaterColor[1], scene.Water.WaterColor[2])
-				waterModel.SetAlpha(scene.Water.Transparency)
-				r.AddModel(waterModel)
-				fmt.Println("Water loaded (static mesh - no animation)")
+	// Load water if present - create animated water plane
+	if scene.Water != nil {
+		waterModel := createWaterPlane(scene.Water.OceanSize)
+		if waterModel != nil {
+			waterModel.Name = "Water"
+			// Add small Y offset to prevent z-fighting with terrain at same level
+			waterY := scene.Water.Position[1]
+			if waterY == 0 {
+				waterY = 0.1 // Slight elevation to prevent z-fighting
 			}
+			waterModel.SetPosition(scene.Water.Position[0], waterY, scene.Water.Position[2])
+			waterModel.SetDiffuseColor(scene.Water.WaterColor[0], scene.Water.WaterColor[1], scene.Water.WaterColor[2])
+			// Keep water opaque for proper depth testing - prevents z-fighting with terrain
+			// Visual transparency is handled by the water color itself
+			waterModel.SetAlpha(1.0)
+			
+			// Store water settings for animation
+			waterSettings = &WaterSettings{
+				Model:         waterModel,
+				OceanSize:     scene.Water.OceanSize,
+				BaseAmplitude: scene.Water.BaseAmplitude,
+				WaterColor:    scene.Water.WaterColor,
+				Transparency:  scene.Water.Transparency,
+				WaveSpeed:     scene.Water.WaveSpeedMultiplier,
+			}
+			
+			r.AddModel(waterModel)
+			fmt.Println("Water loaded with animation support")
 		}
 	}
 }
@@ -1037,6 +1087,111 @@ type SceneRenderingConfig struct {
 	FaceCulling bool       ` + "`json:\"face_culling\"`" + `
 	Wireframe   bool       ` + "`json:\"wireframe\"`" + `
 	SkyboxColor [3]float32 ` + "`json:\"skybox_color\"`" + `
+}
+
+// Water animation support
+type WaterSettings struct {
+	Model         *renderer.Model
+	OceanSize     float32
+	BaseAmplitude float32
+	WaterColor    [3]float32
+	Transparency  float32
+	WaveSpeed     float32
+}
+
+var waterSettings *WaterSettings
+var gameTime float64 = 0
+
+// createWaterPlane creates a simple water plane mesh
+func createWaterPlane(size float32) *renderer.Model {
+	halfSize := size / 2
+	resolution := 64 // Grid resolution
+	
+	vertices := make([]float32, 0)
+	normals := make([]float32, 0)
+	uvs := make([]float32, 0)
+	faces := make([]int32, 0)
+	
+	// Generate grid vertices
+	for z := 0; z <= resolution; z++ {
+		for x := 0; x <= resolution; x++ {
+			// Position
+			px := -halfSize + (float32(x)/float32(resolution))*size
+			pz := -halfSize + (float32(z)/float32(resolution))*size
+			vertices = append(vertices, px, 0, pz)
+			
+			// Normal (pointing up)
+			normals = append(normals, 0, 1, 0)
+			
+			// UV
+			u := float32(x) / float32(resolution)
+			v := float32(z) / float32(resolution)
+			uvs = append(uvs, u, v)
+		}
+	}
+	
+	// Generate faces (triangles)
+	for z := 0; z < resolution; z++ {
+		for x := 0; x < resolution; x++ {
+			topLeft := int32(z*(resolution+1) + x)
+			topRight := topLeft + 1
+			bottomLeft := topLeft + int32(resolution+1)
+			bottomRight := bottomLeft + 1
+			
+			// First triangle
+			faces = append(faces, topLeft, bottomLeft, topRight)
+			// Second triangle
+			faces = append(faces, topRight, bottomLeft, bottomRight)
+		}
+	}
+	
+	// Create interleaved data (position + normal + uv)
+	interleaved := make([]float32, 0)
+	vertCount := len(vertices) / 3
+	for i := 0; i < vertCount; i++ {
+		// Position
+		interleaved = append(interleaved, vertices[i*3], vertices[i*3+1], vertices[i*3+2])
+		// Normal
+		interleaved = append(interleaved, normals[i*3], normals[i*3+1], normals[i*3+2])
+		// UV
+		interleaved = append(interleaved, uvs[i*2], uvs[i*2+1])
+	}
+	
+	model := &renderer.Model{
+		Vertices:        vertices,
+		InterleavedData: interleaved,
+		Faces:           faces,
+		Position:        mgl.Vec3{0, 0, 0},
+		Scale:           mgl.Vec3{1, 1, 1},
+		Rotation:        mgl.QuatIdent(),
+		Material:        renderer.DefaultMaterial,
+		IsDirty:         true,
+	}
+	
+	// Create unique material for water
+	waterMat := *model.Material
+	waterMat.Alpha = 0.7
+	model.Material = &waterMat
+	
+	model.CalculateBoundingSphere()
+	return model
+}
+
+// updateWater updates water animation each frame
+func updateWater(deltaTime float64) {
+	if waterSettings == nil || waterSettings.Model == nil {
+		return
+	}
+	
+	gameTime += deltaTime
+	
+	// Simple wave animation by modifying Y position slightly
+	// This creates a gentle bobbing effect
+	amplitude := waterSettings.BaseAmplitude * 0.1
+	waveOffset := float32(math.Sin(gameTime*float64(waterSettings.WaveSpeed))) * amplitude
+	
+	pos := waterSettings.Model.Position
+	waterSettings.Model.SetPosition(pos.X(), waveOffset, pos.Z())
 }
 `
 	return code

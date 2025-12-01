@@ -142,12 +142,14 @@ func NewWaterSimulation(engine *engine.Gopher, size float32, amplitude float32) 
 	return ws
 }
 
-func (ws *WaterSimulation) Start() {
+// InitializeMesh creates the water mesh without adding it to the engine or creating a GameObject.
+// Use this when creating water via createWaterGameObject() which handles registration separately.
+func (ws *WaterSimulation) InitializeMesh() *renderer.Model {
 	ws.engine.SetFaceCulling(false)
 
 	// Prevent re-initialization if model already exists
 	if ws.model != nil {
-		return
+		return ws.model
 	}
 
 	// Center water at (0,0,0) for the editor
@@ -157,7 +159,7 @@ func (ws *WaterSimulation) Start() {
 	model, err := loader.LoadWaterSurface(ws.oceanSize, oceanCenter, oceanCenter, WaterResolution)
 	if err != nil {
 		fmt.Printf("Failed to load water: %v\n", err)
-		return
+		return nil
 	}
 
 	// Reset position to origin and set Name
@@ -178,11 +180,39 @@ func (ws *WaterSimulation) Start() {
 
 	ws.model = model
 	ws.setupWaterUniforms()
-	ws.engine.AddModel(model)
-	createGameObjectForModel(model)
 
 	// Set initial sky color
 	ws.lastSkyColor = mgl32.Vec3{skyboxSolidColor[0], skyboxSolidColor[1], skyboxSolidColor[2]}
+
+	return model
+}
+
+// Start is the full initialization for the behavior system.
+// It creates the mesh, adds it to the engine, and creates a GameObject.
+// Use InitializeMesh() instead when creating water via createWaterGameObject().
+func (ws *WaterSimulation) Start() {
+	// Initialize the mesh if not already done
+	model := ws.InitializeMesh()
+	if model == nil {
+		return
+	}
+
+	// Only add to engine and create GameObject if not already added
+	// Check if model is already in the renderer
+	if openglRenderer, ok := ws.engine.GetRenderer().(*renderer.OpenGLRenderer); ok {
+		models := openglRenderer.GetModels()
+		alreadyAdded := false
+		for _, m := range models {
+			if m == model {
+				alreadyAdded = true
+				break
+			}
+		}
+		if !alreadyAdded {
+			ws.engine.AddModel(model)
+			createGameObjectForModel(model)
+		}
+	}
 }
 
 func (ws *WaterSimulation) Update() {
@@ -424,15 +454,24 @@ func (ws *WaterSimulation) ApplyChanges() {
 }
 
 // createWaterGameObject creates a GameObject with a WaterComponent
+// Uses the dialog settings (addWaterSize, addWaterAmplitude) from ui_dialogs.go
 func createWaterGameObject() *behaviour.GameObject {
 	// Create the component with default settings
 	waterComp := behaviour.NewWaterComponent()
+
+	// Override with dialog settings if they're set
+	if addWaterSize > 0 {
+		waterComp.OceanSize = addWaterSize
+	}
+	if addWaterAmplitude > 0 {
+		waterComp.BaseAmplitude = addWaterAmplitude
+	}
 
 	// Create GameObject
 	obj := behaviour.NewGameObject("Water")
 	obj.AddComponent(waterComp)
 
-	// Create the water simulation
+	// Create the water simulation with the component's settings
 	ws := NewWaterSimulation(Eng, waterComp.OceanSize, waterComp.BaseAmplitude)
 
 	// Apply component settings to simulation
@@ -449,18 +488,30 @@ func createWaterGameObject() *behaviour.GameObject {
 	ws.DistortionStrength = waterComp.DistortionStrength
 	ws.ShadowStrength = waterComp.ShadowStrength
 
+	// Use InitializeMesh() instead of Start() to avoid duplicate GameObject creation
+	// InitializeMesh() only creates the model, we handle registration here
+	model := ws.InitializeMesh()
+	if model == nil {
+		logToConsole("Failed to create water mesh", "error")
+		return nil
+	}
+
 	// Store references
 	waterComp.Simulation = ws
-	waterComp.Model = ws.model
+	waterComp.Model = model
 	waterComp.Generated = true
-	obj.SetModel(ws.model)
+	obj.SetModel(model)
 
-	// Add to scene
-	Eng.AddModel(ws.model)
+	// Add model to engine (we do this here, not in InitializeMesh)
+	Eng.AddModel(model)
+	// Register model-to-GameObject mapping for scene saving
+	registerModelToGameObject(model, obj)
+
+	// Add to behaviour manager for updates
 	behaviour.GlobalBehaviourManager.Add(ws)
 	activeWaterSim = ws
 
-	// Register the GameObject
+	// Register the GameObject (only one registration, not duplicate)
 	behaviour.GlobalComponentManager.RegisterGameObject(obj)
 
 	logToConsole("Water GameObject created", "info")

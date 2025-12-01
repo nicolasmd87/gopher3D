@@ -39,13 +39,13 @@ func RenderGizmos() {
 		}
 	} else if selectedType == "model" && selectedModelIndex >= 0 {
 		openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
-		if !ok {
-			return
-		}
-		models := openglRenderer.GetModels()
-		if selectedModelIndex >= len(models) {
-			return
-		}
+	if !ok {
+		return
+	}
+	models := openglRenderer.GetModels()
+	if selectedModelIndex >= len(models) {
+		return
+	}
 		model = models[selectedModelIndex]
 		pos = model.Position
 	} else {

@@ -9,6 +9,9 @@ import (
 	"runtime"
 
 	"github.com/inkyblackness/imgui-go/v4"
+
+	// Import scripts package to register all scripts via init()
+	_ "Gopher3D/scripts"
 )
 
 func main() {
@@ -44,14 +47,25 @@ func main() {
 		if editor.ImguiInitialized {
 			io := imgui.CurrentIO()
 			wantsKeyboard := io.WantCaptureKeyboard()
-			wantsMouse := io.WantCaptureMouse()
 
-			// Only disable camera input when ImGui explicitly wants keyboard/mouse
-			// Don't use IsAnyItemActive as it can get stuck
-			editor.Eng.EnableCameraInput = !wantsKeyboard && !wantsMouse
+			// Check if right mouse button is down (for camera look-around)
+			rightMouseDown := imgui.IsMouseDown(1)
 
-			// Always disable camera when certain panels are open
-			if editor.ShowProjectManager || editor.ShowScriptBrowser {
+			// Enable camera when:
+			// 1. Right mouse is held (for look-around) - always enable in this case
+			// 2. OR: ImGui doesn't want keyboard and mouse isn't over any panel
+			windowHovered := imgui.IsWindowHoveredV(imgui.HoveredFlagsAnyWindow)
+
+			if rightMouseDown {
+				// Right mouse held = camera control takes priority
+				editor.Eng.EnableCameraInput = true
+			} else {
+				// Normal mode: camera works when not interacting with panels
+				editor.Eng.EnableCameraInput = !wantsKeyboard && !windowHovered
+			}
+
+			// Always disable camera when certain panels or modals are open
+			if editor.ShowProjectManager || editor.ShowScriptBrowser || editor.ShowRebuildModal() {
 				editor.Eng.EnableCameraInput = false
 			}
 		}
