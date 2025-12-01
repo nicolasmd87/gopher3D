@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	OceanSize       = 900000 // Massive photorealistic ocean - 900km (RESTORED ORIGINAL)
+	OceanSize       = 900000 // Massive photorealistic ocean - 900km
 	WaterResolution = 4096   // Higher resolution for massive scale
 	WaveSpeed       = 0.6    // Slower, more realistic wave speed for large scale
 	MaxWaves        = 4      // Match shader expectation (4 waves)
