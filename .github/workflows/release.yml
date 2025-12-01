@@ -2,6 +2,7 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags:
       - 'v*'
 
@@ -9,8 +10,44 @@ permissions:
   contents: write
 
 jobs:
+  # Determine version - either from tag or auto-increment
+  version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_tag: ${{ steps.version.outputs.is_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # Tagged release
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            echo "is_tag=true" >> $GITHUB_OUTPUT
+          else
+            # Auto-version on merge to main
+            # Get latest tag or default to v0.0.0
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            # Extract version numbers
+            VERSION=${LATEST_TAG#v}
+            MAJOR=$(echo $VERSION | cut -d. -f1)
+            MINOR=$(echo $VERSION | cut -d. -f2)
+            PATCH=$(echo $VERSION | cut -d. -f3)
+            # Increment patch version
+            PATCH=$((PATCH + 1))
+            echo "version=v${MAJOR}.${MINOR}.${PATCH}" >> $GITHUB_OUTPUT
+            echo "is_tag=false" >> $GITHUB_OUTPUT
+          fi
+
   build-and-release:
     name: Build and Release
+    needs: version
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -45,17 +82,12 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgtk-3-dev
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install glfw
-
-      - name: Get version
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        shell: bash
+          brew install glfw gtk+3
 
       - name: Build editor
         env:
@@ -63,7 +95,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 1
         run: |
-          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o bin/gopher3d-editor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./editor/cmd/...
+          go build -ldflags="-s -w -X main.Version=${{ needs.version.outputs.version }}" -o bin/gopher3d-editor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./editor/cmd/...
 
       - name: Create archive (Windows)
         if: matrix.goos == 'windows'
@@ -85,7 +117,7 @@ jobs:
 
   create-release:
     name: Create Release
-    needs: build-and-release
+    needs: [version, build-and-release]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -96,20 +128,24 @@ jobs:
         with:
           path: artifacts
 
-      - name: Get version
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: Create tag (if not already tagged)
+        if: needs.version.outputs.is_tag == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ needs.version.outputs.version }}
+          git push origin ${{ needs.version.outputs.version }}
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          name: Gopher3D Editor ${{ steps.version.outputs.VERSION }}
+          tag_name: ${{ needs.version.outputs.version }}
+          name: Gopher3D Editor ${{ needs.version.outputs.version }}
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.VERSION, 'alpha') || contains(steps.version.outputs.VERSION, 'beta') || contains(steps.version.outputs.VERSION, 'rc') }}
+          prerelease: ${{ contains(needs.version.outputs.version, 'alpha') || contains(needs.version.outputs.version, 'beta') || contains(needs.version.outputs.version, 'rc') }}
           generate_release_notes: true
           files: |
             artifacts/**/*.zip
             artifacts/**/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
