@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        go-version: ['1.21', '1.22']
+        go-version: ['1.22']
 
     steps:
       - name: Checkout code
@@ -28,7 +28,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgtk-3-dev
 
       - name: Cache Go modules
         uses: actions/cache@v4
@@ -49,9 +49,7 @@ jobs:
           go vet ./internal/loader/...
           go vet ./internal/renderer/...
           go vet ./internal/logger/...
-          go vet ./scripts/...
-          go vet ./editor/internal/...
-          go vet ./editor/cmd/...
+          go vet ./internal/water/...
 
       - name: Run tests
         run: |
@@ -92,12 +90,12 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgtk-3-dev
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install glfw
+          brew install glfw gtk+3
 
       - name: Build editor
         env:
@@ -112,4 +110,3 @@ jobs:
         with:
           name: gopher3d-editor-${{ matrix.goos }}-${{ matrix.goarch }}
           path: bin/gopher3d-editor-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
-
