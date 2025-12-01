@@ -232,6 +232,9 @@ func (rend *OpenGLRenderer) AddModel(model *Model) {
 	model.VBO = vbo
 	model.EBO = ebo
 
+	//Unbind VAO before any other operations to prevent state corruption
+	gl.BindVertexArray(0)
+
 	// Calculate the initial model matrix based on position, rotation, and scale
 	model.updateModelMatrix()
 
