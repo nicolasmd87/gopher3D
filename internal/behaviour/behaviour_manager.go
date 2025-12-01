@@ -37,6 +37,11 @@ func (m *BehaviourManager) Remove(behaviour PlayerBehaviour) {
 	}
 }
 
+// Clear removes all behaviours from the manager
+func (m *BehaviourManager) Clear() {
+	m.behaviours = m.behaviours[:0]
+}
+
 func (m *BehaviourManager) UpdateAll() {
 	// Update old behaviour system
 	for i := range m.behaviours {

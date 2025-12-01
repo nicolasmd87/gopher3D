@@ -164,10 +164,8 @@ func renderAddLightDialog() {
 			}
 
 			Eng.GetRenderer().(*renderer.OpenGLRenderer).AddLight(light)
-			lights := Eng.GetRenderer().(*renderer.OpenGLRenderer).GetLights()
-			if len(lights) > 0 {
-				Eng.Light = lights[0] // Always use the first light as the main scene light
-			}
+			// Set the newly added light as the active light
+			Eng.Light = light
 
 			logToConsole(fmt.Sprintf("Added %s", light.Name), "info")
 

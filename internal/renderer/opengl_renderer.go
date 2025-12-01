@@ -1245,6 +1245,10 @@ func (rend *OpenGLRenderer) renderPostProcess() {
 		rend.fxaaShader.Use()
 		rend.fxaaShader.SetVec2("texelSize", texelSize)
 		rend.fxaaShader.SetInt("screenTexture", 0)
+		// FXAA quality settings
+		rend.fxaaShader.SetFloat("edgeThreshold", 0.125)
+		rend.fxaaShader.SetFloat("edgeThresholdMin", 0.0625)
+		rend.fxaaShader.SetFloat("subpixelQuality", 0.75)
 	} else {
 		// Use passthrough shader
 		rend.passthroughShader.Use()

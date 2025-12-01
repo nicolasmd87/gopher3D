@@ -4,6 +4,7 @@ import (
 	"Gopher3D/internal/behaviour"
 	"Gopher3D/internal/loader"
 	"Gopher3D/internal/renderer"
+	"Gopher3D/internal/water"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -114,6 +115,8 @@ type SceneWater struct {
 	WaterColor          [3]float32 `json:"water_color"`
 	Transparency        float32    `json:"transparency"`
 	WaveSpeedMultiplier float32    `json:"wave_speed_multiplier"`
+	WaveHeight          float32    `json:"wave_height"`
+	WaveRandomness      float32    `json:"wave_randomness"`
 	Position            [3]float32 `json:"position"`
 	FoamEnabled         bool       `json:"foam_enabled"`
 	FoamIntensity       float32    `json:"foam_intensity"`
@@ -145,11 +148,14 @@ func newScene() {
 		return
 	}
 
-	// Clear all GameObjects first (this also cleans up their models)
+	// Clear all behaviours first (including water simulation)
+	behaviour.GlobalBehaviourManager.Clear()
+
+	// Clear all GameObjects (this also cleans up their models)
 	behaviour.GlobalComponentManager.Clear()
 	modelToGameObject = make(map[*renderer.Model]*behaviour.GameObject)
 
-	// Clear all models
+	// Clear all models - iterate backwards to avoid index issues
 	models := openglRenderer.GetModels()
 	for i := len(models) - 1; i >= 0; i-- {
 		openglRenderer.RemoveModel(models[i])
@@ -157,8 +163,8 @@ func newScene() {
 
 	// Clear ALL lights (we'll recreate the default one fresh)
 	lights := openglRenderer.GetLights()
-	for _, light := range lights {
-		openglRenderer.RemoveLight(light)
+	for i := len(lights) - 1; i >= 0; i-- {
+		openglRenderer.RemoveLight(lights[i])
 	}
 
 	// Always create a fresh default light with proper settings
@@ -174,20 +180,21 @@ func newScene() {
 	openglRenderer.AddLight(defaultLight)
 	Eng.Light = defaultLight
 
-	// Reset skybox state
-	openglRenderer.ClearColorR = 0.1
-	openglRenderer.ClearColorG = 0.1
-	openglRenderer.ClearColorB = 0.15
+	// Reset skybox state - both renderer clear color and editor state
+	openglRenderer.ClearColorR = 0.4
+	openglRenderer.ClearColorG = 0.6
+	openglRenderer.ClearColorB = 0.9
+	skyboxColorMode = true
+	skyboxTexturePath = ""
+	skyboxSolidColor = [3]float32{0.4, 0.6, 0.9}
 
-	// Reset Water
-	if activeWaterSim != nil {
-		behaviour.GlobalBehaviourManager.Remove(activeWaterSim)
-	}
+	// Reset Water - ensure it's fully cleared
 	activeWaterSim = nil
 
 	// Reset Cameras
 	SceneCameras = nil
 
+	// Reset selection state
 	currentScenePath = ""
 	sceneModified = false
 	selectedModelIndex = -1
@@ -195,6 +202,16 @@ func newScene() {
 	selectedGameObjectIndex = -1
 	selectedCameraIndex = -1
 	selectedType = ""
+
+	// Reset any pending UI state
+	ShowAddModel = false
+	ShowAddLight = false
+	ShowAddWater = false
+	ShowAddVoxel = false
+	ShowAddCamera = false
+	ShowScriptBrowser = false
+	scriptBrowserTarget = nil
+	scriptBrowserModelTarget = nil
 
 	logToConsole("New scene created", "info")
 }
@@ -230,6 +247,17 @@ func saveScene() {
 	// Save models with complete material properties
 	models := openglRenderer.GetModels()
 	for _, model := range models {
+		// Skip water model - it's saved separately in sceneData.Water
+		if model.Metadata != nil {
+			if modelType, ok := model.Metadata["type"].(string); ok && modelType == "water" {
+				continue
+			}
+		}
+		// Also skip by name as a fallback
+		if model.Name == "Water Surface" {
+			continue
+		}
+
 		sceneModel := SceneModel{
 			Name:     model.Name,
 			Path:     model.SourcePath,
@@ -303,14 +331,16 @@ func saveScene() {
 	}
 
 	// Save water if it exists
-	if activeWaterSim != nil && activeWaterSim.model != nil {
+	if activeWaterSim != nil && activeWaterSim.Model != nil {
 		sceneData.Water = &SceneWater{
-			OceanSize:           activeWaterSim.oceanSize,
-			BaseAmplitude:       activeWaterSim.baseAmplitude,
+			OceanSize:           activeWaterSim.OceanSize,
+			BaseAmplitude:       activeWaterSim.BaseAmplitude,
 			WaterColor:          [3]float32{activeWaterSim.WaterColor.X(), activeWaterSim.WaterColor.Y(), activeWaterSim.WaterColor.Z()},
 			Transparency:        activeWaterSim.Transparency,
 			WaveSpeedMultiplier: activeWaterSim.WaveSpeedMultiplier,
-			Position:            [3]float32{activeWaterSim.model.Position.X(), activeWaterSim.model.Position.Y(), activeWaterSim.model.Position.Z()},
+			WaveHeight:          activeWaterSim.WaveHeight,
+			WaveRandomness:      activeWaterSim.WaveRandomness,
+			Position:            [3]float32{activeWaterSim.Model.Position.X(), activeWaterSim.Model.Position.Y(), activeWaterSim.Model.Position.Z()},
 			FoamEnabled:         activeWaterSim.FoamEnabled,
 			FoamIntensity:       activeWaterSim.FoamIntensity,
 			CausticsEnabled:     activeWaterSim.CausticsEnabled,
@@ -781,6 +811,8 @@ func loadScene() {
 		waterComp.WaterColor = sceneData.Water.WaterColor
 		waterComp.Transparency = sceneData.Water.Transparency
 		waterComp.WaveSpeedMultiplier = sceneData.Water.WaveSpeedMultiplier
+		waterComp.WaveHeight = sceneData.Water.WaveHeight
+		waterComp.WaveRandomness = sceneData.Water.WaveRandomness
 		waterComp.FoamEnabled = sceneData.Water.FoamEnabled
 		waterComp.FoamIntensity = sceneData.Water.FoamIntensity
 		waterComp.CausticsEnabled = sceneData.Water.CausticsEnabled
@@ -795,11 +827,13 @@ func loadScene() {
 		obj := behaviour.NewGameObject("Water Surface")
 		obj.AddComponent(waterComp)
 
-		// Create WaterSimulation
-		ws := NewWaterSimulation(Eng, waterComp.OceanSize, waterComp.BaseAmplitude)
+		// Create WaterSimulation using shared water package
+		ws := water.NewSimulation(Eng, waterComp.OceanSize, waterComp.BaseAmplitude)
 		ws.WaterColor = mgl.Vec3{waterComp.WaterColor[0], waterComp.WaterColor[1], waterComp.WaterColor[2]}
 		ws.Transparency = waterComp.Transparency
 		ws.WaveSpeedMultiplier = waterComp.WaveSpeedMultiplier
+		ws.WaveHeight = waterComp.WaveHeight
+		ws.WaveRandomness = waterComp.WaveRandomness
 		ws.FoamEnabled = waterComp.FoamEnabled
 		ws.FoamIntensity = waterComp.FoamIntensity
 		ws.CausticsEnabled = waterComp.CausticsEnabled

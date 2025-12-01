@@ -25,6 +25,7 @@ func RenderGizmos() {
 	// Get the selected object's position
 	var pos mgl.Vec3
 	var model *renderer.Model
+	var selectedLight *renderer.Light
 
 	if selectedType == "gameobject" && selectedGameObjectIndex >= 0 {
 		allGameObjects := behaviour.GlobalComponentManager.GetAllGameObjects()
@@ -39,15 +40,26 @@ func RenderGizmos() {
 		}
 	} else if selectedType == "model" && selectedModelIndex >= 0 {
 		openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
-	if !ok {
-		return
-	}
-	models := openglRenderer.GetModels()
-	if selectedModelIndex >= len(models) {
-		return
-	}
+		if !ok {
+			return
+		}
+		models := openglRenderer.GetModels()
+		if selectedModelIndex >= len(models) {
+			return
+		}
 		model = models[selectedModelIndex]
 		pos = model.Position
+	} else if selectedType == "light" && selectedLightIndex >= 0 {
+		openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
+		if !ok {
+			return
+		}
+		lights := openglRenderer.GetLights()
+		if selectedLightIndex >= len(lights) {
+			return
+		}
+		selectedLight = lights[selectedLightIndex]
+		pos = selectedLight.Position
 	} else {
 		return
 	}
@@ -86,8 +98,8 @@ func RenderGizmos() {
 			yHover := isNearLine(mousePos, origin, yAxis, 8.0)
 			zHover := isNearLine(mousePos, origin, zAxis, 8.0)
 
-			// Handle drag start
-			if !gizmoDragging && mouseDown && !imgui.IsWindowHovered() {
+			// Handle drag start - check if hovering over any gizmo axis
+			if !gizmoDragging && mouseDown && (xHover || yHover || zHover) {
 				if xHover {
 					gizmoDragging = true
 					gizmoDragAxis = 0
@@ -122,15 +134,15 @@ func RenderGizmos() {
 						sensitivity = dist * 0.002
 					}
 
-					var movement mgl.Vec3
-					switch gizmoDragAxis {
-					case 0: // X axis
-						movement = mgl.Vec3{delta.X * sensitivity, 0, 0}
-					case 1: // Y axis
-						movement = mgl.Vec3{0, -delta.Y * sensitivity, 0}
-					case 2: // Z axis
-						movement = mgl.Vec3{0, 0, -delta.X * sensitivity}
-					}
+				var movement mgl.Vec3
+				switch gizmoDragAxis {
+				case 0: // X axis - positive screen X = positive world X
+					movement = mgl.Vec3{-delta.X * sensitivity, 0, 0}
+				case 1: // Y axis - negative screen Y = positive world Y (screen Y is inverted)
+					movement = mgl.Vec3{0, -delta.Y * sensitivity, 0}
+				case 2: // Z axis - positive screen X = negative world Z (into screen)
+					movement = mgl.Vec3{0, 0, delta.X * sensitivity}
+				}
 
 					// Apply movement
 					newPos := pos.Add(movement)
@@ -246,6 +258,15 @@ func applyGizmoMovement(newPos mgl.Vec3) {
 				model.IsDirty = true
 			}
 		}
+	} else if selectedType == "light" && selectedLightIndex >= 0 {
+		openglRenderer, ok := Eng.GetRenderer().(*renderer.OpenGLRenderer)
+		if ok {
+			lights := openglRenderer.GetLights()
+			if selectedLightIndex < len(lights) {
+				light := lights[selectedLightIndex]
+				light.Position = newPos
+			}
+		}
 	}
 }
 
@@ -280,4 +301,109 @@ func worldToScreen(worldPos mgl.Vec3) mgl.Vec3 {
 	}
 
 	return mgl.Vec3{screenX, screenY, 1}
+}
+
+// RenderOrientationGizmo draws a small axis indicator in the top-right corner
+// showing the current camera orientation (like Unity's scene view gizmo)
+func RenderOrientationGizmo() {
+	if Eng == nil || Eng.Camera == nil {
+		return
+	}
+
+	// Window and gizmo dimensions
+	gizmoSize := float32(80)
+	margin := float32(10)
+	windowSize := gizmoSize + margin*2
+
+	// Window position in top-right corner
+	windowX := float32(Eng.Width) - windowSize - margin
+	windowY := margin // Small margin from top
+
+	// Center of gizmo within the window (in screen coordinates)
+	centerX := windowX + windowSize/2
+	centerY := windowY + windowSize/2
+
+	// Get camera rotation to transform axes
+	view := Eng.Camera.GetViewMatrix()
+
+	// Extract rotation from view matrix (transpose of upper 3x3)
+	// The view matrix transforms world to camera space
+	// We want to show where world axes point in screen space
+	axisLength := gizmoSize * 0.35
+
+	// Transform world axes by view rotation (just rotation, not translation)
+	xAxis := mgl.Vec3{view[0], view[4], view[8]}  // World X in camera space
+	yAxis := mgl.Vec3{view[1], view[5], view[9]}  // World Y in camera space
+	zAxis := mgl.Vec3{view[2], view[6], view[10]} // World Z in camera space
+
+	// Convert to screen space (flip Y because screen Y is down)
+	xScreen := imgui.Vec2{X: centerX + xAxis.X()*axisLength, Y: centerY - xAxis.Y()*axisLength}
+	yScreen := imgui.Vec2{X: centerX + yAxis.X()*axisLength, Y: centerY - yAxis.Y()*axisLength}
+	zScreen := imgui.Vec2{X: centerX + zAxis.X()*axisLength, Y: centerY - zAxis.Y()*axisLength}
+	center := imgui.Vec2{X: centerX, Y: centerY}
+
+	// Create overlay window for drawing
+	imgui.SetNextWindowPos(imgui.Vec2{X: windowX, Y: windowY})
+	imgui.SetNextWindowSize(imgui.Vec2{X: windowSize, Y: windowSize})
+	imgui.SetNextWindowBgAlpha(0.3)
+
+	flags := imgui.WindowFlagsNoTitleBar |
+		imgui.WindowFlagsNoResize |
+		imgui.WindowFlagsNoMove |
+		imgui.WindowFlagsNoScrollbar |
+		imgui.WindowFlagsNoSavedSettings |
+		imgui.WindowFlagsNoInputs |
+		imgui.WindowFlagsNoBringToFrontOnFocus
+
+	if imgui.BeginV("##OrientationGizmo", nil, flags) {
+		drawList := imgui.WindowDrawList()
+
+		// Draw background circle
+		drawList.AddCircleFilled(center, gizmoSize*0.45, imgui.PackedColor(0x40000000))
+		drawList.AddCircle(center, gizmoSize*0.45, imgui.PackedColor(0x80FFFFFF))
+
+		// Determine draw order based on Z depth (draw back-to-front)
+		type axisInfo struct {
+			end   imgui.Vec2
+			color uint32
+			label string
+			depth float32
+		}
+
+		axes := []axisInfo{
+			{xScreen, 0xFF0000FF, "X", xAxis.Z()}, // Red for X
+			{yScreen, 0xFF00FF00, "Y", yAxis.Z()}, // Green for Y
+			{zScreen, 0xFFFF0000, "Z", zAxis.Z()}, // Blue for Z
+		}
+
+		// Sort by depth (furthest first)
+		for i := 0; i < len(axes)-1; i++ {
+			for j := i + 1; j < len(axes); j++ {
+				if axes[i].depth > axes[j].depth {
+					axes[i], axes[j] = axes[j], axes[i]
+				}
+			}
+		}
+
+		// Draw axes (back to front)
+		for _, axis := range axes {
+			// Draw line
+			drawList.AddLineV(center, axis.end, imgui.PackedColor(axis.color), 2.0)
+			// Draw endpoint circle
+			drawList.AddCircleFilled(axis.end, 6, imgui.PackedColor(axis.color))
+			// Draw label
+			labelOffset := imgui.Vec2{X: axis.end.X - center.X, Y: axis.end.Y - center.Y}
+			labelLen := float32(math.Sqrt(float64(labelOffset.X*labelOffset.X + labelOffset.Y*labelOffset.Y)))
+			if labelLen > 0 {
+				labelOffset.X = labelOffset.X / labelLen * 12
+				labelOffset.Y = labelOffset.Y / labelLen * 12
+			}
+			drawList.AddText(imgui.Vec2{X: axis.end.X + labelOffset.X - 3, Y: axis.end.Y + labelOffset.Y - 6}, imgui.PackedColor(axis.color), axis.label)
+		}
+
+		// Draw center point
+		drawList.AddCircleFilled(center, 4, imgui.PackedColor(0xFFFFFFFF))
+
+		imgui.End()
+	}
 }

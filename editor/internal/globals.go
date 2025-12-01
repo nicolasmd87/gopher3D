@@ -6,6 +6,7 @@ import (
 	"Gopher3D/internal/behaviour"
 	"Gopher3D/internal/engine"
 	"Gopher3D/internal/renderer"
+	"Gopher3D/internal/water"
 	"time"
 )
 
@@ -86,7 +87,7 @@ var (
 
 	layoutsInitialized = false
 
-	activeWaterSim *WaterSimulation
+	activeWaterSim *water.Simulation
 
 	globalAdvancedRenderingEnabled = true
 

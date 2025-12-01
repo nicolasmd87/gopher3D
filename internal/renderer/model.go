@@ -475,14 +475,17 @@ func CreateModel(vertices []mgl32.Vec3, indices []int32) *Model {
 		interleavedData = append(interleavedData, 0.0, 1.0, 0.0)
 	}
 
-	return &Model{
+	model := &Model{
 		Position:        mgl32.Vec3{0, 0, 0},       // Initialize position
-		Rotation:        mgl32.Quat{},              // Initialize rotation (zero quat = identity matrix)
+		Rotation:        mgl32.QuatIdent(),         // Initialize rotation (identity quaternion)
 		Scale:           mgl32.Vec3{1.0, 1.0, 1.0}, // Initialize scale
 		Vertices:        flattenVertices(vertices),
 		Faces:           indices,
 		InterleavedData: interleavedData,
 	}
+	// Initialize the model matrix
+	model.updateModelMatrix()
+	return model
 }
 
 // Helper to flatten Vec3 array

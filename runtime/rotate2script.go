@@ -8,7 +8,7 @@ import (
 // Rotate2Script is a custom script component
 type Rotate2Script struct {
 	behaviour.BaseComponent
-	
+
 	// Add your custom fields here
 	Speed float32
 }

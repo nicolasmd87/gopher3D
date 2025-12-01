@@ -107,6 +107,11 @@ func (shader *Shader) IsValid() bool {
 	return shader.vertexSource != "" && shader.fragmentSource != ""
 }
 
+// IsCompiled returns true if this shader has been compiled
+func (shader *Shader) IsCompiled() bool {
+	return shader.isCompiled
+}
+
 // =============================================================
 // GPU GEMS CHAPTER 9: SHADOW VOLUME RENDERING
 // Implements efficient shadow volumes with stencil buffer

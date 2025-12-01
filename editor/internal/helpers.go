@@ -249,7 +249,7 @@ func executeConsoleCommand(cmd string) {
 			shellCmd := strings.TrimPrefix(cmd, "!")
 			executeShellCommand(shellCmd)
 		} else {
-		logToConsole(fmt.Sprintf("Unknown command: %s (type 'help' for commands)", command), "error")
+			logToConsole(fmt.Sprintf("Unknown command: %s (type 'help' for commands)", command), "error")
 		}
 	}
 }
@@ -328,6 +328,43 @@ func focusCameraOnModel(model *renderer.Model) {
 	// Camera vectors will be updated on next frame through the engine's update loop
 
 	logToConsole(fmt.Sprintf("Focused camera on '%s' at distance %.1f", model.Name, distance), "info")
+}
+
+func focusCameraOnLight(light *renderer.Light) {
+	// For point lights, focus on their position
+	// For directional lights, just look in their direction from current position
+	distance := float32(100.0) // Comfortable viewing distance
+
+	var targetPos mgl.Vec3
+	if light.Mode == "point" {
+		targetPos = light.Position
+	} else {
+		// For directional lights, position camera to look along the light direction
+		// Place target in front of camera
+		targetPos = Eng.Camera.Position.Add(light.Direction.Mul(-distance))
+	}
+
+	// Place camera at a good viewing distance
+	cameraPos := mgl.Vec3{
+		targetPos.X(),
+		targetPos.Y() + distance*0.5, // Above the target
+		targetPos.Z() + distance,     // In front
+	}
+
+	Eng.Camera.Position = cameraPos
+
+	// Calculate direction to look at target
+	direction := targetPos.Sub(cameraPos).Normalize()
+
+	// Calculate yaw and pitch from direction vector
+	Eng.Camera.Yaw = float32(math.Atan2(float64(direction.X()), float64(direction.Z()))) * (180.0 / math.Pi)
+	Eng.Camera.Pitch = float32(math.Asin(float64(direction.Y()))) * (180.0 / math.Pi)
+
+	lightName := light.Name
+	if lightName == "" {
+		lightName = light.Mode + " light"
+	}
+	logToConsole(fmt.Sprintf("Focused camera on '%s'", lightName), "info")
 }
 
 func loadTextureToSelected(path string) {
