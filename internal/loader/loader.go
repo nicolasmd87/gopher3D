@@ -713,9 +713,9 @@ func parseFace(parts []string) ([]FaceVertex, error) {
 	}
 
 	// Convert quads to triangles
-	// Standard quad triangulation: split into two triangles
-	// Triangle 1: v0, v1, v2
-	// Triangle 2: v0, v2, v3
+	// Quad triangulation: split into two triangles sharing the v0-v2 edge,
+	// using counter-clockwise winding order for both triangles:
+	// Triangle 1: v0, v1, v2; Triangle 2: v0, v2, v3
 	if len(face) == 4 {
 		// Use counter-clockwise winding order for both triangles
 		return []FaceVertex{face[0], face[1], face[2], face[0], face[2], face[3]}, nil
