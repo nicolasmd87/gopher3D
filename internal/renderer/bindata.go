@@ -266,24 +266,26 @@ func AssetNames() []string {
 
 // _bindata is a table, holding each asset generator, mapped to its name.
 var _bindata = map[string]func() (*asset, error){
-	"shaders/.DS_Store": shadersDs_store,
-	"shaders/cube.frag": shadersCubeFrag,
+	"shaders/.DS_Store":     shadersDs_store,
+	"shaders/cube.frag":     shadersCubeFrag,
 	"shaders/cube.frag.spv": shadersCubeFragSpv,
-	"shaders/cube.vert": shadersCubeVert,
+	"shaders/cube.vert":     shadersCubeVert,
 	"shaders/cube.vert.spv": shadersCubeVertSpv,
-	"textures/.DS_Store": texturesDs_store,
-	"textures/gopher.png": texturesGopherPng,
+	"textures/.DS_Store":    texturesDs_store,
+	"textures/gopher.png":   texturesGopherPng,
 }
 
 // AssetDir returns the file names below a certain
 // directory embedded in the file by go-bindata.
 // For example if you run go-bindata on data/... and data contains the
 // following hierarchy:
-//     data/
-//       foo.txt
-//       img/
-//         a.png
-//         b.png
+//
+//	data/
+//	  foo.txt
+//	  img/
+//	    a.png
+//	    b.png
+//
 // then AssetDir("data") would return []string{"foo.txt", "img"}
 // AssetDir("data/img") would return []string{"a.png", "b.png"}
 // AssetDir("foo.txt") and AssetDir("notexist") would return an error
@@ -314,16 +316,17 @@ type bintree struct {
 	Func     func() (*asset, error)
 	Children map[string]*bintree
 }
+
 var _bintree = &bintree{nil, map[string]*bintree{
 	"shaders": &bintree{nil, map[string]*bintree{
-		".DS_Store": &bintree{shadersDs_store, map[string]*bintree{}},
-		"cube.frag": &bintree{shadersCubeFrag, map[string]*bintree{}},
+		".DS_Store":     &bintree{shadersDs_store, map[string]*bintree{}},
+		"cube.frag":     &bintree{shadersCubeFrag, map[string]*bintree{}},
 		"cube.frag.spv": &bintree{shadersCubeFragSpv, map[string]*bintree{}},
-		"cube.vert": &bintree{shadersCubeVert, map[string]*bintree{}},
+		"cube.vert":     &bintree{shadersCubeVert, map[string]*bintree{}},
 		"cube.vert.spv": &bintree{shadersCubeVertSpv, map[string]*bintree{}},
 	}},
 	"textures": &bintree{nil, map[string]*bintree{
-		".DS_Store": &bintree{texturesDs_store, map[string]*bintree{}},
+		".DS_Store":  &bintree{texturesDs_store, map[string]*bintree{}},
 		"gopher.png": &bintree{texturesGopherPng, map[string]*bintree{}},
 	}},
 }}
@@ -374,4 +377,3 @@ func _filePath(dir, name string) string {
 	cannonicalName := strings.Replace(name, "\\", "/", -1)
 	return filepath.Join(append([]string{dir}, strings.Split(cannonicalName, "/")...)...)
 }
-

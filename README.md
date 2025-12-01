@@ -1,263 +1,219 @@
+# Gopher3D
 
-# Gopher3D - 3D Rendering Engine in Go
+A 3D rendering engine and editor written in Go, built for learning and experimentation with real-time graphics.
 
-Gopher3D is an experimental 3D rendering engine written in Go, focusing on modern lighting techniques and shader-based rendering. The engine provides OpenGL-based rendering with physically-based materials, advanced lighting models, and efficient instanced rendering for educational and prototyping purposes.
+## Table of Contents
 
-**Current Status**: Active development with functional OpenGL renderer. Vulkan implementation is in early stages and not yet operational.
+- [Overview](#overview)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Building](#building)
+- [Editor Guide](#editor-guide)
+- [Architecture](#architecture)
+- [Controls](#controls)
+- [Limitations](#limitations)
+- [Contributing](#contributing)
+- [License](#license)
 
-This project serves as a learning platform for 3D graphics programming concepts and modern rendering techniques, with practical examples demonstrating various rendering and simulation approaches.
+## Overview
 
-## Core Features
+Gopher3D is an OpenGL-based rendering engine with an integrated editor. It provides 3D rendering capabilities, a PBR material system, and tools for scene composition. The project is intended for educational purposes and prototyping.
 
-### Rendering Pipeline
-- **OpenGL 4.1+ Backend**: Modern OpenGL rendering with shader-based pipeline
-- **Custom Shader System**: Per-model shader assignment with dynamic uniform passing
-- **Instanced Rendering**: Efficient rendering of repeated geometry (particles, voxels)
-- **Basic Frustum Culling**: Performance optimization for large scenes
+**Status**: Experimental. Active development.
 
-### Lighting & Materials
-- **Modern PBR Implementation**: Physically-based rendering with metallic/roughness workflow
-- **Advanced BRDF Models**: GGX distribution, Fresnel reflectance, energy conservation
-- **Directional & Point Lights**: Configurable lighting with temperature and attenuation
-- **Hemisphere Lighting**: Improved lighting model preventing harsh cutoffs and "two halves" artifacts
-- **Material System**: Complete PBR material properties with automatic fallbacks for incomplete materials
-- **Specialized Materials**: Glass, metal, plastic presets with realistic optical properties
-- **HDR Pipeline**: ACES tone mapping with gamma correction and exposure control
+## Features
+
+### Rendering
+
+- OpenGL 4.1 rendering pipeline
+- PBR materials (metallic/roughness workflow)
+- Directional and point lights with attenuation
+- Instanced rendering for voxels and repeated geometry
+- Frustum culling
+- Post-processing (MSAA, FXAA, Bloom)
+- Configurable render quality presets
+
+### Editor
+
+- Dockable panel layout (Hierarchy, Inspector, Console, Project Browser)
+- Transform gizmos for object manipulation
+- Orientation gizmo showing camera direction
+- Material editing with real-time preview
+- Scene save/load (JSON format)
+- Standalone game export
+- Style customization
 
 ### Specialized Systems
-- **Voxel Rendering**: GPU-instanced voxel worlds with procedural terrain generation
-- **Water Simulation**: Gerstner wave-based water surfaces with realistic shading
-- **Particle Systems**: Basic particle simulation with physics integration
-- **Procedural Generation**: Perlin noise-based terrain and surface generation
 
-### Development Tools
-- **Multiple Examples**: Organized demonstrations of engine capabilities
-- **Configurable Rendering**: Runtime adjustment of quality and performance settings
-- **Cross-platform Support**: Windows, macOS, and Linux compatibility
 
-## Limitations & Known Issues
+### Component System
 
-### Not Implemented
-- Comprehensive physics engine (basic particle physics only)
-- Collision detection system
-- Scene graph management
-- Asset pipeline and model loading
-- Audio system integration
-- User interface framework
+- Go-based scripting with Start/Update/FixedUpdate lifecycle
+- Built-in components: VoxelTerrainComponent, WaterComponent, ScriptComponent
+- Scripts attachable via editor UI
+- Hot-reload support (requires editor restart)
 
-### Current Limitations
-- **Vulkan Renderer**: In early development, not functional
-- **Performance**: Not optimized for production use
-- **Platform Testing**: Primary development on Windows
-- **Documentation**: Limited API documentation
-- **Stability**: Experimental codebase, expect breaking changes
+## Requirements
 
-## Getting Started
+- Go 1.21+
+- OpenGL 4.1 compatible GPU
+- GCC (for CGO)
 
-### Prerequisites
+### Platform-Specific Dependencies
 
-To run the Gopher3D engine, ensure you have the following dependencies:
+**Windows**: MinGW-w64 or TDM-GCC
 
-- **Go**: The engine is written in Go, so Go must be installed on your machine
-- **GCC**: Required for CGO compilation
-- **OpenGL**: The engine currently supports OpenGL for rendering
-- **GLFW**: Required for managing windowing and input across different platforms
-
-Install the necessary Go modules with:
+**Linux**:
 ```bash
-go mod tidy
+sudo apt install libgl1-mesa-dev xorg-dev
 ```
 
-### Cloning the Repository
+**macOS**: Xcode Command Line Tools
 
-To start using the engine or contribute to it, clone the repository:
-```bash
-git clone https://github.com/nicolasmd87/Gopher3D.git
+## Quick Start
+
+```powershell
+# Clone repository
+git clone https://github.com/nicholasq/Gopher3D.git
 cd Gopher3D
+
+# Install dependencies
+go mod tidy
+
+# Build and run editor
+.\build.ps1 run
 ```
 
-### Running Examples
+## Building
 
-Examples demonstrate specific engine features and rendering techniques:
+### Build Script (Recommended)
+
+The project includes a PowerShell build script with common tasks:
+
+```powershell
+.\build.ps1 build           # Build editor to bin/editor.exe
+.\build.ps1 run             # Build and launch editor
+.\build.ps1 test            # Run all tests
+.\build.ps1 vet             # Run go vet
+.\build.ps1 lint            # Run staticcheck + vet
+.\build.ps1 fmt             # Format code
+.\build.ps1 tidy            # Tidy go.mod
+.\build.ps1 ci              # Full CI pipeline
+.\build.ps1 clean           # Remove build artifacts
+.\build.ps1 help            # Show all commands
+```
+
+### Manual Build
 
 ```bash
-# Advanced lighting demo (recommended starting point)
-cd examples/Basic/Lights
-go run lighting_demo.go
+# Build editor
+go build -o bin/editor.exe ./editor/cmd
 
-# Voxel world with modern lighting
-cd examples/Voxel/Cube
-go run voxel_world.go
-
-# Water simulation
-cd examples/General/water
-go run water.go
-
-# Particle simulations
-cd examples/General/black_hole
-go run black_hole.go
-
-cd examples/General/sand
-go run sand.go
+# Run tests
+go test ./internal/...
 ```
 
-**Note**: Some examples may require specific OpenGL features or perform better on dedicated graphics hardware.
+### From Releases
 
-## Example Descriptions
+Download pre-built binaries from the [Releases page](https://github.com/nicholasmd87/Gopher3D/releases).
 
-### Advanced Lighting Demo
-**Path**: `examples/Basic/Lights/lighting_demo.go`
+<details>
+<summary>Windows SmartScreen Notice</summary>
 
-Engine's lighting capabilities:
-- Physically-based rendering (PBR) materials
-- Multiple material types (metals, plastics, glass)
-- Advanced BRDF models (clearcoat, sheen, transmission)
-- HDR tone mapping and bloom effects
-- Screen-space ambient occlusion (SSAO)
-- Global illumination approximation
-- Inter-object reflections
+Windows may show a SmartScreen warning for unsigned applications. To run:
+1. Right-click the `.exe` → Properties → Check "Unblock" → Apply
+2. Or click "More info" → "Run anyway" when SmartScreen appears
 
-### Voxel World Rendering
-**Path**: `examples/Voxel/Cube/voxel_world.go`
+This is standard for unsigned open-source software.
+</details>
 
-Large-scale voxel rendering with modern lighting:
-- GPU-instanced voxel rendering
-- Procedural terrain generation using Perlin noise
-- Advanced lighting integration for voxel materials
-- Performance optimization for large worlds
+## Editor Guide
 
-### Water Simulation
-**Path**: `examples/General/water/water.go`
+See [editor/README.md](editor/README.md) for detailed documentation on:
 
-GPU-based water surface simulation:
-- Gerstner wave implementation
-- Custom water shader with Fresnel effects
-- Dynamic wave parameters
+- Panel layout and functionality
+- Adding objects (meshes, lights, water, voxels)
+- Scene management
+- Exporting standalone games
+- Keyboard shortcuts
 
-### Particle Simulations
-**Paths**: `examples/General/black_hole/`, `examples/General/sand/`
+### Basic Workflow
 
-Basic particle physics demonstrations:
-- **Black Hole**: Orbital mechanics with Verlet integration
-- **Sand**: Interactive particle manipulation with mouse input
-- Instanced rendering for performance
-- Simple physics integration
+1. **Create scene**: File → New Scene
+2. **Add objects**: Add menu → Mesh/Light/Water/Voxel Terrain
+3. **Configure**: Select object, edit in Inspector
+4. **Save**: File → Save Scene
+5. **Export**: File → Export Game
 
-## Technical Architecture
+## Architecture
 
-### Project Structure
 ```
 Gopher3D/
+├── editor/                    # Editor application
+│   ├── cmd/                   # Entry point
+│   ├── internal/              # Editor-specific packages
+│   ├── platforms/             # GLFW platform layer
+│   └── renderers/             # ImGui OpenGL renderer
 ├── internal/
-│   ├── engine/          # Core engine and main loop
-│   ├── renderer/        # OpenGL rendering pipeline
-│   ├── loader/          # Voxel engine and model loading
-│   ├── behaviour/       # Component system
-│   └── logger/          # Logging utilities
-├── examples/            # Demonstration programs
-│   ├── Voxel/Cube/      # Voxel world rendering
-│   └── General/         # Water and particle simulations
-└── resources/           # Textures and models
+│   ├── engine/                # Core engine (Gopher struct, game loop)
+│   ├── renderer/              # OpenGL renderer, shaders, materials
+│   ├── loader/                # Model loading (OBJ), voxel system
+│   ├── behaviour/             # Component system, GameObjects
+│   ├── water/                 # Water simulation (shared)
+│   └── logger/                # Structured logging (zap)
+├── scripts/                   # Example user scripts
+├── resources/                 # Default assets
+└── examples/                  # Standalone demos
 ```
 
-### Key Components
 
-**Rendering Pipeline** (`internal/renderer/`)
-- `opengl_renderer.go`: Core OpenGL implementation
-- `shaders.go`: Shader management and GLSL programs
-- `camera.go`: First-person camera with controls
-- `model.go`: 3D model and material representation
+## Examples
 
-**Voxel System** (`internal/loader/`)
-- `voxel_core.go`: GPU-instanced voxel rendering
-- Procedural terrain generation with Perlin noise
-- Chunk-based world management
+Run standalone demos without the editor:
 
-**Engine Core** (`internal/engine/`)
-- Main rendering loop and window management
-- Input handling and behavior system integration
+```bash
+# Lighting demo
+cd examples/General/lights && go run lighting_demo.go
 
-## Development Roadmap
+# Voxel world
+cd examples/Voxel/Cube && go run voxel_world.go
 
-### Near-term Goals
-- **Vulkan Renderer**: Complete the Vulkan implementation for modern GPU features
-- **Asset Pipeline**: Improve model loading and texture management
-- **Documentation**: Comprehensive API documentation and tutorials
-- **Testing**: Automated testing for rendering correctness
+# Water simulation
+cd examples/General/water && go run water.go
+```
 
-### Future Considerations
-- **Physics Integration**: Proper physics engine integration (Bullet, etc.)
-- **Scene Management**: Hierarchical scene graph implementation
-- **Advanced Shaders**: Deferred rendering, shadow mapping, post-processing
-- **Platform Support**: Mobile and web platform exploration
+## Limitations
 
-### Research Areas
-- **Real-time Ray Tracing**: Explore RT capabilities for reflections and GI
-- **Compute Shaders**: GPU-based particle systems and simulations
+- No physics engine
+- No collision detection
+- No audio system
+- OBJ model format only
+- Single-threaded rendering
+- Vulkan renderer incomplete
 
 ## Contributing
 
-This project welcomes contributions from developers interested in 3D graphics programming and Go development.
-
-### How to Contribute
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/improvement-name`)
-3. Make your changes with appropriate tests
-4. Commit with descriptive messages
-5. Submit a pull request
+2. Create a feature branch
+3. Run `.\build.ps1 ci` to verify tests pass
+4. Submit a pull request
 
-### Contribution Areas
-- **Bug fixes**: Rendering issues, compilation errors
-- **Performance improvements**: Optimization of rendering pipeline
-- **New examples**: Demonstrations of graphics techniques
-- **Documentation**: Code comments, tutorials, API docs
-- **Platform support**: Testing and fixes for different operating systems
+Please follow existing code style and add tests for new functionality.
 
-### Development Guidelines
-- Follow standard Go conventions and formatting
-- Test examples on your target platform before submitting
-- Include comments for complex graphics algorithms
-- Keep examples focused and well-documented
+## License
 
-## Technical Requirements
+MIT License - see [LICENSE](LICENSE) for details.
 
-### System Dependencies
-- **Go 1.19+**: Programming language runtime
-- **OpenGL 4.1+**: Graphics API (most modern GPUs support this)
-- **GCC/Clang**: C compiler for CGO compilation
-- **Git**: Version control for dependency management
+## Acknowledgments
 
-### Go Dependencies (managed by `go mod`)
-- `github.com/go-gl/gl/v4.1-core/gl`: OpenGL bindings
-- `github.com/go-gl/glfw/v3.3/glfw`: Window and input management
-- `github.com/go-gl/mathgl/mgl32`: 3D mathematics library
-
-### Performance Characteristics
-- **Target**: Educational and experimental use, not production-ready
-- **Voxel Rendering**: Handles large worlds through GPU instancing
-- **Water Simulation**: GPU-based vertex shader implementation
-- **Particle Systems**: Basic CPU-based physics with GPU rendering
-- **Platform**: Primarily tested on Windows, should work on macOS/Linux
-
-### Hardware Recommendations
-- **GPU**: Dedicated graphics card recommended for complex examples
-- **RAM**: 8GB+ for large voxel worlds
-- **CPU**: Multi-core beneficial for procedural generation
+Built with:
+- [go-gl](https://github.com/go-gl) - OpenGL bindings
+- [GLFW](https://www.glfw.org/) - Window management
+- [imgui-go](https://github.com/inkyblackness/imgui-go) - Editor UI
+- [zap](https://github.com/uber-go/zap) - Structured logging
 
 ## Images
 
-![Water Simulation](https://github.com/user-attachments/assets/water-sim-screenshot.png)
-*Advanced water simulation with realistic waves and lighting*
-
-![Black hole instanciated](https://github.com/user-attachments/assets/0f9467b4-e4b5-4ebf-ac66-ed3e8bc87efc)
+![Black hole](https://github.com/user-attachments/assets/0f9467b4-e4b5-4ebf-ac66-ed3e8bc87efc)
 *Black hole particle simulation with orbital mechanics*
-
-![Mars](https://github.com/nicolasmd87/Gopher3D/assets/8224408/09d2a39b-c1cb-4548-87fb-1a877df24453)
-*Basic planetary rendering example*
-
-
-
-
-
- 
-

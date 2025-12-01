@@ -11,7 +11,6 @@ import (
 	"math/rand"
 	"os"
 	"runtime/pprof"
-	"time"
 
 	mgl "github.com/go-gl/mathgl/mgl32"
 )
@@ -74,10 +73,10 @@ func (bhb *BlackHoleBehaviour) Start() {
 	bhb.engine.Camera.Speed = 900
 
 	// Fixed star lighting - no more beige
-	bhb.engine.Light = renderer.CreatePointLight(
-		mgl.Vec3{-1200, 600, 500}, // Same position as sun
+	bhb.engine.Light = renderer.CreateDirectionalLight(
+		mgl.Vec3{0, 6000000, 500}, // Same position as sun
 		mgl.Vec3{1.0, 0.95, 0.8},  // Warm star color
-		4.0, 2000.0,               // Lower intensity to prevent beige
+		4.0,
 	)
 	bhb.engine.Light.AmbientStrength = 0.2 // Lower ambient
 	bhb.engine.Light.Temperature = 5800    // Sun-like star temperature
@@ -94,9 +93,9 @@ func (bhb *BlackHoleBehaviour) Start() {
 	instances := 100000
 
 	// Load the red particle model with instancing enabled
-	redModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_Low.obj", true, instances)
+	redModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_low.obj", true, instances)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Failed to load red sphere: %v", err))
 	}
 	redModel.Scale = mgl.Vec3{0.3, 0.3, 0.3} // Much smaller particles
 
@@ -107,9 +106,9 @@ func (bhb *BlackHoleBehaviour) Start() {
 	bhb.engine.AddModel(redModel)
 
 	// Load the blue particle model with instancing enabled
-	blueModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_Low.obj", true, instances)
+	blueModel, err := loader.LoadObjectInstance("../../resources/obj/Sphere_low.obj", true, instances)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Failed to load blue sphere: %v", err))
 	}
 	blueModel.Scale = mgl.Vec3{0.3, 0.3, 0.3} // Much smaller particles
 
@@ -121,9 +120,6 @@ func (bhb *BlackHoleBehaviour) Start() {
 
 	// NO SUN - just particles and lighting
 	fmt.Printf("Black hole scene initialized - particles only!\n")
-
-	// Seed the random number generator
-	rand.Seed(time.Now().UnixNano())
 
 	// Initialize red particles
 	for i := 0; i < instances; i++ {

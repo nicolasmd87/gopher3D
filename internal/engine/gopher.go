@@ -32,17 +32,21 @@ const (
 
 // TODO: Separate window into an abstract class with width and height as fields
 type Gopher struct {
-	Width          int32
-	Height         int32
-	ModelChan      chan *renderer.Model
-	ModelBatchChan chan []*renderer.Model
-	Light          *renderer.Light
-	rendererAPI    renderer.Render
-	window         *glfw.Window
-	skybox         *renderer.Skybox
-	skyboxPath     string // Store path until OpenGL is ready
-	Camera         *renderer.Camera
-	frameTrackId   int
+	Width             int32
+	Height            int32
+	ModelChan         chan *renderer.Model
+	ModelBatchChan    chan []*renderer.Model
+	Light             *renderer.Light
+	rendererAPI       renderer.Render
+	window            *glfw.Window
+	skybox            *renderer.Skybox
+	skyboxPath        string // Store path until OpenGL is ready
+	Camera            *renderer.Camera
+	frameTrackId      int
+	onRenderCallback  func(deltaTime float64) // Optional callback for custom rendering (e.g., editor UI)
+	EnableCameraInput bool                    // Control whether camera processes keyboard/mouse input (for editor)
+	MSAASamples       int                     // MSAA samples (0=off, 2, 4, 8, 16)
+	WindowDecorated   bool                    // Window decoration (border/title bar)
 }
 
 func NewGopher(rendererAPI rendAPI) *Gopher {
@@ -57,12 +61,15 @@ func NewGopher(rendererAPI rendAPI) *Gopher {
 	}
 	return &Gopher{
 		//TODO: We need to be able to set width and height of the window
-		rendererAPI:    rendAPI,
-		Width:          1024,
-		Height:         768,
-		ModelChan:      make(chan *renderer.Model, 1000000),
-		ModelBatchChan: make(chan []*renderer.Model, 1000000),
-		frameTrackId:   0,
+		rendererAPI:       rendAPI,
+		Width:             1024,
+		Height:            768,
+		ModelChan:         make(chan *renderer.Model, 1000000),
+		ModelBatchChan:    make(chan []*renderer.Model, 1000000),
+		frameTrackId:      0,
+		EnableCameraInput: true, // Enabled by default
+		MSAASamples:       4,    // 4x MSAA by default
+		WindowDecorated:   true, // Decorated by default
 	}
 }
 
@@ -77,8 +84,18 @@ func (gopher *Gopher) Render(x, y int) {
 	defer glfw.Terminate()
 
 	// Set GLFW window hints here
-	glfw.WindowHint(glfw.Decorated, glfw.True)
+	if gopher.WindowDecorated {
+		glfw.WindowHint(glfw.Decorated, glfw.True)
+	} else {
+		glfw.WindowHint(glfw.Decorated, glfw.False)
+	}
 	glfw.WindowHint(glfw.Resizable, glfw.True)
+	glfw.WindowHint(glfw.DepthBits, 32) // Request 32-bit depth buffer for better precision
+
+	// MSAA (Multisample Anti-Aliasing) - Hardware-based, high quality
+	if gopher.MSAASamples > 0 {
+		glfw.WindowHint(glfw.Samples, gopher.MSAASamples)
+	}
 
 	var err error
 
@@ -111,19 +128,34 @@ func (gopher *Gopher) Render(x, y int) {
 		gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 	}
 
-	gopher.window.SetPos(x, y)
+	SetDarkTitleBar(gopher.window)
+
+	// Position window: -1,-1 means center on screen
+	if x == -1 || y == -1 {
+		monitor := glfw.GetPrimaryMonitor()
+		if monitor != nil {
+			mode := monitor.GetVideoMode()
+			if mode != nil {
+				centerX := (mode.Width - int(gopher.Width)) / 2
+				centerY := (mode.Height - int(gopher.Height)) / 2
+				gopher.window.SetPos(centerX, centerY)
+			}
+		}
+	} else {
+		gopher.window.SetPos(x, y)
+	}
 
 	gopher.rendererAPI.Init(gopher.Width, gopher.Height, gopher.window)
 
 	// Fixed camera in each scene for now
 	gopher.Camera = renderer.NewDefaultCamera(gopher.Width, gopher.Height)
 
-	// Skybox creation moved to render loop to handle dynamic setting
-
+	// TODO: This should be set in the window class
 	//window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled) // Hide and capture the cursor
 	gopher.window.SetInputMode(glfw.CursorMode, glfw.CursorNormal) // Set cursor to normal mode initially
 
-	gopher.window.SetCursorPosCallback(gopher.mouseCallback) // Set the callback function for mouse movement
+	// DON'T set CursorPosCallback - it conflicts with ImGui's callbacks
+	// Mouse movement for camera is now handled via polling in RenderLoop
 
 	gopher.RenderLoop()
 }
@@ -150,7 +182,19 @@ func (gopher *Gopher) RenderLoop() {
 			lastWidth, lastHeight = gopher.Width, gopher.Height
 		}
 
-		gopher.Camera.ProcessKeyboard(gopher.window, float32(deltaTime))
+		// Only process camera input if enabled (can be disabled by editor when UI wants keyboard)
+		if gopher.EnableCameraInput {
+			gopher.Camera.ProcessKeyboard(gopher.window, float32(deltaTime))
+
+			// Process mouse movement for camera (polling instead of callback to avoid ImGui conflicts)
+			if gopher.window.GetMouseButton(glfw.MouseButtonRight) == glfw.Press {
+				xpos, ypos := gopher.window.GetCursorPos()
+				gopher.processCameraMouseMovement(xpos, ypos)
+			} else {
+				// Reset first mouse when right button released
+				firstMouse = true
+			}
+		}
 
 		//TODO: Rignt now it's fixed but maybe in the future we can make it confgigurable?
 		if gopher.frameTrackId >= 2 {
@@ -164,14 +208,23 @@ func (gopher *Gopher) RenderLoop() {
 			skybox, err := renderer.CreateSkybox(gopher.skyboxPath)
 			if err != nil {
 				logger.Log.Error("Failed to create skybox", zap.String("path", gopher.skyboxPath), zap.Error(err))
+				// Clear the path to prevent infinite retry loop
+				gopher.skyboxPath = ""
 			} else {
 				gopher.skybox = skybox
 				gopher.rendererAPI.SetSkybox(skybox)
 				logger.Log.Info("Skybox created and set", zap.String("path", gopher.skyboxPath))
+				// Clear the path after successful creation
+				gopher.skyboxPath = ""
 			}
 		}
 
 		gopher.rendererAPI.Render(*gopher.Camera, gopher.Light)
+
+		// Call custom render callback if set (for editor UI, etc.)
+		if gopher.onRenderCallback != nil {
+			gopher.onRenderCallback(deltaTime)
+		}
 
 		switch gopher.rendererAPI.(type) {
 		case *renderer.OpenGLRenderer:
@@ -181,6 +234,11 @@ func (gopher *Gopher) RenderLoop() {
 		glfw.PollEvents()
 	}
 	gopher.rendererAPI.Cleanup()
+}
+
+// SetOnRenderCallback sets a callback that will be called each frame after the 3D scene is rendered
+func (gopher *Gopher) SetOnRenderCallback(callback func(deltaTime float64)) {
+	gopher.onRenderCallback = callback
 }
 
 // TODO: Get rid of this, and use a renderer global variable
@@ -198,8 +256,18 @@ func (gopher *Gopher) SetFaceCulling(enabled bool) {
 
 // SetSkybox sets a skybox for the engine
 func (g *Gopher) SetSkybox(texturePath string) error {
-	// Store the path - skybox will be created after OpenGL initialization
 	g.skyboxPath = texturePath
+	// Try to load immediately if renderer is available
+	if openglRenderer, ok := g.rendererAPI.(*renderer.OpenGLRenderer); ok {
+		textureID, err := openglRenderer.LoadTexture(texturePath)
+		if err != nil {
+			logger.Log.Error("Failed to load skybox texture", zap.Error(err))
+			return err
+		}
+		openglRenderer.SkyboxTextureID = textureID
+		openglRenderer.UseSkyboxImage = true
+		logger.Log.Info("Skybox loaded", zap.String("path", texturePath))
+	}
 	return nil
 }
 
@@ -207,6 +275,13 @@ func (g *Gopher) SetSkybox(texturePath string) error {
 func (gopher *Gopher) UpdateSkyboxColor(r, g, b float32) {
 	if gopher.skybox != nil {
 		gopher.skybox.UpdateColor(r, g, b)
+	}
+	// Also update the renderer clear color
+	if openglRenderer, ok := gopher.rendererAPI.(*renderer.OpenGLRenderer); ok {
+		openglRenderer.ClearColorR = r
+		openglRenderer.ClearColorG = g
+		openglRenderer.ClearColorB = b
+		openglRenderer.UseSkyboxImage = false
 	}
 }
 
@@ -242,25 +317,30 @@ func (gopher *Gopher) GetDefaultShader() renderer.Shader {
 	return renderer.Shader{}
 }
 
-// Mouse callback function
-func (gopher *Gopher) mouseCallback(w *glfw.Window, xpos, ypos float64) {
-	// Check if the window is focused and the right mouse button is pressed
-	if w.GetAttrib(glfw.Focused) == glfw.True && w.GetMouseButton(glfw.MouseButtonRight) == glfw.Press {
-		if firstMouse {
-			lastX = xpos
-			lastY = ypos
-			firstMouse = false
-			return
-		}
+// GetWindow returns the GLFW window (for editor/advanced use)
+func (gopher *Gopher) GetWindow() *glfw.Window {
+	return gopher.window
+}
 
-		xoffset := xpos - lastX
-		yoffset := lastY - ypos // Reversed since y-coordinates go from bottom to top
+// GetRenderer returns the renderer API (for editor/advanced use)
+func (gopher *Gopher) GetRenderer() renderer.Render {
+	return gopher.rendererAPI
+}
+
+// Mouse callback function
+// processCameraMouseMovement handles camera rotation via mouse (called from polling, not callback)
+func (gopher *Gopher) processCameraMouseMovement(xpos, ypos float64) {
+	if firstMouse {
 		lastX = xpos
 		lastY = ypos
-
-		gopher.Camera.ProcessMouseMovement(float32(xoffset), float32(yoffset), true)
-	} else {
-		firstMouse = true
+		firstMouse = false
+		return
 	}
 
+	xoffset := xpos - lastX
+	yoffset := lastY - ypos // Reversed since y-coordinates go from bottom to top
+	lastX = xpos
+	lastY = ypos
+
+	gopher.Camera.ProcessMouseMovement(float32(xoffset), float32(yoffset), true)
 }

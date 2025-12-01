@@ -11,23 +11,30 @@ import (
 )
 
 type Camera struct {
-	Position     mgl32.Vec3
-	Front        mgl32.Vec3
-	Up           mgl32.Vec3
-	Right        mgl32.Vec3
-	WorldUp      mgl32.Vec3
-	Pitch        float32
-	Projection   mgl32.Mat4
-	Yaw          float32
-	Speed        float32
-	Sensitivity  float32
-	Fov          float32
-	Near         float32
-	Far          float32
-	AspectRatio  float32
-	LastX, LastY float32
-	InvertMouse  bool
-	firstMouse   bool
+	// HOT DATA - Accessed every frame for view/projection calculations
+	Position   mgl32.Vec3 // Camera position in world space
+	Front      mgl32.Vec3 // Forward direction vector
+	Up         mgl32.Vec3 // Up direction vector
+	Right      mgl32.Vec3 // Right direction vector
+	Projection mgl32.Mat4 // Projection matrix
+	Pitch      float32    // Pitch angle (vertical rotation)
+	Yaw        float32    // Yaw angle (horizontal rotation)
+
+	// COLD DATA - Configuration and input handling, accessed less frequently
+	WorldUp      mgl32.Vec3 // World up vector (usually (0,1,0))
+	Speed        float32    // Movement speed
+	Sensitivity  float32    // Mouse sensitivity
+	Fov          float32    // Field of view
+	Near         float32    // Near clipping plane
+	Far          float32    // Far clipping plane
+	AspectRatio  float32    // Screen aspect ratio
+	LastX, LastY float32    // Last mouse position
+	InvertMouse  bool       // Invert mouse Y axis
+	firstMouse   bool       // First mouse movement flag
+
+	// Identification
+	Name     string // Camera name for editor identification
+	IsActive bool   // Whether this is the active camera
 }
 
 type Plane struct {
@@ -94,6 +101,14 @@ func (c *Camera) GetViewProjection() mgl32.Mat4 {
 	return c.Projection.Mul4(view)
 }
 
+func (c *Camera) GetViewMatrix() mgl32.Mat4 {
+	return mgl32.LookAtV(c.Position, c.Position.Add(c.Front), c.Up)
+}
+
+func (c *Camera) GetProjectionMatrix() mgl32.Mat4 {
+	return c.Projection
+}
+
 // TODO: THIS IS JUST WHILE I TEST VULKAN INTEGRATION, WE SHOULD NOT BE CONVERTING ANYTHING
 //
 //	WE NEED TO WORK ON A LINMATH CAMERA IMPLEMENTATION FOR VULKAN
@@ -128,17 +143,26 @@ func (c *Camera) ProcessKeyboard(window *glfw.Window, deltaTime float32) {
 		baseVelocity *= 2.5
 	}
 
+	cameraMoved := false
 	if window.GetKey(glfw.KeyW) == glfw.Press {
 		c.Position = c.Position.Add(c.Front.Mul(baseVelocity))
+		cameraMoved = true
 	}
 	if window.GetKey(glfw.KeyS) == glfw.Press {
 		c.Position = c.Position.Sub(c.Front.Mul(baseVelocity))
+		cameraMoved = true
 	}
 	if window.GetKey(glfw.KeyA) == glfw.Press {
 		c.Position = c.Position.Sub(c.Right.Mul(baseVelocity))
+		cameraMoved = true
 	}
 	if window.GetKey(glfw.KeyD) == glfw.Press {
 		c.Position = c.Position.Add(c.Right.Mul(baseVelocity))
+		cameraMoved = true
+	}
+
+	if cameraMoved {
+		MarkFrustumDirty()
 	}
 }
 
@@ -157,6 +181,7 @@ func (c *Camera) ProcessMouseMovement(xoffset, yoffset float32, constrainPitch b
 		c.Pitch = mgl32.Clamp(c.Pitch, -89.0, 89.0) // Prevent extreme pitch values
 	}
 	c.updateCameraVectors()
+	MarkFrustumDirty()
 }
 
 func (c *Camera) LookAt(target mgl32.Vec3) {
@@ -243,6 +268,12 @@ func (f *Frustum) IntersectsSphere(center mgl32.Vec3, radius float32) bool {
 		}
 	}
 	return true
+}
+
+// MarkFrustumDirty marks the frustum as needing recalculation
+func MarkFrustumDirty() {
+	// Set the package-level flag in opengl_renderer.go
+	SetFrustumDirty()
 }
 
 func (c *Camera) ScreenToWorld(screenPos mgl32.Vec2, windowWidth, windowHeight int) mgl32.Vec3 {
