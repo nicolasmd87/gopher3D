@@ -11,7 +11,6 @@ A 3D rendering engine and editor written in Go, built for learning and experimen
 - [Building](#building)
 - [Editor Guide](#editor-guide)
 - [Architecture](#architecture)
-- [Controls](#controls)
 - [Limitations](#limitations)
 - [Contributing](#contributing)
 - [License](#license)
@@ -214,6 +213,11 @@ Built with:
 - [zap](https://github.com/uber-go/zap) - Structured logging
 
 ## Images
+Editor
+
+<img width="1913" height="1024" alt="Editor" src="https://github.com/user-attachments/assets/157cd5bd-6ea5-48fd-9085-7da3cbe11d37" />
+
+Standalone black hole example
 
 ![Black hole](https://github.com/user-attachments/assets/0f9467b4-e4b5-4ebf-ac66-ed3e8bc87efc)
 *Black hole particle simulation with orbital mechanics*
