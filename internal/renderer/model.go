@@ -200,7 +200,7 @@ func (m *Model) CalculateBoundingSphere() {
 
 func (m *Model) updateModelMatrix() {
 	// Matrix multiplication order: translation * rotation * scale (correct OpenGL convention)
-	// Matrices are multiplied right-to-left: T * R * S transforms vertices as: scale first, then rotate, then translate
+	// In T * R * S, the rightmost operation (scale) is applied first to vertices, then rotation, then translation.
 	scaleMatrix := mgl32.Scale3D(m.Scale[0], m.Scale[1], m.Scale[2])
 	rotationMatrix := m.Rotation.Mat4()
 	translationMatrix := mgl32.Translate3D(m.Position[0], m.Position[1], m.Position[2])
