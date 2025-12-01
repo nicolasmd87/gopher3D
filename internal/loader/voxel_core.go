@@ -403,13 +403,14 @@ func (world *VoxelWorld) CreateInstancedModel() (*renderer.Model, error) {
 		}
 
 		// Second pass: populate instance matrices for visible voxels only
-		// Process in Y-layers for better cache coherence (Y-major order)
+		// Iterate chunkX -> chunkZ -> x -> y -> z for optimal cache locality
+		// (chunks stored as [chunkX][chunkZ], voxels as [x][y][z])
 		instanceIndex := 0
-		for y := 0; y < world.MaxHeight; y++ {
-			for chunkX := 0; chunkX < world.WorldSizeX; chunkX++ {
-				for chunkZ := 0; chunkZ < world.WorldSizeZ; chunkZ++ {
-					chunk := world.Chunks[chunkX][chunkZ]
-					for x := 0; x < world.ChunkSize; x++ {
+		for chunkX := 0; chunkX < world.WorldSizeX; chunkX++ {
+			for chunkZ := 0; chunkZ < world.WorldSizeZ; chunkZ++ {
+				chunk := world.Chunks[chunkX][chunkZ]
+				for x := 0; x < world.ChunkSize; x++ {
+					for y := 0; y < world.MaxHeight; y++ {
 						for z := 0; z < world.ChunkSize; z++ {
 							voxel := &chunk.Voxels[x][y][z]
 							if voxel.Active {
