@@ -1,5 +1,7 @@
 package behaviour
 
+import "sort"
+
 type ScriptConstructor func() Component
 
 var scriptRegistry = make(map[string]ScriptConstructor)
@@ -13,15 +15,7 @@ func GetAvailableScripts() []string {
 	for name := range scriptRegistry {
 		names = append(names, name)
 	}
-
-	for i := 0; i < len(names)-1; i++ {
-		for j := i + 1; j < len(names); j++ {
-			if names[i] > names[j] {
-				names[i], names[j] = names[j], names[i]
-			}
-		}
-	}
-
+	sort.Strings(names)
 	return names
 }
 
