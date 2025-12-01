@@ -86,6 +86,8 @@ type WaterComponent struct {
 	WaterColor          [3]float32 `json:"water_color"`
 	Transparency        float32    `json:"transparency"`
 	WaveSpeedMultiplier float32    `json:"wave_speed_multiplier"`
+	WaveHeight          float32    `json:"wave_height"`     // Wave amplitude multiplier
+	WaveRandomness      float32    `json:"wave_randomness"` // Adds randomness/choppiness to waves
 	FoamEnabled         bool       `json:"foam_enabled"`
 	FoamIntensity       float32    `json:"foam_intensity"`
 	CausticsEnabled     bool       `json:"caustics_enabled"`
@@ -109,6 +111,8 @@ func NewWaterComponent() *WaterComponent {
 		WaterColor:          [3]float32{0.0, 0.3, 0.5},
 		Transparency:        0.7,
 		WaveSpeedMultiplier: 1.0,
+		WaveHeight:          1.0,
+		WaveRandomness:      0.0,
 		FoamEnabled:         true,
 		FoamIntensity:       0.5,
 		CausticsEnabled:     true,

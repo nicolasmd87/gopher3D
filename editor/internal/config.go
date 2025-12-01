@@ -116,22 +116,22 @@ func LoadConfig() {
 
 	// Only apply layout if it has non-zero size (valid saved layout)
 	if config.HierarchyLayout.SizeX > 0 && config.HierarchyLayout.SizeY > 0 {
-	hierarchyLayout = config.HierarchyLayout
+		hierarchyLayout = config.HierarchyLayout
 	}
 	if config.InspectorLayout.SizeX > 0 && config.InspectorLayout.SizeY > 0 {
-	inspectorLayout = config.InspectorLayout
+		inspectorLayout = config.InspectorLayout
 	}
 	if config.FileExplorerLayout.SizeX > 0 && config.FileExplorerLayout.SizeY > 0 {
-	fileExplorerLayout = config.FileExplorerLayout
+		fileExplorerLayout = config.FileExplorerLayout
 	}
 	if config.ConsoleLayout.SizeX > 0 && config.ConsoleLayout.SizeY > 0 {
-	consoleLayout = config.ConsoleLayout
+		consoleLayout = config.ConsoleLayout
 	}
 	if config.SceneSettingsLayout.SizeX > 0 && config.SceneSettingsLayout.SizeY > 0 {
-	sceneSettingsLayout = config.SceneSettingsLayout
+		sceneSettingsLayout = config.SceneSettingsLayout
 	}
 	if config.AdvancedRenderLayout.SizeX > 0 && config.AdvancedRenderLayout.SizeY > 0 {
-	advancedRenderLayout = config.AdvancedRenderLayout
+		advancedRenderLayout = config.AdvancedRenderLayout
 	}
 
 	SavedStyleColors = config.StyleColors

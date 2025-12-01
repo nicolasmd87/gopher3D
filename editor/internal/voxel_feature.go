@@ -343,7 +343,7 @@ func generateVoxelTerrainFromComponent(comp *behaviour.VoxelTerrainComponent) *r
 
 	model.Name = fmt.Sprintf("Voxel Terrain (%dx%d)", worldSize, worldSize)
 	model.SetPosition(0, 0, 0)
-	
+
 	// Ensure material has proper values for lighting
 	if model.Material == nil {
 		model.Material = &renderer.Material{
@@ -580,6 +580,7 @@ func generateVoxelTerrain() *renderer.Model {
 		model.Metadata = make(map[string]interface{})
 	}
 	model.Metadata["isVoxel"] = true
+	model.Metadata["type"] = "voxel_terrain"
 	model.Metadata["voxelConfig"] = VoxelConfig{
 		Scale:       voxelScale,
 		Amplitude:   voxelAmplitude,
@@ -590,6 +591,12 @@ func generateVoxelTerrain() *renderer.Model {
 		WorldSize:   voxelWorldSize,
 		Biome:       voxelBiome,
 		TreeDensity: voxelTreeDensity,
+		ColorGrass:  voxelColorGrass,
+		ColorDirt:   voxelColorDirt,
+		ColorStone:  voxelColorStone,
+		ColorSand:   voxelColorSand,
+		ColorWood:   voxelColorWood,
+		ColorLeaves: voxelColorLeaves,
 	}
 
 	// Ensure material has correct exposure and lighting properties (fixes dark voxels after deletion)

@@ -127,6 +127,9 @@ func renderImGuiFrame() {
 		if editor.ShowGizmos {
 			editor.RenderGizmos()
 		}
+
+		// Always show orientation gizmo in top-right corner
+		editor.RenderOrientationGizmo()
 	}
 
 	imgui.Render()

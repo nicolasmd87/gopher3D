@@ -781,14 +781,14 @@ func RenderEditorUI() {
 					imgui.PopStyleColor()
 					for i, model := range orphanModels {
 						imgui.PushID(fmt.Sprintf("legacy_model_%d", i))
-					isSelected := selectedType == "model" && selectedModelIndex == i
-					if imgui.SelectableV("  "+model.Name, isSelected, 0, imgui.Vec2{}) {
-						selectedModelIndex = i
-						selectedLightIndex = -1
+						isSelected := selectedType == "model" && selectedModelIndex == i
+						if imgui.SelectableV("  "+model.Name, isSelected, 0, imgui.Vec2{}) {
+							selectedModelIndex = i
+							selectedLightIndex = -1
 							selectedGameObjectIndex = -1
-						selectedType = "model"
-					}
-					imgui.PopID()
+							selectedType = "model"
+						}
+						imgui.PopID()
 					}
 				}
 			}
@@ -813,6 +813,10 @@ func RenderEditorUI() {
 						selectedGameObjectIndex = -1
 						selectedCameraIndex = -1
 						selectedType = "light"
+					}
+					// Double-click to focus on light
+					if imgui.IsItemHovered() && imgui.IsMouseDoubleClicked(0) {
+						focusCameraOnLight(light)
 					}
 					imgui.PopID()
 				}
@@ -1065,8 +1069,8 @@ func RenderEditorUI() {
 							ShowScriptBrowser = true
 							scriptBrowserTarget = obj
 							scriptBrowserModelTarget = model
-								scriptSearchText = ""
-							}
+							scriptSearchText = ""
+						}
 						imgui.SameLine()
 						imgui.Text("(?)")
 						if imgui.IsItemHovered() {
@@ -2398,14 +2402,43 @@ func applyMeshMaterial(c *behaviour.MeshComponent) {
 
 func renderWaterComponentInspector(c *behaviour.WaterComponent) {
 	changed := false
+	sizeChanged := false
 
-	// Size and waves (these require regeneration, not real-time)
-	imgui.Text("Size & Waves:")
-	imgui.DragFloatV("Ocean Size", &c.OceanSize, 10, 100, 10000, "%.0f", 0)
+	// Size settings (require mesh regeneration)
+	imgui.Text("Mesh Size:")
+	if imgui.DragFloatV("Ocean Size", &c.OceanSize, 10, 100, 10000, "%.0f", 0) {
+		sizeChanged = true
+	}
 	if imgui.DragFloatV("Wave Amplitude", &c.BaseAmplitude, 0.1, 0.1, 20, "%.1f", 0) {
+		sizeChanged = true
+	}
+
+	// Regenerate button - prominent placement
+	if c.Generated && sizeChanged {
+		imgui.PushStyleColor(imgui.StyleColorButton, imgui.Vec4{X: 0.8, Y: 0.5, Z: 0.2, W: 1})
+		if imgui.Button("Regenerate Mesh") {
+			regenerateWater(c)
+		}
+		imgui.PopStyleColor()
+		imgui.SameLine()
+		imgui.PushStyleColor(imgui.StyleColorText, imgui.Vec4{X: 1.0, Y: 0.8, Z: 0.2, W: 1})
+		imgui.Text("Size changed!")
+		imgui.PopStyleColor()
+	} else if c.Generated {
+		if imgui.Button("Regenerate Mesh") {
+			regenerateWater(c)
+		}
+	}
+
+	imgui.Separator()
+	imgui.Text("Wave Properties:")
+	if imgui.SliderFloatV("Wave Speed", &c.WaveSpeedMultiplier, 0.1, 5.0, "%.1f", 0) {
 		changed = true
 	}
-	if imgui.SliderFloatV("Wave Speed", &c.WaveSpeedMultiplier, 0.1, 5.0, "%.1f", 0) {
+	if imgui.SliderFloatV("Wave Height", &c.WaveHeight, 0.1, 3.0, "%.1f", 0) {
+		changed = true
+	}
+	if imgui.SliderFloatV("Wave Randomness", &c.WaveRandomness, 0, 1, "%.2f", 0) {
 		changed = true
 	}
 
@@ -2458,7 +2491,7 @@ func renderWaterComponentInspector(c *behaviour.WaterComponent) {
 		changed = true
 	}
 
-	// Real-time sync to simulation
+	// Real-time sync to simulation for all properties except size
 	if changed && c.Generated {
 		SyncWaterComponentToSimulation(c)
 	}
@@ -2466,7 +2499,7 @@ func renderWaterComponentInspector(c *behaviour.WaterComponent) {
 	imgui.Separator()
 	if c.Generated {
 		imgui.PushStyleColor(imgui.StyleColorText, imgui.Vec4{X: 0.5, Y: 0.8, Z: 0.5, W: 1})
-		imgui.Text("Status: Active (real-time editing)")
+		imgui.Text("Status: Active (all properties are real-time)")
 		imgui.PopStyleColor()
 	} else {
 		imgui.Text("Status: Not generated")

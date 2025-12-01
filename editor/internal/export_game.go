@@ -424,6 +424,12 @@ func copySceneAssets(scenePath string, outputDir string, scene *SceneData) error
 
 	// Process each model
 	for i, sceneModel := range scene.Models {
+		// Skip water model - it's handled separately via scene.Water
+		if sceneModel.Name == "Water Surface" {
+			logToConsole("Skipping water model from Models array (handled separately)", "info")
+			continue
+		}
+
 		exportModel := sceneModel
 
 		if sceneModel.Path != "" {
@@ -478,11 +484,11 @@ func copySceneAssets(scenePath string, outputDir string, scene *SceneData) error
 	}
 
 	// Serialize water if present
-	if scene.Water != nil && activeWaterSim != nil && activeWaterSim.model != nil {
+	if scene.Water != nil && activeWaterSim != nil && activeWaterSim.Model != nil {
 		meshFilename := "water_mesh.gmesh"
 		meshPath := filepath.Join(meshesDir, meshFilename)
 
-		mesh := renderer.SerializeMesh(activeWaterSim.model)
+		mesh := renderer.SerializeMesh(activeWaterSim.Model)
 		meshData, err := renderer.EncodeMeshBinary(mesh)
 		if err != nil {
 			logToConsole(fmt.Sprintf("Warning: Could not serialize water mesh: %v", err), "warning")
@@ -589,6 +595,9 @@ func generateRuntimeCode(scene *SceneData) string {
 		}
 	}
 
+	// Check if water is present in scene
+	hasWater := scene != nil && scene.Water != nil
+
 	// Build imports based on what's needed
 	imports := []string{
 		`"Gopher3D/internal/engine"`,
@@ -596,7 +605,6 @@ func generateRuntimeCode(scene *SceneData) string {
 		`"Gopher3D/internal/renderer"`,
 		`"encoding/json"`,
 		`"fmt"`,
-		`"math"`,
 		`"os"`,
 		`"path/filepath"`,
 		`"runtime"`,
@@ -605,6 +613,10 @@ func generateRuntimeCode(scene *SceneData) string {
 
 	if hasScriptComponents {
 		imports = append(imports, `"Gopher3D/internal/behaviour"`)
+	}
+
+	if hasWater {
+		imports = append(imports, `"Gopher3D/internal/water"`)
 	}
 
 	code := `package main
@@ -911,35 +923,9 @@ func loadSceneData(scene *SceneData, assetsDir string) {
 		renderer.Debug = scene.Rendering.Wireframe
 	}
 
-	// Load water if present - create animated water plane
+	// Load water if present - use full water simulation with shaders
 	if scene.Water != nil {
-		waterModel := createWaterPlane(scene.Water.OceanSize)
-		if waterModel != nil {
-			waterModel.Name = "Water"
-			// Add small Y offset to prevent z-fighting with terrain at same level
-			waterY := scene.Water.Position[1]
-			if waterY == 0 {
-				waterY = 0.1 // Slight elevation to prevent z-fighting
-			}
-			waterModel.SetPosition(scene.Water.Position[0], waterY, scene.Water.Position[2])
-			waterModel.SetDiffuseColor(scene.Water.WaterColor[0], scene.Water.WaterColor[1], scene.Water.WaterColor[2])
-			// Keep water opaque for proper depth testing - prevents z-fighting with terrain
-			// Visual transparency is handled by the water color itself
-			waterModel.SetAlpha(1.0)
-			
-			// Store water settings for animation
-			waterSettings = &WaterSettings{
-				Model:         waterModel,
-				OceanSize:     scene.Water.OceanSize,
-				BaseAmplitude: scene.Water.BaseAmplitude,
-				WaterColor:    scene.Water.WaterColor,
-				Transparency:  scene.Water.Transparency,
-				WaveSpeed:     scene.Water.WaveSpeedMultiplier,
-			}
-			
-			r.AddModel(waterModel)
-			fmt.Println("Water loaded with animation support")
-		}
+		loadWater(scene.Water, r)
 	}
 }
 
@@ -1061,6 +1047,8 @@ type SceneWater struct {
 	WaterColor          [3]float32 ` + "`json:\"water_color\"`" + `
 	Transparency        float32    ` + "`json:\"transparency\"`" + `
 	WaveSpeedMultiplier float32    ` + "`json:\"wave_speed_multiplier\"`" + `
+	WaveHeight          float32    ` + "`json:\"wave_height\"`" + `
+	WaveRandomness      float32    ` + "`json:\"wave_randomness\"`" + `
 	Position            [3]float32 ` + "`json:\"position\"`" + `
 	FoamEnabled         bool       ` + "`json:\"foam_enabled\"`" + `
 	FoamIntensity       float32    ` + "`json:\"foam_intensity\"`" + `
@@ -1088,112 +1076,63 @@ type SceneRenderingConfig struct {
 	Wireframe   bool       ` + "`json:\"wireframe\"`" + `
 	SkyboxColor [3]float32 ` + "`json:\"skybox_color\"`" + `
 }
+`
 
-// Water animation support
-type WaterSettings struct {
-	Model         *renderer.Model
-	OceanSize     float32
-	BaseAmplitude float32
-	WaterColor    [3]float32
-	Transparency  float32
-	WaveSpeed     float32
+	// Add water support code if water is present
+	if hasWater {
+		code += `
+// Water simulation instance
+var waterSim *water.Simulation
+
+// loadWater creates and initializes the water simulation from scene data
+func loadWater(w *SceneWater, r *renderer.OpenGLRenderer) {
+	// Create water simulation using the shared water package
+	waterSim = water.NewSimulation(gameEngine, w.OceanSize, w.BaseAmplitude)
+	
+	// Apply all water properties from scene - exact copy
+	waterSim.WaterColor = mgl.Vec3{w.WaterColor[0], w.WaterColor[1], w.WaterColor[2]}
+	waterSim.Transparency = w.Transparency
+	waterSim.WaveSpeedMultiplier = w.WaveSpeedMultiplier
+	waterSim.WaveHeight = w.WaveHeight
+	waterSim.WaveRandomness = w.WaveRandomness
+	waterSim.FoamEnabled = w.FoamEnabled
+	waterSim.FoamIntensity = w.FoamIntensity
+	waterSim.CausticsEnabled = w.CausticsEnabled
+	waterSim.CausticsIntensity = w.CausticsIntensity
+	waterSim.CausticsScale = w.CausticsScale
+	waterSim.SpecularIntensity = w.SpecularIntensity
+	waterSim.NormalStrength = w.NormalStrength
+	waterSim.DistortionStrength = w.DistortionStrength
+	waterSim.ShadowStrength = w.ShadowStrength
+	
+	// Set sky color for reflections
+	waterSim.SetSkyColor(mgl.Vec3{r.ClearColorR, r.ClearColorG, r.ClearColorB})
+	
+	// Initialize mesh and add to scene
+	model := waterSim.InitializeMesh()
+	if model != nil {
+		// Position water exactly as saved in scene
+		model.SetPosition(w.Position[0], w.Position[1], w.Position[2])
+		
+		r.AddModel(model)
+		fmt.Println("Water loaded with full shader support")
+	}
 }
 
-var waterSettings *WaterSettings
-var gameTime float64 = 0
-
-// createWaterPlane creates a simple water plane mesh
-func createWaterPlane(size float32) *renderer.Model {
-	halfSize := size / 2
-	resolution := 64 // Grid resolution
-	
-	vertices := make([]float32, 0)
-	normals := make([]float32, 0)
-	uvs := make([]float32, 0)
-	faces := make([]int32, 0)
-	
-	// Generate grid vertices
-	for z := 0; z <= resolution; z++ {
-		for x := 0; x <= resolution; x++ {
-			// Position
-			px := -halfSize + (float32(x)/float32(resolution))*size
-			pz := -halfSize + (float32(z)/float32(resolution))*size
-			vertices = append(vertices, px, 0, pz)
-			
-			// Normal (pointing up)
-			normals = append(normals, 0, 1, 0)
-			
-			// UV
-			u := float32(x) / float32(resolution)
-			v := float32(z) / float32(resolution)
-			uvs = append(uvs, u, v)
-		}
-	}
-	
-	// Generate faces (triangles)
-	for z := 0; z < resolution; z++ {
-		for x := 0; x < resolution; x++ {
-			topLeft := int32(z*(resolution+1) + x)
-			topRight := topLeft + 1
-			bottomLeft := topLeft + int32(resolution+1)
-			bottomRight := bottomLeft + 1
-			
-			// First triangle
-			faces = append(faces, topLeft, bottomLeft, topRight)
-			// Second triangle
-			faces = append(faces, topRight, bottomLeft, bottomRight)
-		}
-	}
-	
-	// Create interleaved data (position + normal + uv)
-	interleaved := make([]float32, 0)
-	vertCount := len(vertices) / 3
-	for i := 0; i < vertCount; i++ {
-		// Position
-		interleaved = append(interleaved, vertices[i*3], vertices[i*3+1], vertices[i*3+2])
-		// Normal
-		interleaved = append(interleaved, normals[i*3], normals[i*3+1], normals[i*3+2])
-		// UV
-		interleaved = append(interleaved, uvs[i*2], uvs[i*2+1])
-	}
-	
-	model := &renderer.Model{
-		Vertices:        vertices,
-		InterleavedData: interleaved,
-		Faces:           faces,
-		Position:        mgl.Vec3{0, 0, 0},
-		Scale:           mgl.Vec3{1, 1, 1},
-		Rotation:        mgl.QuatIdent(),
-		Material:        renderer.DefaultMaterial,
-		IsDirty:         true,
-	}
-	
-	// Create unique material for water
-	waterMat := *model.Material
-	waterMat.Alpha = 0.7
-	model.Material = &waterMat
-	
-	model.CalculateBoundingSphere()
-	return model
-}
-
-// updateWater updates water animation each frame
+// updateWater updates the water simulation each frame
 func updateWater(deltaTime float64) {
-	if waterSettings == nil || waterSettings.Model == nil {
-		return
+	if waterSim != nil {
+		waterSim.Update()
 	}
-	
-	gameTime += deltaTime
-	
-	// Simple wave animation by modifying Y position slightly
-	// This creates a gentle bobbing effect
-	amplitude := waterSettings.BaseAmplitude * 0.1
-	waveOffset := float32(math.Sin(gameTime*float64(waterSettings.WaveSpeed))) * amplitude
-	
-	pos := waterSettings.Model.Position
-	waterSettings.Model.SetPosition(pos.X(), waveOffset, pos.Z())
 }
 `
+	} else {
+		code += `
+// updateWater is a no-op when no water is in scene
+func updateWater(deltaTime float64) {}
+`
+	}
+
 	return code
 }
 
